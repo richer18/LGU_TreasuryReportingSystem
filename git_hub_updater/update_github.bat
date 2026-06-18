@@ -31,6 +31,13 @@ if errorlevel 1 (
     git remote set-url origin "%REPO_URL%"
 )
 
+for /f "delims=" %%B in ('git branch --show-current') do set "CURRENT_BRANCH=%%B"
+if not "%CURRENT_BRANCH%"=="%BRANCH%" (
+    echo WARNING: Current branch is "%CURRENT_BRANCH%", expected "%BRANCH%".
+    set /p CONTINUE=Continue pushing to %BRANCH% anyway? [y/N]: 
+    if /I not "%CONTINUE%"=="Y" exit /b 1
+)
+
 echo.
 echo Current changes:
 git status --short

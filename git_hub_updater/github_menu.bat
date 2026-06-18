@@ -16,10 +16,24 @@ echo 4. Exit
 echo.
 set /p CHOICE=Choose option [1-4]: 
 
-if "%CHOICE%"=="1" call "%SCRIPT_DIR%git_status.bat" & goto menu
-if "%CHOICE%"=="2" call "%SCRIPT_DIR%update_github.bat" & goto menu
-if "%CHOICE%"=="3" call "%SCRIPT_DIR%update_local_machine.bat" & goto menu
-if "%CHOICE%"=="4" exit /b 0
+if "%CHOICE%"=="1" (
+    call "%SCRIPT_DIR%git_status.bat"
+    goto menu
+)
+
+if "%CHOICE%"=="2" (
+    call "%SCRIPT_DIR%update_github.bat"
+    goto menu
+)
+
+if "%CHOICE%"=="3" (
+    call "%SCRIPT_DIR%update_local_machine.bat"
+    goto menu
+)
+
+if "%CHOICE%"=="4" (
+    exit /b 0
+)
 
 echo Invalid choice.
 pause

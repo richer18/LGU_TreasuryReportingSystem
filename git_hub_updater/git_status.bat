@@ -28,4 +28,7 @@ echo.
 echo GitHub remote:
 git remote -v
 echo.
+echo Latest commit:
+git log -1 --oneline
+echo.
 pause

@@ -36,18 +36,10 @@ echo Checking local changes before pulling...
 git status --short
 echo.
 
-git diff --quiet
-if errorlevel 1 (
-    echo WARNING: You have unstaged local changes.
-    echo Commit or backup your changes before pulling from GitHub.
-    pause
-    exit /b 1
-)
-
-git diff --cached --quiet
-if errorlevel 1 (
-    echo WARNING: You have staged local changes.
-    echo Commit or unstage your changes before pulling from GitHub.
+for /f "delims=" %%S in ('git status --porcelain') do set "HAS_LOCAL_CHANGES=1"
+if "%HAS_LOCAL_CHANGES%"=="1" (
+    echo WARNING: You have local changes or untracked files.
+    echo Run update_github.bat first, or manually commit/backup your changes before pulling.
     pause
     exit /b 1
 )

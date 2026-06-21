@@ -1,0 +1,13 @@
+﻿{
+  "row": {
+    "collection_date": "2026-06-20",
+    "receipt_no": "1234567",
+    "taxpayer": "JUAN DELA CRUZ",
+    "collector": "COLLECTOR NAME",
+    "total_amount": 1234.5
+  },
+  "details": [
+    { "raw_description": "Mayor's Permit Fee", "source_code": "GF001", "amount": 1000 },
+    { "raw_description": "Certification Fee", "source_code": "GF002", "amount": 234.5 }
+  ]
+}

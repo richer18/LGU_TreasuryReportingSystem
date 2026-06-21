@@ -3,6 +3,7 @@ setlocal
 
 set "SCRIPT_DIR=%~dp0"
 set "REPO_ROOT=%SCRIPT_DIR%.."
+set "GIT_OPTIONAL_LOCKS=0"
 cd /d "%REPO_ROOT%"
 
 where git >nul 2>nul
@@ -24,6 +25,11 @@ echo %CD%
 echo.
 echo Current branch and status:
 git status --short --branch
+if errorlevel 1 (
+    echo ERROR: git status failed. Close GitHub Desktop, VS Code Git operations, or other Git terminals, then try again.
+    pause
+    exit /b 1
+)
 echo.
 echo GitHub remote:
 git remote -v

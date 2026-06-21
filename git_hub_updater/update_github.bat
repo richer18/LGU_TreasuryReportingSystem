@@ -3,6 +3,7 @@ setlocal
 
 set "SCRIPT_DIR=%~dp0"
 set "REPO_ROOT=%SCRIPT_DIR%.."
+set "GIT_OPTIONAL_LOCKS=0"
 cd /d "%REPO_ROOT%"
 
 set "REPO_URL=https://github.com/richer18/LGU_TreasuryReportingSystem.git"
@@ -33,15 +34,40 @@ if errorlevel 1 (
 
 for /f "delims=" %%B in ('git branch --show-current') do set "CURRENT_BRANCH=%%B"
 if not "%CURRENT_BRANCH%"=="%BRANCH%" (
-    echo WARNING: Current branch is "%CURRENT_BRANCH%", expected "%BRANCH%".
-    set /p CONTINUE=Continue pushing to %BRANCH% anyway? [y/N]: 
-    if /I not "%CONTINUE%"=="Y" exit /b 1
+    echo ERROR: Current branch is "%CURRENT_BRANCH%", expected "%BRANCH%".
+    echo Please switch to %BRANCH% first before using this updater.
+    pause
+    exit /b 1
+)
+
+if exist ".git\index.lock" (
+    echo ERROR: .git\index.lock exists.
+    echo Close GitHub Desktop, VS Code Git operations, or other Git terminals.
+    echo If no Git process is running, delete .git\index.lock, then try again.
+    pause
+    exit /b 1
 )
 
 echo.
 echo Current changes:
 git status --short
 echo.
+
+echo Fetching GitHub state before pushing...
+git fetch origin %BRANCH%
+if errorlevel 1 (
+    echo ERROR: Fetch failed. Check internet, GitHub login, or repository access.
+    pause
+    exit /b 1
+)
+
+git merge-base --is-ancestor origin/%BRANCH% HEAD
+if errorlevel 1 (
+    echo ERROR: GitHub has changes that are not yet in this local folder.
+    echo Run update_local_machine.bat first, resolve any conflicts, then push again.
+    pause
+    exit /b 1
+)
 
 set "MSG=%~1"
 if "%MSG%"=="" (

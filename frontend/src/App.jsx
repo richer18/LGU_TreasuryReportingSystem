@@ -1,121 +1,257 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  LayoutDashboard,
+  WalletCards,
+  ShieldCheck,
+  UsersRound,
+  Landmark,
+  Tickets,
+  BriefcaseBusiness,
+  Bike,
+  ClipboardList,
+  Target,
+  SearchCheck,
+  FileBarChart,
+  Settings,
+  LogOut,
+  Menu,
+  ReceiptText,
+  X,
+} from 'lucide-react';
+
+
+
+import axiosInstance from './axiosinstance/axiosInstance'
+import { useAuth } from './auth/useAuth'
+import { fundPages } from './data/reportCatalog'
+import { DashboardPage } from './pages/Dashboard/DashboardPage'
+import { GeneralFundPage } from './pages/GeneralFund/GeneralFundPage'
+import { IncomeTargetPage } from './pages/IncomeTarget/IncomeTargetPage'
+import { LoginPage } from './pages/Login/LoginPage'
+import { ReportsPage } from './pages/Reports/ReportsPage'
+import { SearchReceiptPage } from './pages/SearchReceipt/SearchReceiptPage'
+import { SettingsPage } from './pages/Settings/SettingsPage'
+import { getFirebirdError, initialStatus } from './utils/firebirdStatus'
 import './App.css'
 
+const navItems = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+{ id: 'generalFund', label: 'General Fund', icon: WalletCards },
+{ id: 'trustFund', label: 'Trust Fund', icon: ShieldCheck },
+{ id: 'communityTax', label: 'Community Tax', icon: UsersRound },
+{ id: 'realPropertyTax', label: 'Real Property Tax', icon: Landmark },
+{ id: 'cashtickets', label: 'Cash Tickets', icon: Tickets },
+{ id: 'businesspermit', label: 'Business Permits', icon: BriefcaseBusiness },
+{ id: 'motorcylefranchise', label: 'MTO Permits', icon: Bike },
+{ id: 'rcd', label: 'RCD', icon: ClipboardList },
+{ id: 'incometarget', label: 'Income Target', icon: Target },
+{ id: 'searchreceipt', label: 'Search Receipt', icon: SearchCheck },
+{ id: 'reports', label: 'Reports', icon: FileBarChart },
+{ id: 'settings', label: 'Settings', icon: Settings },
+]
+
 function App() {
-  const [count, setCount] = useState(0)
+  const { isAuthenticated, isCheckingAuth, login, logout, user } = useAuth()
+  const [activePage, setActivePage] = useState('dashboard')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [loginForm, setLoginForm] = useState({
+    email: 'admin@zamboanguita.local',
+    password: '',
+  })
+  const [loginError, setLoginError] = useState('')
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
+  const [firebirdStatus, setFirebirdStatus] = useState(initialStatus)
+
+  const loadFirebirdStatus = async () => {
+    setFirebirdStatus((current) => ({ ...current, loading: true, error: '' }))
+
+    try {
+      const response = await axiosInstance.get('/firebird/status')
+      setFirebirdStatus({
+        loading: false,
+        error: '',
+        data: response.data.data,
+      })
+    } catch (error) {
+      setFirebirdStatus({
+        loading: false,
+        error: getFirebirdError(error),
+        data: null,
+      })
+    }
+  }
+
+  useEffect(() => {
+    let isActive = true
+
+    axiosInstance
+      .get('/firebird/status')
+      .then((response) => {
+        if (!isActive) return
+        setFirebirdStatus({
+          loading: false,
+          error: '',
+          data: response.data.data,
+        })
+      })
+      .catch((error) => {
+        if (!isActive) return
+        setFirebirdStatus({
+          loading: false,
+          error: getFirebirdError(error),
+          data: null,
+        })
+      })
+
+    return () => {
+      isActive = false
+    }
+  }, [])
+
+  const connectionLabel = useMemo(() => {
+    if (firebirdStatus.loading) return 'Checking'
+    if (firebirdStatus.data?.ok) return 'Connected'
+    return 'Disconnected'
+  }, [firebirdStatus])
+
+  const connectionClass = firebirdStatus.data?.ok ? 'is-connected' : 'is-offline'
+
+  const handleLoginFormChange = (field, value) => {
+    setLoginForm((current) => ({ ...current, [field]: value }))
+  }
+
+  const getLoginError = (error) =>
+    error.response?.data?.message ||
+    error.response?.data?.errors?.email?.[0] ||
+    error.response?.data?.errors?.password?.[0] ||
+    error.message ||
+    'Unable to sign in.'
+
+  const handleLogin = async (event) => {
+    event.preventDefault()
+    setLoginError('')
+    setIsLoggingIn(true)
+
+    try {
+      await login(loginForm)
+      setActivePage('dashboard')
+    } catch (error) {
+      setLoginError(getLoginError(error))
+    } finally {
+      setIsLoggingIn(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    await logout()
+    setSidebarOpen(false)
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <LoginPage
+        connectionClass={connectionClass}
+        connectionLabel={connectionLabel}
+        isCheckingAuth={isCheckingAuth}
+        isLoggingIn={isLoggingIn}
+        loginError={loginError}
+        loginForm={loginForm}
+        onLogin={handleLogin}
+        onLoginFormChange={handleLoginFormChange}
+      />
+    )
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <main className="app-layout">
+      <aside className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
+        <div className="sidebar-header">
+          <div className="system-logo">
+            <ReceiptText size={24} aria-hidden="true" />
+          </div>
+          <div>
+            <strong>LGU Treasury</strong>
+            <span>Reporting System</span>
+          </div>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
+
+        <nav className="sidebar-nav" aria-label="Main navigation">
+          {navItems.map((item) => {
+            const Icon = item.icon
+            return (
+              <button
+                className={activePage === item.id ? 'active' : ''}
+                key={item.id}
+                onClick={() => {
+                  setActivePage(item.id)
+                  setSidebarOpen(false)
+                }}
+                type="button"
+              >
+                <Icon size={18} aria-hidden="true" />
+                {item.label}
+              </button>
+            )
+          })}
+        </nav>
+
+        <button className="logout-button" onClick={handleLogout} type="button">
+          <LogOut size={18} aria-hidden="true" />
+          Sign out
         </button>
+      </aside>
+
+      <section className="workspace">
+        <header className="workspace-topbar">
+          <button className="icon-button mobile-menu" onClick={() => setSidebarOpen(true)} type="button">
+            <Menu size={20} aria-hidden="true" />
+            <span className="sr-only">Open menu</span>
+          </button>
+          <div>
+            <p className="eyebrow">Municipality of Zamboanguita</p>
+            <h1>{navItems.find((item) => item.id === activePage)?.label}</h1>
+            <span className="signed-in-user">{user?.name} - {user?.role}</span>
+          </div>
+          <div className={`connection-pill ${connectionClass}`}>
+            <span className="status-dot" aria-hidden="true"></span>
+            {connectionLabel}
+          </div>
+        </header>
+
+        {sidebarOpen && (
+          <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} type="button">
+            <X size={20} aria-hidden="true" />
+            <span className="sr-only">Close menu</span>
+          </button>
+        )}
+
+        {activePage === 'dashboard' && (
+          <DashboardPage
+            connectionClass={connectionClass}
+            connectionLabel={connectionLabel}
+            firebirdStatus={firebirdStatus}
+            onRefresh={loadFirebirdStatus}
+          />
+        )}
+
+        {activePage === 'generalFund' && <GeneralFundPage />}
+
+        {activePage === 'incometarget' && <IncomeTargetPage />}
+
+        {activePage === 'searchreceipt' && <SearchReceiptPage />}
+
+        {activePage !== 'generalFund' && activePage !== 'incometarget' && activePage !== 'searchreceipt' && fundPages[activePage] && (
+          <ReportsPage page={fundPages[activePage]} />
+        )}
+
+        {activePage === 'settings' && (
+          <SettingsPage
+            firebirdStatus={firebirdStatus}
+            onRefresh={loadFirebirdStatus}
+          />
+        )}
       </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    </main>
   )
 }
 

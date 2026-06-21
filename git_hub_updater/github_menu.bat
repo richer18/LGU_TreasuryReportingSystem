@@ -2,12 +2,16 @@
 setlocal
 
 set "SCRIPT_DIR=%~dp0"
+set "GIT_OPTIONAL_LOCKS=0"
 
 :menu
 cls
 echo ================================================
 echo   LGU Treasury Reporting System - GitHub Updater
 echo ================================================
+echo.
+echo Repository helper for:
+echo %SCRIPT_DIR%..
 echo.
 echo 1. Check Git status
 echo 2. Update GitHub from this local machine

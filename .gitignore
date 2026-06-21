@@ -1,0 +1,52 @@
+# Operating system and editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+auth.json
+
+# Dependency folders
+node_modules/
+vendor/
+
+# Frontend build/runtime output
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+
+# Laravel build/runtime output
+backend/public/build/
+backend/public/hot
+backend/public/storage
+backend/storage/*.key
+backend/storage/pail/
+backend/storage/logs/*.log
+backend/storage/framework/cache/data/*
+backend/storage/framework/sessions/*
+backend/storage/framework/testing/*
+backend/storage/framework/views/*
+!backend/storage/**/.gitignore
+backend/.phpunit.cache/
+
+# Local databases and sensitive source files
+*.sqlite
+*.sqlite3
+*.fdb
+*.FDB
+*.fbk
+*.FBK
+
+# Generated exports and reports
+output/
+exports/
+reports/output/
+firebird_metadata/output/
+google_sheet_exports/
+*.tmp
+~$*

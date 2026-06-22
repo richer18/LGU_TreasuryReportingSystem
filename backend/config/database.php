@@ -3,6 +3,16 @@
 use Illuminate\Support\Str;
 use Pdo\Mysql;
 
+$sqliteDatabase = static function (): string {
+    $database = env('DB_DATABASE', database_path('database.sqlite'));
+
+    if ($database === ':memory:' || preg_match('/^(?:[A-Za-z]:[\/\\\\]|\/|\\\\\\\\)/', $database)) {
+        return $database;
+    }
+
+    return database_path($database);
+};
+
 return [
 
     /*
@@ -35,7 +45,7 @@ return [
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),
-            'database' => env('DB_DATABASE', database_path('database.sqlite')),
+            'database' => $sqliteDatabase(),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
             'busy_timeout' => null,

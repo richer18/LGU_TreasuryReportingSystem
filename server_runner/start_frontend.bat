@@ -22,9 +22,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist "%FRONTEND_DIR%\node_modules" (
-    echo ERROR: frontend\node_modules was not found.
-    echo Run npm install inside the frontend folder first.
+echo Syncing frontend npm dependencies...
+cd /d "%FRONTEND_DIR%"
+npm install
+if errorlevel 1 (
+    echo ERROR: npm install failed. Check internet connection or package.json/package-lock.json.
     pause
     exit /b 1
 )

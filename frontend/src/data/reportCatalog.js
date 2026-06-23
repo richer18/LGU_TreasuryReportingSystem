@@ -27,7 +27,6 @@ export const fundPages = {
       { number: 21, name: 'Summary of Collection', group: 'Summary', status: 'Ready' },
       { number: 22, name: 'Summary of Collection no RPT', group: 'Summary', status: 'Ready' },
       { number: 23, name: 'Summary of Collection RPT', group: 'RPT', status: 'Ready' },
-      { number: 24, name: 'Summary in RPT based on SUMMARY sheet', group: 'RPT', status: 'Ready' },
       { number: 25, name: 'Record of Real Property Tax Collection', group: 'RPT', status: 'Ready' },
       { number: 26, name: 'RPT Advance Payment Report', group: 'RPT', status: 'Ready' },
       { number: 27, name: 'Summary Report Sharing', group: 'RPT Sharing', status: 'Ready' },
@@ -35,6 +34,8 @@ export const fundPages = {
       { number: 29, name: 'Abstract of General Collections', group: 'Abstract', status: 'Ready' },
       { number: 30, name: 'Abstract of Trust Funds Collections', group: 'Abstract', status: 'Ready' },
       { number: 31, name: 'Full Report Collections', group: 'Full Report', status: 'Ready' },
+      { number: 32, name: 'CMCI Annex A-B Business Permit Registration Report', group: 'Business Permit', status: 'Ready' },
+      { number: 33, name: 'Tax on Business Summary from BPLS Business Tax', group: 'Business Tax', status: 'Ready' },
     ],
   },
   generalFund: {
@@ -44,6 +45,7 @@ export const fundPages = {
     reports: [
       { number: 21, name: 'Summary of Collection', group: 'Summary', status: 'Ready' },
       { number: 22, name: 'Summary of Collection no RPT', group: 'Summary', status: 'Ready' },
+      { number: 33, name: 'Tax on Business Summary from BPLS Business Tax', group: 'Business Tax', status: 'Ready' },
       { number: 29, name: 'Abstract of General Collections', group: 'Abstract', status: 'Ready' },
       { number: 31, name: 'Full Report Collections', group: 'Full Report', status: 'Ready' },
     ],
@@ -73,7 +75,6 @@ export const fundPages = {
     description: 'RPT collection reports, advance payments, sharing, and provincial remittance.',
     reports: [
       { number: 23, name: 'Summary of Collection RPT', group: 'RPT', status: 'Ready' },
-      { number: 24, name: 'Summary in RPT based on SUMMARY sheet', group: 'RPT', status: 'Ready' },
       { number: 25, name: 'Record of Real Property Tax Collection', group: 'RPT', status: 'Ready' },
       { number: 26, name: 'RPT Advance Payment Report', group: 'RPT', status: 'Ready' },
       { number: 27, name: 'Summary Report Sharing', group: 'RPT Sharing', status: 'Ready' },

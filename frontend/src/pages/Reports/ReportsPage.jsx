@@ -2,7 +2,9 @@ import { BookOpen, Calendar, FileSpreadsheet, FileText, Info, Printer } from 'lu
 import { useMemo, useState } from 'react'
 import axiosInstance from '../../axiosinstance/axiosInstance'
 
-const MAIN_REPORT_NUMBERS = new Set(Array.from({ length: 11 }, (_, index) => index + 21))
+const UI_REPORT_NUMBERS = new Set([21, 22, 23, 27, 28, 31, 33])
+const DOWNLOAD_ONLY_REPORT_NUMBERS = new Set([25, 26, 29, 30, 32])
+const MAIN_REPORT_NUMBERS = new Set([...UI_REPORT_NUMBERS, ...DOWNLOAD_ONLY_REPORT_NUMBERS])
 
 const currentMonth = () => {
   const today = new Date()
@@ -149,12 +151,36 @@ const sharingSections = [
   ['TOTAL', '0.00', '0.00', '0.00', '0.00', '0.00'],
 ]
 
+const sharingLandRows = [
+  ['AGRICULTURE', 11],
+  ['RESIDENTIAL', 12],
+  ['COMMERCIAL', 13],
+  ['SPECIAL', 14],
+]
+
+const sharingBuildingRows = [
+  ['MACHINERIES', 22],
+  ['BLDG-RESIDENTIAL', 23],
+  ['BLDG-COMMERCIAL', 24],
+  ['BLDG-AGRICULTURE', 25],
+  ['BLDG-INDUS/SPECIAL', 26],
+]
+
 const provincialRows = [
   ['Land Residential', '40102050-401-01-01', '', '40102050-401-01-01', '', '40102050-402-01-01', '', '40102050-402-01-01', ''],
   ['Land Commercial', '40102050-401-01-02', '', '40102050-401-01-02', '', '40102050-402-01-02', '', '40102050-402-01-02', ''],
   ['Land Industrial', '40102050-401-01-03', '', '40102050-401-01-03', '', '40102050-402-01-03', '', '40102050-402-01-03', ''],
   ['Land Machinery', '40102050-401-01-04', '', '40102050-401-01-04', '', '40102050-402-01-04', '', '40102050-402-01-04', ''],
   ['Land Agricultural', '40102050-401-01-05', '', '40102050-401-01-05', '', '40102050-402-01-05', '', '40102050-402-01-05', ''],
+]
+
+const taxOnBusinessRows = [
+  ['Manufacturing', '-', '-', '-'],
+  ['Distributor', '-', '-', '-'],
+  ['Retailing', '-', '-', '-'],
+  ['Banks & Other Financial Int.', '-', '-', '-'],
+  ['Other Business Tax', '-', '-', '-'],
+  ['Fines & Penalties', '-', '-', '-'],
 ]
 
 const blank = '-'
@@ -209,6 +235,36 @@ const apiSummaryRowToTemplateRow = (row) => {
   ]
 }
 
+const apiSharingRowToTemplateRow = (row) => [
+  row.property_group,
+  row.category,
+  formatAmount(row.bsc_amount),
+  formatAmount(row.provincial_share_35),
+  formatAmount(row.municipal_share_40),
+  formatAmount(row.barangay_share_25),
+]
+
+const apiSharingCellsToMap = (cells = []) => cells.reduce((lookup, cell) => {
+  lookup[`${cell.row}:${cell.column}`] = Number(cell.value || 0)
+  return lookup
+}, {})
+
+const apiFullReportRowToTemplateRow = (row) => [
+  row.date,
+  formatAmount(row.ctc),
+  formatAmount(row.rpt),
+  formatAmount(row.gf_tf),
+  row.due_from || '',
+  formatAmount(row.rcd_total),
+]
+
+const apiTaxOnBusinessRowToTemplateRow = (row) => [
+  row.category,
+  formatAmount(row.business_tax),
+  formatAmount(row.surcharge),
+  formatAmount(row.total),
+]
+
 const getTemplateDefinition = (report, period) => {
   const previewRows = report.previewData?.rows?.map(apiSummaryRowToTemplateRow)
 
@@ -224,7 +280,7 @@ const getTemplateDefinition = (report, period) => {
     }
   }
 
-  if ([23, 24].includes(report.number)) {
+  if (report.number === 23) {
     return {
       kind: 'summary',
       title: 'SUMMARY OF COLLECTIONS',
@@ -261,11 +317,14 @@ const getTemplateDefinition = (report, period) => {
       kind: 'sharing',
       title: 'SUMMARY REPORT SHARING',
       meta: [['MONTH:', period.monthName], ['DAY:', ''], ['YEAR:', period.year]],
-      rows: sharingSections,
+      rows: report.previewData?.rows?.map(apiSharingRowToTemplateRow) ?? sharingSections,
+      cellMap: apiSharingCellsToMap(report.previewData?.template_cells),
     }
   }
 
   if (report.number === 28) {
+    const provincialPreviewRows = report.previewData?.rows?.map(apiSharingRowToTemplateRow)
+
     return {
       kind: 'provincial',
       title: 'MONTHLY REPORT ON THE COLLECTION OF REAL PROPERTY TAX',
@@ -273,8 +332,10 @@ const getTemplateDefinition = (report, period) => {
       municipality: 'Municipality of Zamboanguita',
       periodText: `For the month of ${period.monthName} ${period.year}`,
       fundTitle: 'SEF',
-      headers: ['', '', 'CURRENT YEAR', '', 'PRIOR YEAR', '', 'CURRENT YEAR PENALTY', '', 'PRIOR YEAR'],
-      rows: provincialRows,
+      headers: provincialPreviewRows
+        ? ['Property Group', 'Category', 'BSC Gross', "35% Prov'l Share", '40% Mun. Share', '25% Brgy. Share']
+        : ['', '', 'CURRENT YEAR', '', 'PRIOR YEAR', '', 'CURRENT YEAR PENALTY', '', 'PRIOR YEAR'],
+      rows: provincialPreviewRows ?? provincialRows,
     }
   }
 
@@ -306,7 +367,18 @@ const getTemplateDefinition = (report, period) => {
       title: 'FULL REPORT',
       meta: [['MONTH:', period.monthName], ['YEAR:', period.year]],
       headers: fullReportHeaders,
-      rows: [['', '', '', '', '', '']],
+      rows: report.previewData?.rows?.map(apiFullReportRowToTemplateRow) ?? [['', '', '', '', '', '']],
+    }
+  }
+
+  if (report.number === 33) {
+    return {
+      kind: 'tax-business',
+      title: 'TAX ON BUSINESS SUMMARY',
+      subtitle: 'BPLS Business Tax',
+      periodText: `${period.dateFrom} to ${period.dateTo}`,
+      headers: ['Category', 'Business Tax', 'Fines & Penalties / Surcharge', 'Total'],
+      rows: report.previewData?.rows?.map(apiTaxOnBusinessRowToTemplateRow) ?? taxOnBusinessRows,
     }
   }
 
@@ -403,15 +475,226 @@ const RecordTemplate = ({ template }) => (
   </article>
 )
 
+const sharingValue = (template, row, column) => template.cellMap?.[`${row}:${column}`] || 0
+
+const sumSharingRows = (template, rows, column) => rows.reduce((total, [, row]) => (
+  total + Number(sharingValue(template, row, column) || 0)
+), 0)
+
+const sharingCollectionRowsFor = (template, rows, columns) => {
+  const bodyRows = rows.map(([label, row]) => ({
+    label,
+    current: sharingValue(template, row, columns.current),
+    discount: sharingValue(template, row, columns.discount),
+    prior: sharingValue(template, row, columns.prior),
+    penaltyCurrent: sharingValue(template, row, columns.penaltyCurrent),
+    penaltyPrior: sharingValue(template, row, columns.penaltyPrior),
+  }))
+
+  return [
+    ...bodyRows,
+    {
+      label: 'TOTAL',
+      total: true,
+      current: sumSharingRows(template, rows, columns.current),
+      discount: sumSharingRows(template, rows, columns.discount),
+      prior: sumSharingRows(template, rows, columns.prior),
+      penaltyCurrent: sumSharingRows(template, rows, columns.penaltyCurrent),
+      penaltyPrior: sumSharingRows(template, rows, columns.penaltyPrior),
+    },
+  ]
+}
+
+const sharingTotal = (row) => (
+  Number(row.current || 0) - Number(row.discount || 0) + Number(row.prior || 0)
+  + Number(row.penaltyCurrent || 0) + Number(row.penaltyPrior || 0)
+)
+
+const SharingCollectionPanel = ({ columns, title, template }) => {
+  const landRows = sharingCollectionRowsFor(template, sharingLandRows, columns)
+  const buildingRows = sharingCollectionRowsFor(template, sharingBuildingRows, columns)
+
+  return (
+    <section className="sharing-template-panel">
+      <h2>{title}</h2>
+      <table className="sharing-template-table">
+        <tbody>
+          <tr className="sharing-section-row">
+            <th>LAND</th>
+            <th colSpan="2"></th>
+            <th colSpan="2">Penalties</th>
+          </tr>
+          <tr>
+            <th></th>
+            <th>Current</th>
+            <th>Discount</th>
+            <th>Prior</th>
+            <th>Current</th>
+            <th>Prior</th>
+          </tr>
+          {landRows.map((row) => (
+            <tr className={row.total ? 'sharing-total-row' : ''} key={`${title}-land-${row.label}`}>
+              <td>{row.label}</td>
+              <td>{formatAmount(row.current)}</td>
+              <td>{formatAmount(row.discount)}</td>
+              <td>{formatAmount(row.prior)}</td>
+              <td>{formatAmount(row.penaltyCurrent)}</td>
+              <td>{formatAmount(row.penaltyPrior)}</td>
+            </tr>
+          ))}
+          <tr className="sharing-total-line">
+            <td>LAND TOTAL</td>
+            <td colSpan="5">{formatAmount(sharingTotal(landRows.at(-1)))}</td>
+          </tr>
+          <tr className="sharing-spacer-row"><td colSpan="6"></td></tr>
+          <tr className="sharing-section-row">
+            <th>BUILDING</th>
+            <th colSpan="2"></th>
+            <th colSpan="2">Penalties</th>
+          </tr>
+          <tr>
+            <th></th>
+            <th>Current</th>
+            <th>Discount</th>
+            <th>Prior</th>
+            <th>Current</th>
+            <th>Prior</th>
+          </tr>
+          {buildingRows.map((row) => (
+            <tr className={row.total ? 'sharing-total-row' : ''} key={`${title}-building-${row.label}`}>
+              <td>{row.label}</td>
+              <td>{formatAmount(row.current)}</td>
+              <td>{formatAmount(row.discount)}</td>
+              <td>{formatAmount(row.prior)}</td>
+              <td>{formatAmount(row.penaltyCurrent)}</td>
+              <td>{formatAmount(row.penaltyPrior)}</td>
+            </tr>
+          ))}
+          <tr className="sharing-total-line">
+            <td>BUILDING TOTAL</td>
+            <td colSpan="5">{formatAmount(sharingTotal(buildingRows.at(-1)))}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+const SharingSharePanel = ({ columns, groupTitle, shares, template }) => {
+  const landTotal = sharingCollectionRowsFor(template, sharingLandRows, columns).at(-1)
+  const buildingTotal = sharingCollectionRowsFor(template, sharingBuildingRows, columns).at(-1)
+  const rows = [
+    ['Current', Number(landTotal.current || 0) - Number(landTotal.discount || 0), Number(buildingTotal.current || 0) - Number(buildingTotal.discount || 0)],
+    ['Prior', Number(landTotal.prior || 0), Number(buildingTotal.prior || 0)],
+    ['Penalties', Number(landTotal.penaltyCurrent || 0) + Number(landTotal.penaltyPrior || 0), Number(buildingTotal.penaltyCurrent || 0) + Number(buildingTotal.penaltyPrior || 0)],
+  ]
+  const landGrand = rows.reduce((total, row) => total + row[1], 0)
+  const buildingGrand = rows.reduce((total, row) => total + row[2], 0)
+
+  const shareCells = (amount) => shares.map((share) => formatAmount(amount * share.rate))
+  const shareTotal = (amount) => shares.reduce((total, share) => total + amount * share.rate, 0)
+
+  return (
+    <section className="sharing-template-panel sharing-share-panel">
+      <h2>{groupTitle}</h2>
+      <table className="sharing-template-table">
+        <tbody>
+          <tr className="sharing-section-row">
+            <th colSpan={2 + shares.length}>LAND SHARING</th>
+          </tr>
+          <tr>
+            <th>Category</th>
+            <th>LAND</th>
+            {shares.map((share) => <th key={`land-${share.label}`}>{share.label}</th>)}
+          </tr>
+          {rows.map(([label, landAmount]) => (
+            <tr key={`${groupTitle}-land-${label}`}>
+              <td>{label}</td>
+              <td>{formatAmount(landAmount)}</td>
+              {shareCells(landAmount).map((value, index) => <td key={`${label}-${index}`}>{value}</td>)}
+            </tr>
+          ))}
+          <tr className="sharing-total-row">
+            <td>TOTAL</td>
+            <td>{formatAmount(landGrand)}</td>
+            {shareCells(landGrand).map((value, index) => <td key={`land-total-${index}`}>{value}</td>)}
+          </tr>
+          <tr className="sharing-total-line">
+            <td>LAND SHARING TOTAL</td>
+            <td colSpan={1 + shares.length}>{formatAmount(shareTotal(landGrand))}</td>
+          </tr>
+          <tr className="sharing-spacer-row"><td colSpan={2 + shares.length}></td></tr>
+          <tr className="sharing-section-row sharing-building-section">
+            <th colSpan={2 + shares.length}>BUILDING SHARING</th>
+          </tr>
+          <tr>
+            <th>Category</th>
+            <th>BUILDING</th>
+            {shares.map((share) => <th key={`building-${share.label}`}>{share.label}</th>)}
+          </tr>
+          {rows.map(([label, , buildingAmount]) => (
+            <tr key={`${groupTitle}-building-${label}`}>
+              <td>{label}</td>
+              <td>{formatAmount(buildingAmount)}</td>
+              {shareCells(buildingAmount).map((value, index) => <td key={`${label}-building-${index}`}>{value}</td>)}
+            </tr>
+          ))}
+          <tr className="sharing-total-row">
+            <td>TOTAL</td>
+            <td>{formatAmount(buildingGrand)}</td>
+            {shareCells(buildingGrand).map((value, index) => <td key={`building-total-${index}`}>{value}</td>)}
+          </tr>
+          <tr className="sharing-total-line">
+            <td>BUILDING SHARING TOTAL</td>
+            <td colSpan={1 + shares.length}>{formatAmount(shareTotal(buildingGrand))}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
 const SharingTemplate = ({ template }) => (
-  <article className="excel-template-sheet printable-report">
-    <h1 className="excel-left-title">{template.title}</h1>
-    <div className="excel-meta-grid compact-meta">
+  <article className="excel-template-sheet sharing-template-sheet printable-report">
+    <h1 className="excel-left-title sharing-report-title">{template.title}</h1>
+    <div className="sharing-meta-grid">
       {template.meta.map(([label, value]) => (
         <div key={label}><strong>{label}</strong><span>{value}</span></div>
       ))}
     </div>
-    <TemplateTable headers={['Classification', 'Current', 'Discount', 'Prior', 'Penalty Current', 'Penalty Prior']} rows={template.rows} />
+    <div className="sharing-report-grid">
+      <SharingCollectionPanel
+        columns={{ current: 3, discount: 4, prior: 5, penaltyCurrent: 6, penaltyPrior: 7 }}
+        template={template}
+        title="BSC"
+      />
+      <SharingCollectionPanel
+        columns={{ current: 10, discount: 11, prior: 12, penaltyCurrent: 13, penaltyPrior: 14 }}
+        template={template}
+        title="SEF"
+      />
+    </div>
+    <div className="sharing-report-grid sharing-lower-grid">
+      <SharingSharePanel
+        columns={{ current: 3, discount: 4, prior: 5, penaltyCurrent: 6, penaltyPrior: 7 }}
+        groupTitle="BSC - SHARING"
+        shares={[
+          { label: "35% Prov'l Share", rate: 0.35 },
+          { label: '40% Mun. Share', rate: 0.40 },
+          { label: '25% Brgy. Share', rate: 0.25 },
+        ]}
+        template={template}
+      />
+      <SharingSharePanel
+        columns={{ current: 10, discount: 11, prior: 12, penaltyCurrent: 13, penaltyPrior: 14 }}
+        groupTitle="SEF - SHARING"
+        shares={[
+          { label: "50% Prov'l Share", rate: 0.50 },
+          { label: '50% Mun. Share', rate: 0.50 },
+        ]}
+        template={template}
+      />
+    </div>
   </article>
 )
 
@@ -451,6 +734,17 @@ const FullTemplate = ({ template }) => (
   </article>
 )
 
+const TaxOnBusinessTemplate = ({ template }) => (
+  <article className="excel-template-sheet printable-report">
+    <header className="excel-template-heading">
+      <h1>{template.title}</h1>
+      <h2>{template.subtitle}</h2>
+      <p><strong>Period Covered:</strong> {template.periodText}</p>
+    </header>
+    <TemplateTable headers={template.headers} rows={template.rows} />
+  </article>
+)
+
 const TemplatePreview = ({ report }) => {
   const template = getTemplateDefinition(report, report.period)
 
@@ -460,6 +754,7 @@ const TemplatePreview = ({ report }) => {
   if (template.kind === 'provincial') return <ProvincialTemplate template={template} />
   if (template.kind === 'abstract') return <AbstractTemplate template={template} />
   if (template.kind === 'full') return <FullTemplate template={template} />
+  if (template.kind === 'tax-business') return <TaxOnBusinessTemplate template={template} />
   return <AbstractTemplate template={template} />
 }
 
@@ -476,14 +771,43 @@ export function ReportsPage({ page }) {
 
   const findReport = (value) => page.reports.find((report) => String(report.number) === value)
 
+  const downloadReport = async (report, period) => {
+    const response = await axiosInstance.get(`/generated-reports/${report.number}/download`, {
+      params: {
+        date_from: period.dateFrom,
+        date_to: period.dateTo,
+      },
+      responseType: 'blob',
+    })
+    const disposition = response.headers['content-disposition'] || ''
+    const filenameMatch = disposition.match(/filename="?([^"]+)"?/i)
+    const fallbackName = `report-${report.number}-${selectedMonth}.xlsx`
+    const url = URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+
+    link.href = url
+    link.download = filenameMatch?.[1] || fallbackName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
   const generateReport = async () => {
     const report = findReport(selectedReportNumber)
     if (!report) return
+    const isDownloadOnly = DOWNLOAD_ONLY_REPORT_NUMBERS.has(report.number)
 
     setIsGenerating(true)
     setGenerationError('')
 
     try {
+      if (isDownloadOnly) {
+        await downloadReport(report, range)
+        setGeneratedReport(null)
+        return
+      }
+
       const response = await axiosInstance.get(`/generated-reports/${report.number}/preview`, {
         params: {
           date_from: range.dateFrom,
@@ -499,15 +823,19 @@ export function ReportsPage({ page }) {
         selectedMonth,
       })
     } catch (error) {
-      const message = error.response?.data?.error || error.message || 'Unable to generate report preview.'
+      const message = isDownloadOnly
+        ? await downloadErrorMessage(error)
+        : error.response?.data?.error || error.message || 'Unable to generate report preview.'
       setGenerationError(message)
 
-      setGeneratedReport({
-        ...report,
-        generatedAt: new Date().toLocaleString('en-PH'),
-        period: range,
-        selectedMonth,
-      })
+      if (!isDownloadOnly) {
+        setGeneratedReport({
+          ...report,
+          generatedAt: new Date().toLocaleString('en-PH'),
+          period: range,
+          selectedMonth,
+        })
+      }
     } finally {
       setIsGenerating(false)
     }
@@ -520,25 +848,7 @@ export function ReportsPage({ page }) {
     setGenerationError('')
 
     try {
-      const response = await axiosInstance.get(`/generated-reports/${generatedReport.number}/download`, {
-        params: {
-          date_from: generatedReport.period.dateFrom,
-          date_to: generatedReport.period.dateTo,
-        },
-        responseType: 'blob',
-      })
-      const disposition = response.headers['content-disposition'] || ''
-      const filenameMatch = disposition.match(/filename="?([^"]+)"?/i)
-      const fallbackName = `report-${generatedReport.number}-${generatedReport.selectedMonth}.xlsx`
-      const url = URL.createObjectURL(response.data)
-      const link = document.createElement('a')
-
-      link.href = url
-      link.download = filenameMatch?.[1] || fallbackName
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
+      await downloadReport(generatedReport, generatedReport.period)
     } catch (error) {
       setGenerationError(await downloadErrorMessage(error))
     } finally {
@@ -599,7 +909,7 @@ export function ReportsPage({ page }) {
           <Info size={18} aria-hidden="true" />
           <div>
             <strong>Report Scope</strong>
-            <p>Choose a month and report template. Reports 21 to 31 are generated from the read-only Firebird bridge and uploaded Excel templates.</p>
+            <p>Choose a month and report template. Reports 21 to 33 are generated from the read-only Firebird bridge, BPLS workbook sources, and uploaded Excel templates.</p>
           </div>
         </div>
 

@@ -91,6 +91,27 @@ const formatPercent = (value) =>
     minimumFractionDigits: 1,
   }).format(Number(value || 0))
 
+const formatCompactMoney = (value) => {
+  const amount = Number(value || 0)
+  const absolute = Math.abs(amount)
+
+  if (absolute >= 1_000_000) {
+    return `₱${(amount / 1_000_000).toLocaleString('en-PH', {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2,
+    })}M`
+  }
+
+  if (absolute >= 1_000) {
+    return `₱${(amount / 1_000).toLocaleString('en-PH', {
+      maximumFractionDigits: 1,
+      minimumFractionDigits: 1,
+    })}K`
+  }
+
+  return formatMoney(amount)
+}
+
 const clamp = (value, min = 0, max = 100) => Math.min(max, Math.max(min, Number(value || 0)))
 
 const dashboardColors = ['#0f766e', '#2563eb', '#7c3aed', '#d97706', '#dc2626', '#475467']
@@ -536,7 +557,7 @@ export function DashboardPage() {
       <section className="dashboard-chart-grid" aria-label="Dashboard charts">
         <Paper className="dashboard-chart-card" elevation={0} variant="outlined">
           <ChartHeader title="Collection Share" subtitle="YTD distribution from Report 21" />
-          <DonutChart centerLabel={formatMoney(collectionModel.ytdTotal)} rows={collectionShareRows} />
+          <DonutChart centerLabel={formatCompactMoney(collectionModel.ytdTotal)} rows={collectionShareRows} />
         </Paper>
 
         <Paper className="dashboard-chart-card" elevation={0} variant="outlined">
@@ -768,13 +789,17 @@ function DonutChart({ centerLabel, rows }) {
         </div>
       </div>
       <div className="chart-legend">
-        {rows.map((row) => (
+        {rows.map((row) => {
+          const percent = total > 0 ? (Number(row.value || 0) / total) * 100 : 0
+          return (
           <div key={row.label}>
             <i style={{ backgroundColor: row.color }} />
             <span>{row.label}</span>
+            <em>{formatPercent(percent)}%</em>
             <strong>{formatMoney(row.value)}</strong>
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

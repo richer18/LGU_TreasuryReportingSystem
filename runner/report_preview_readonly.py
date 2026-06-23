@@ -1,9 +1,24 @@
 import argparse
 import json
-from datetime import date, datetime
+import os
+import sys
+from datetime import date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 from firebird_probe import connect
+
+APPDATA_SITE = os.environ.get("APPDATA")
+USER_PROFILE = os.environ.get("USERPROFILE") or r"C:\Users\LIFT-LAPTOP"
+USER_SITE_CANDIDATES = [
+    Path(APPDATA_SITE) / "Python" / "Python314" / "site-packages" if APPDATA_SITE else None,
+    Path(USER_PROFILE) / "AppData" / "Roaming" / "Python" / "Python314" / "site-packages",
+]
+for user_site in USER_SITE_CANDIDATES:
+    if user_site and user_site.exists() and str(user_site) not in sys.path:
+        sys.path.append(str(user_site))
+
+BUSINESS_PERMIT_DIR = Path(__file__).resolve().parents[2] / "BUSINESS_PERMIT_REPORT"
 
 
 SUMMARY_COLUMNS = [
@@ -460,6 +475,346 @@ def fetch_rpt_sharing_summary(date_from, date_to):
     return rows
 
 
+def sharing_row_for_classification(property_kind, class_code):
+    property_kind = (property_kind or "").strip()
+    class_code = (class_code or "").strip()
+    if property_kind == "L":
+        if class_code == "A":
+            return 11
+        if class_code == "R":
+            return 12
+        if class_code == "C":
+            return 13
+        return 14
+
+    if property_kind == "M":
+        return 22
+    if class_code == "R":
+        return 23
+    if class_code == "C":
+        return 24
+    if class_code == "A":
+        return 25
+    if class_code.upper().startswith("S"):
+        return 26
+    return 26
+
+
+def fetch_summary_sharing_template_cells(date_from, date_to):
+    sql = f"""
+        SELECT
+            pcd.PROPERTYKIND_CT,
+            COALESCE(pcd.CLASSCODE_CT, ra.PREDOMCLASSCODE_CT) AS CLASSCODE_CT,
+            pcd.ITAXTYPE_CT,
+            pcd.CASETYPE_CT,
+            pcd.TAXYEAR,
+            SUM(pcd.AMOUNT) AS AMOUNT
+        FROM PAYMENT p
+        JOIN PAYMENTCLASSDETAIL pcd ON pcd.PAYMENT_ID = p.PAYMENT_ID
+        LEFT JOIN RPTASSESSMENT ra ON ra.TAXTRANS_ID = pcd.TAXTRANS_ID
+        WHERE p.PAYMENTDATE >= CAST(? AS DATE)
+          AND p.PAYMENTDATE < DATEADD(1 DAY TO CAST(? AS DATE))
+          AND p.PAYGROUP_CT = 'RPT'
+          {PAID_PAYMENT_SQL}
+          AND COALESCE(pcd.CANCELLED_BV, 0) = 0
+        GROUP BY pcd.PROPERTYKIND_CT, COALESCE(pcd.CLASSCODE_CT, ra.PREDOMCLASSCODE_CT),
+                 pcd.ITAXTYPE_CT, pcd.CASETYPE_CT, pcd.TAXYEAR
+    """
+    values = {}
+    current_taxyear = None
+
+    connection = connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(sql, (date_from, date_to))
+        fetched_rows = cursor.fetchall()
+        current_taxyear = max((row[4] for row in fetched_rows if row[4] is not None), default=None)
+        if current_taxyear is None:
+            current_taxyear = datetime.strptime(date_from, "%Y-%m-%d").year
+
+        for property_kind, class_code, tax_type, case_type, taxyear, amount in fetched_rows:
+            row_index = sharing_row_for_classification(property_kind, class_code)
+            tax_type = (tax_type or "").strip()
+            case_type = (case_type or "").strip()
+            if tax_type == "BSC":
+                current_col, discount_col, prior_col, pen_current_col, pen_prior_col = 3, 4, 5, 6, 7
+            elif tax_type == "SEF":
+                current_col, discount_col, prior_col, pen_current_col, pen_prior_col = 10, 11, 12, 13, 14
+            else:
+                continue
+
+            if case_type == "DED":
+                col_index = discount_col
+                value = abs(amount or Decimal("0"))
+            elif case_type == "PEN":
+                col_index = pen_current_col if taxyear == current_taxyear else pen_prior_col
+                value = amount or Decimal("0")
+            else:
+                col_index = current_col if taxyear == current_taxyear else prior_col
+                value = amount or Decimal("0")
+            values[(row_index, col_index)] = values.get((row_index, col_index), Decimal("0")) + value
+        connection.rollback()
+    finally:
+        connection.close()
+
+    cells = []
+    for row_index in (11, 12, 13, 14, 22, 23, 24, 25, 26):
+        for col_index in (3, 4, 5, 6, 7, 10, 11, 12, 13, 14):
+            cells.append({
+                "row": row_index,
+                "column": col_index,
+                "value": values.get((row_index, col_index), Decimal("0")),
+            })
+    return cells
+
+
+def add_full_daily_amount(daily, day, column_name, amount):
+    if hasattr(day, "date"):
+        day = day.date()
+    if day not in daily:
+        daily[day] = {
+            "ctc": Decimal("0"),
+            "rpt": Decimal("0"),
+            "gf_tf": Decimal("0"),
+        }
+    daily[day][column_name] += amount or Decimal("0")
+
+
+def fetch_full_report_collections(date_from, date_to):
+    daily = {}
+    ctc_sql = f"""
+        SELECT
+            CAST(p.PAYMENTDATE AS DATE) AS COLLECTION_DATE,
+            SUM(pd.AMOUNTPAID) AS AMOUNT
+        FROM PAYMENT p
+        JOIN PAYMENTDETAIL pd ON pd.PAYMENT_ID = p.PAYMENT_ID
+        WHERE p.PAYMENTDATE >= CAST(? AS DATE)
+          AND p.PAYMENTDATE < DATEADD(1 DAY TO CAST(? AS DATE))
+          {PAID_PAYMENT_SQL}
+          AND (pd.SOURCE_CT IN ('CTCI', 'CTCC') OR pd.ITAXTYPE_CT = 'CTC')
+        GROUP BY CAST(p.PAYMENTDATE AS DATE)
+    """
+    rpt_sql = f"""
+        SELECT
+            CAST(p.PAYMENTDATE AS DATE) AS COLLECTION_DATE,
+            SUM(pcd.AMOUNT) AS AMOUNT
+        FROM PAYMENT p
+        JOIN PAYMENTCLASSDETAIL pcd ON pcd.PAYMENT_ID = p.PAYMENT_ID
+        WHERE p.PAYMENTDATE >= CAST(? AS DATE)
+          AND p.PAYMENTDATE < DATEADD(1 DAY TO CAST(? AS DATE))
+          AND p.PAYGROUP_CT = 'RPT'
+          {PAID_PAYMENT_SQL}
+          AND COALESCE(pcd.CANCELLED_BV, 0) = 0
+        GROUP BY CAST(p.PAYMENTDATE AS DATE)
+    """
+    gf_tf_sql = f"""
+        SELECT
+            CAST(p.PAYMENTDATE AS DATE) AS COLLECTION_DATE,
+            SUM(pd.AMOUNTPAID) AS AMOUNT
+        FROM PAYMENT p
+        JOIN PAYMENTDETAIL pd ON pd.PAYMENT_ID = p.PAYMENT_ID
+        WHERE p.PAYMENTDATE >= CAST(? AS DATE)
+          AND p.PAYMENTDATE < DATEADD(1 DAY TO CAST(? AS DATE))
+          {PAID_PAYMENT_SQL}
+          AND COALESCE(p.PAYGROUP_CT, '') <> 'RPT'
+          AND NOT (pd.SOURCE_CT IN ('CTCI', 'CTCC') OR pd.ITAXTYPE_CT = 'CTC')
+        GROUP BY CAST(p.PAYMENTDATE AS DATE)
+    """
+
+    connection = connect()
+    try:
+        cursor = connection.cursor()
+        for sql, column_name in ((ctc_sql, "ctc"), (rpt_sql, "rpt"), (gf_tf_sql, "gf_tf")):
+            cursor.execute(sql, (date_from, date_to))
+            for collection_date, amount in cursor.fetchall():
+                add_full_daily_amount(daily, collection_date, column_name, amount)
+        connection.rollback()
+    finally:
+        connection.close()
+
+    start_date = datetime.strptime(date_from, "%Y-%m-%d").date()
+    end_date = datetime.strptime(date_to, "%Y-%m-%d").date()
+    rows = []
+    current = start_date
+    while current <= end_date:
+        amounts = daily.get(current, {"ctc": Decimal("0"), "rpt": Decimal("0"), "gf_tf": Decimal("0")})
+        total = amounts["ctc"] + amounts["rpt"] + amounts["gf_tf"]
+        rows.append({
+            "date": current,
+            "ctc": amounts["ctc"],
+            "rpt": amounts["rpt"],
+            "gf_tf": amounts["gf_tf"],
+            "due_from": "",
+            "rcd_total": total,
+        })
+        current += timedelta(days=1)
+    return rows
+
+
+def clean_text(value):
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def decimal_value(value):
+    if value in (None, ""):
+        return Decimal("0")
+    try:
+        return Decimal(str(value).replace(",", ""))
+    except Exception:
+        return Decimal("0")
+
+
+def find_business_permit_workbook(pattern):
+    matches = sorted(BUSINESS_PERMIT_DIR.glob(pattern))
+    if not matches:
+        raise FileNotFoundError(f"Business permit workbook was not found: {BUSINESS_PERMIT_DIR / pattern}")
+    return matches[-1]
+
+
+def parse_excel_date(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, (int, float)):
+        from openpyxl.utils.datetime import from_excel
+        return from_excel(value).date()
+    text = clean_text(value)
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            pass
+    return None
+
+
+def load_sheet_records(path):
+    from openpyxl import load_workbook
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    sheet = workbook.active
+    rows = list(sheet.iter_rows(values_only=True))
+    headers = [clean_text(value) for value in rows[0]]
+    records = []
+    for row in rows[1:]:
+        records.append({headers[index]: value for index, value in enumerate(row) if index < len(headers)})
+    workbook.close()
+    return records
+
+
+def load_sheet_records_with_header(path, header_row):
+    from openpyxl import load_workbook
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    sheet = workbook.active
+    headers = [clean_text(cell.value) for cell in next(sheet.iter_rows(min_row=header_row, max_row=header_row))]
+    records = []
+    for row in sheet.iter_rows(min_row=header_row + 1, values_only=True):
+        records.append({headers[index]: value for index, value in enumerate(row) if index < len(headers)})
+    workbook.close()
+    return records
+
+
+def business_establishment_match_lookup(records):
+    by_or = {}
+    by_business_id = {}
+    for record in records:
+        or_number = clean_text(record.get("OR Number"))
+        business_id = clean_text(record.get("Business Identification Number"))
+        has_paid = decimal_value(record.get("Total Amount Paid")) > 0
+        has_permit = bool(clean_text(record.get("Permit No.")))
+        score = (1 if has_paid else 0, 1 if has_permit else 0)
+
+        if or_number:
+            existing_score, _existing = by_or.get(or_number, ((-1, -1), None))
+            if score > existing_score:
+                by_or[or_number] = (score, record)
+        if business_id:
+            existing_score, _existing = by_business_id.get(business_id, ((-1, -1), None))
+            if score > existing_score:
+                by_business_id[business_id] = (score, record)
+
+    return (
+        {or_number: record for or_number, (_score, record) in by_or.items()},
+        {business_id: record for business_id, (_score, record) in by_business_id.items()},
+    )
+
+
+def tax_on_business_category(business_nature, business_line):
+    nature_text = clean_text(business_nature).lower()
+    line_text = clean_text(business_line).lower()
+    text = f"{nature_text} {line_text}"
+    if any(keyword in text for keyword in ("bank", "financial", "lending", "pawn", "money", "remittance", "insurance")):
+        return "Banks & Other Financial Int."
+    if any(keyword in text for keyword in ("manufactur", "baking", "bakery", "milling", "printing", "processed")):
+        return "Manufacturing"
+    if any(keyword in line_text for keyword in ("wholesale", "distributor", "distribution")):
+        return "Distributor"
+    if any(keyword in line_text for keyword in ("retail", "store", "sari-sari", "pharmacy", "hardware", "convenience")):
+        return "Retailing"
+    if "wholesale and retail trade" in nature_text:
+        return "Retailing"
+    return "Other Business Tax"
+
+
+def fetch_tax_on_business_summary(date_from, date_to):
+    abstract_path = find_business_permit_workbook("ABSTRACT_OF_GENERAL_COLLECTION-BPLS*.xlsx")
+    establishment_path = find_business_permit_workbook("BUSINESS_ESTABLISHMENT-BPLS*.xlsx")
+    abstract_records = load_sheet_records_with_header(abstract_path, 7)
+    establishment_records = load_sheet_records(establishment_path)
+    by_or, by_business_id = business_establishment_match_lookup(establishment_records)
+    start_date = datetime.strptime(date_from, "%Y-%m-%d").date()
+    end_date = datetime.strptime(date_to, "%Y-%m-%d").date()
+    category_order = [
+        "Manufacturing",
+        "Distributor",
+        "Retailing",
+        "Banks & Other Financial Int.",
+        "Other Business Tax",
+        "Fines & Penalties",
+    ]
+    summary = {
+        category: {"business_tax": Decimal("0"), "surcharge": Decimal("0")}
+        for category in category_order
+    }
+
+    for record in abstract_records:
+        or_date = parse_excel_date(record.get("O.R. Date"))
+        if or_date is None or not (start_date <= or_date <= end_date):
+            continue
+        business_tax = decimal_value(record.get("Business Tax"))
+        surcharge = decimal_value(record.get("Surcharge"))
+        if business_tax == 0 and surcharge == 0:
+            continue
+
+        or_number = clean_text(record.get("O.R. Number"))
+        business_id = clean_text(record.get("Business Identification Number"))
+        establishment = by_or.get(or_number) or by_business_id.get(business_id) or {}
+        category = tax_on_business_category(
+            establishment.get("Business Nature"),
+            establishment.get("Business Line"),
+        )
+
+        if business_tax:
+            summary[category]["business_tax"] += business_tax
+        if surcharge:
+            summary["Fines & Penalties"]["surcharge"] += surcharge
+
+    rows = []
+    for category in category_order:
+        business_tax = summary[category]["business_tax"]
+        surcharge = summary[category]["surcharge"]
+        rows.append({
+            "category": category,
+            "business_tax": business_tax,
+            "surcharge": surcharge,
+            "total": business_tax + surcharge,
+        })
+    return rows
+
+
 def add_totals(rows):
     totals = {column: Decimal("0") for column in SUMMARY_COLUMNS if column != "source"}
 
@@ -478,7 +833,7 @@ def build_report(number, date_from, date_to):
         rows = fetch_no_rpt_summary(date_from, date_to) + fetch_rpt_summary(date_from, date_to)
     elif number == 22:
         rows = fetch_no_rpt_summary(date_from, date_to)
-    elif number in (23, 24):
+    elif number == 23:
         rows = fetch_rpt_summary(date_from, date_to)
     elif number == 27:
         rows = fetch_rpt_sharing_summary(date_from, date_to)
@@ -496,6 +851,47 @@ def build_report(number, date_from, date_to):
                 "municipal_share_40",
                 "barangay_share_25",
             ],
+            "rows": rows,
+            "template_cells": fetch_summary_sharing_template_cells(date_from, date_to),
+        }
+    elif number == 28:
+        rows = fetch_rpt_sharing_summary(date_from, date_to)
+        return {
+            "ok": True,
+            "mode": "read_only_report_preview",
+            "report_number": number,
+            "date_from": date_from,
+            "date_to": date_to,
+            "columns": [
+                "property_group",
+                "category",
+                "bsc_amount",
+                "provincial_share_35",
+                "municipal_share_40",
+                "barangay_share_25",
+            ],
+            "rows": rows,
+        }
+    elif number == 31:
+        rows = fetch_full_report_collections(date_from, date_to)
+        return {
+            "ok": True,
+            "mode": "read_only_report_preview",
+            "report_number": number,
+            "date_from": date_from,
+            "date_to": date_to,
+            "columns": ["date", "ctc", "rpt", "gf_tf", "due_from", "rcd_total"],
+            "rows": rows,
+        }
+    elif number == 33:
+        rows = fetch_tax_on_business_summary(date_from, date_to)
+        return {
+            "ok": True,
+            "mode": "read_only_report_preview",
+            "report_number": number,
+            "date_from": date_from,
+            "date_to": date_to,
+            "columns": ["category", "business_tax", "surcharge", "total"],
             "rows": rows,
         }
     else:

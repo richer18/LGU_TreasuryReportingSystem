@@ -32,7 +32,6 @@ class ReportCatalog
             ['number' => 21, 'name' => 'Summary of Collection', 'group' => 'summary_collection', 'status' => 'implemented_script'],
             ['number' => 22, 'name' => 'Summary of Collection no rpt', 'group' => 'summary_collection', 'status' => 'implemented_script'],
             ['number' => 23, 'name' => 'Summary of Collection rpt', 'group' => 'summary_collection', 'status' => 'implemented_script'],
-            ['number' => 24, 'name' => 'Summary in RPT based on the SUMMARY sheet layout', 'group' => 'rpt', 'status' => 'implemented_script'],
             ['number' => 25, 'name' => 'Record of Real Property Tax Collection', 'group' => 'rpt', 'status' => 'implemented_script'],
             ['number' => 26, 'name' => 'Record of Real Property Tax Collection - Advance Payment Report', 'group' => 'rpt', 'status' => 'implemented_script'],
             ['number' => 27, 'name' => 'Summary Report Sharing', 'group' => 'rpt_sharing', 'status' => 'implemented_script'],
@@ -40,6 +39,8 @@ class ReportCatalog
             ['number' => 29, 'name' => 'Abstract of General Collections', 'group' => 'abstract', 'status' => 'implemented_script'],
             ['number' => 30, 'name' => 'Abstract of Trust Funds Collections', 'group' => 'abstract', 'status' => 'implemented_script'],
             ['number' => 31, 'name' => 'Full Report Collections', 'group' => 'full_report', 'status' => 'implemented_script'],
+            ['number' => 32, 'name' => 'CMCI Annex A-B Business Permit Registration Report', 'group' => 'business_permit', 'status' => 'implemented_script'],
+            ['number' => 33, 'name' => 'Tax on Business Summary from BPLS Business Tax', 'group' => 'business_tax', 'status' => 'implemented_script'],
         ]);
     }
 

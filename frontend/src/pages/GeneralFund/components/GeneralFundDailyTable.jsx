@@ -2,6 +2,8 @@ import {
   Alert,
   Box,
   Button,
+  Dialog,
+  DialogContent,
   IconButton,
   LinearProgress,
   Paper,
@@ -107,6 +109,30 @@ export function GeneralFundDailyTable({ daily = [] }) {
   const [detailPage, setDetailPage] = useState(0)
   const [detailRowsPerPage, setDetailRowsPerPage] = useState(10)
 
+  const detailTotal = useMemo(
+    () => detailRows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0),
+    [detailRows],
+  )
+
+  const collectorTotals = useMemo(() => {
+    const grouped = new Map()
+
+    detailRows.forEach((row) => {
+      const collector = String(row.collector || 'Unspecified').trim() || 'Unspecified'
+      const current = grouped.get(collector) || {
+        collector,
+        receipt_count: 0,
+        total_amount: 0,
+      }
+
+      current.receipt_count += 1
+      current.total_amount += Number(row.total_amount || 0)
+      grouped.set(collector, current)
+    })
+
+    return Array.from(grouped.values()).sort((first, second) => second.total_amount - first.total_amount)
+  }, [detailRows])
+
   const totals = useMemo(
     () =>
       rows.reduce(
@@ -175,6 +201,7 @@ export function GeneralFundDailyTable({ daily = [] }) {
     setDetailLoading(true)
     setError('')
     setDetailDate(dateValue)
+    setDetailRows([])
     setDetailPage(0)
 
     try {
@@ -324,7 +351,7 @@ export function GeneralFundDailyTable({ daily = [] }) {
                       onClick={() => viewDailyDetails(row.collection_date)}
                       size="small"
                       startIcon={<Eye size={15} />}
-                      variant="outlined"
+                      variant="contained"
                     >
                       {detailLoading && detailDate === row.collection_date ? 'Loading' : 'View'}
                     </Button>
@@ -368,16 +395,64 @@ export function GeneralFundDailyTable({ daily = [] }) {
         />
       </Paper>
 
-      {detailDate && (
-        <Paper className="daily-detail-panel" variant="outlined">
-          <Box alignItems="center" display="flex" gap={2} justifyContent="space-between">
-            <Typography color="#132238" fontWeight={800} variant="h6">
+      <Dialog
+        fullWidth
+        maxWidth="lg"
+        onClose={() => setDetailDate('')}
+        open={Boolean(detailDate)}
+      >
+        <Box className="daily-detail-dialog-header">
+          <div>
+            <span>Daily Collection View</span>
+            <Typography fontWeight={900} variant="h6">
               Transaction Details - {formatDate(detailDate)}
             </Typography>
-            <IconButton aria-label="Close transaction details" onClick={() => setDetailDate('')}>
-              <X size={18} />
-            </IconButton>
-          </Box>
+          </div>
+          <IconButton aria-label="Close transaction details" onClick={() => setDetailDate('')}>
+            <X size={18} />
+          </IconButton>
+        </Box>
+        <DialogContent className="daily-detail-dialog-body">
+          <div className="daily-detail-summary">
+            <div>
+              <span>Receipts</span>
+              <strong>{formatNumber(detailRows.length)}</strong>
+            </div>
+            <div>
+              <span>Total Collection</span>
+              <strong>{formatMoney(detailTotal)}</strong>
+            </div>
+          </div>
+
+          {!detailLoading && (
+            <Paper className="daily-collector-summary" variant="outlined">
+              <Box alignItems="center" display="flex" gap={1} justifyContent="space-between">
+                <div>
+                  <Typography color="#132238" fontWeight={900} variant="subtitle1">
+                    Collector Collections
+                  </Typography>
+                  <Typography color="#667085" fontSize={13} fontWeight={700}>
+                    Collection per collector for {formatDate(detailDate)}
+                  </Typography>
+                </div>
+              </Box>
+              <div className="daily-collector-grid">
+                {collectorTotals.map((collector) => {
+                  const share = detailTotal > 0 ? (collector.total_amount / detailTotal) * 100 : 0
+                  return (
+                    <div className="daily-collector-card" key={collector.collector}>
+                      <span>{collector.collector.toUpperCase()}</span>
+                      <strong>{formatMoney(collector.total_amount)}</strong>
+                      <small>{formatNumber(collector.receipt_count)} receipts • {share.toFixed(1)}%</small>
+                    </div>
+                  )
+                })}
+                {!collectorTotals.length && (
+                  <div className="empty-row">No collector totals found.</div>
+                )}
+              </div>
+            </Paper>
+          )}
 
           {detailLoading ? (
             <Box>
@@ -387,15 +462,15 @@ export function GeneralFundDailyTable({ daily = [] }) {
               </Typography>
             </Box>
           ) : (
-            <>
-              <TableContainer sx={{ maxHeight: 360 }}>
-                <Table stickyHeader size="small" sx={{ minWidth: 820 }}>
+            <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+              <TableContainer sx={{ maxHeight: 460 }}>
+                <Table stickyHeader size="small" sx={{ minWidth: 900 }}>
                   <TableHead>
                     <TableRow>
                       <TableCell sx={tableHeaderSx}>Date</TableCell>
-                      <TableCell sx={tableHeaderSx}>Name</TableCell>
+                      <TableCell sx={tableHeaderSx}>Taxpayer</TableCell>
                       <TableCell sx={tableHeaderSx}>OR Number</TableCell>
-                      <TableCell sx={tableHeaderSx}>Cashier</TableCell>
+                      <TableCell sx={tableHeaderSx}>Collector</TableCell>
                       <TableCell sx={tableHeaderSx}>Lines</TableCell>
                       <TableCell align="right" sx={tableHeaderSx}>Total</TableCell>
                     </TableRow>
@@ -433,10 +508,10 @@ export function GeneralFundDailyTable({ daily = [] }) {
                 rowsPerPage={detailRowsPerPage}
                 rowsPerPageOptions={[5, 10, 25]}
               />
-            </>
+            </Paper>
           )}
-        </Paper>
-      )}
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

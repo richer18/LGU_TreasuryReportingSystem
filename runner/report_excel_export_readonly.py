@@ -2,6 +2,8 @@ import argparse
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 from datetime import datetime
 from decimal import Decimal
@@ -35,8 +37,10 @@ TEMPLATE_MAP = {
     21: "summary_of_collection_template.xlsx",
     22: "summary_of_collection_template_no_rpt.xlsx",
     23: "summary_of_collection_template_rpt.xlsx",
-    24: "summary_of_collection_template_rpt.xlsx",
 }
+
+PARENT_COLLECTION_RUNNER = Path(__file__).resolve().parents[2] / "run_collection_query.py"
+PARENT_DELEGATED_REPORTS = {25, 26, 27, 28, 29, 30, 31, 32, 33}
 
 
 def excel_value(value):
@@ -96,6 +100,48 @@ def write_summary_workbook(report_number, payload, date_from, date_to, output_di
     return output_path, len(body_rows)
 
 
+def delegated_parent_export(report_number, date_from, date_to, output_dir):
+    if not PARENT_COLLECTION_RUNNER.exists():
+        raise FileNotFoundError(f"Parent collection runner was not found: {PARENT_COLLECTION_RUNNER}")
+
+    command = [
+        sys.executable,
+        str(PARENT_COLLECTION_RUNNER),
+        str(report_number),
+        date_from,
+        date_to,
+        "--user",
+        os.environ.get("FIREBIRD_USER", "SYSDBA"),
+        "--password",
+        os.environ.get("FIREBIRD_PASSWORD", "masterkey"),
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=180, check=False)
+    output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+
+    if result.returncode != 0:
+        raise RuntimeError(output or f"Parent collection runner failed with exit code {result.returncode}.")
+
+    match = re.search(r"Output file:\s*(.+)", output)
+    if not match:
+        raise RuntimeError(f"Parent collection runner did not return an output path. Output: {output}")
+
+    source_path = Path(match.group(1).strip())
+    if not source_path.exists():
+        raise FileNotFoundError(f"Parent collection runner output was not found: {source_path}")
+
+    rows_match = re.search(r"Rows exported:\s*(\d+)", output)
+    row_count = int(rows_match.group(1)) if rows_match else 0
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    destination = output_dir / source_path.name
+    if destination.exists():
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        destination = destination.with_name(f"{destination.stem}_{timestamp}{destination.suffix}")
+
+    shutil.copy2(source_path, destination)
+    return destination, row_count
+
+
 def main():
     parser = argparse.ArgumentParser(description="Read-only Firebird Excel report exporter.")
     parser.add_argument("report_number", type=int)
@@ -105,6 +151,25 @@ def main():
     args = parser.parse_args()
 
     try:
+        if args.report_number in PARENT_DELEGATED_REPORTS:
+            output_path, row_count = delegated_parent_export(
+                args.report_number,
+                args.date_from,
+                args.date_to,
+                Path(args.output_dir),
+            )
+            print(json.dumps({
+                "ok": True,
+                "mode": "read_only_excel_export",
+                "report_number": args.report_number,
+                "date_from": args.date_from,
+                "date_to": args.date_to,
+                "row_count": row_count,
+                "path": str(output_path),
+                "filename": output_path.name,
+            }, default=scalar))
+            return 0
+
         if args.report_number not in TEMPLATE_MAP:
             raise ValueError(f"Excel download for report {args.report_number} is not implemented yet.")
 

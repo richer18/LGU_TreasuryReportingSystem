@@ -14,9 +14,10 @@ echo 2. Start backend Laravel API
 echo 3. Start frontend React/Vite
 echo 4. Start backend and frontend
 echo 5. Check local server ports
-echo 6. Exit
+echo 6. Test Firebird database connection
+echo 7. Exit
 echo.
-set /p CHOICE=Choose option [1-6]: 
+set /p CHOICE=Choose option [1-7]: 
 
 if "%CHOICE%"=="1" (
     call "%SCRIPT_DIR%setup_backend_auth_db.bat"
@@ -44,6 +45,11 @@ if "%CHOICE%"=="5" (
 )
 
 if "%CHOICE%"=="6" (
+    call "%SCRIPT_DIR%test_firebird_connection.bat"
+    goto menu
+)
+
+if "%CHOICE%"=="7" (
     exit /b 0
 )
 

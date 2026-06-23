@@ -24,9 +24,9 @@ findstr /B /I "FIREBIRD_DB_PATH FIREBIRD_USER FIREBIRD_CHARSET FIREBIRD_CLIENT_L
 echo --------------------------------------------------
 echo.
 echo If the .FDB is on another/main PC, FIREBIRD_DB_PATH must use this format:
-echo   MAIN-PC-NAME:C:\ZAMBOANGUITA_DB\ZAMBOANGUITA.FDB
+echo   MAIN-PC-NAME:C:\PATH\TO\YOUR_DATABASE.FDB
 echo or:
-echo   192.168.1.10:C:\ZAMBOANGUITA_DB\ZAMBOANGUITA.FDB
+echo   192.168.1.10:C:\PATH\TO\YOUR_DATABASE.FDB
 echo.
 echo The new PC must also have fbclient.dll installed, usually:
 echo   C:\Program Files\Firebird\Firebird_2_5\bin\fbclient.dll

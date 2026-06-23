@@ -32,7 +32,7 @@ if not errorlevel 1 (
 )
 
 echo Starting Laravel API server...
-start "LGU Treasury Backend API" cmd /k "cd /d ""%BACKEND_DIR%"" && set PYTHON_BINARY=C:\Python314\python.exe&& php artisan serve --host=%HOST% --port=%PORT%"
+start "LGU Treasury Backend API" cmd /k "cd /d ""%BACKEND_DIR%"" && php artisan serve --host=%HOST% --port=%PORT%"
 echo.
 echo Backend URL:
 echo http://%HOST%:%PORT%

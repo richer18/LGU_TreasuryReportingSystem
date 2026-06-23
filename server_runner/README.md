@@ -80,13 +80,13 @@ If the `.FDB` is on the main/local machine and this app is running on another PC
 Use the main PC name or IP address before the database path:
 
 ```text
-FIREBIRD_DB_PATH='MAIN-PC-NAME:C:\ZAMBOANGUITA_DB\ZAMBOANGUITA.FDB'
+FIREBIRD_DB_PATH='MAIN-PC-NAME:C:\PATH\TO\YOUR_DATABASE.FDB'
 ```
 
 or:
 
 ```text
-FIREBIRD_DB_PATH='192.168.1.10:C:\ZAMBOANGUITA_DB\ZAMBOANGUITA.FDB'
+FIREBIRD_DB_PATH='192.168.1.10:C:\PATH\TO\YOUR_DATABASE.FDB'
 ```
 
 The new PC must also have the Firebird client installed:

@@ -111,9 +111,9 @@ def delegated_parent_export(report_number, date_from, date_to, output_dir):
         date_from,
         date_to,
         "--user",
-        os.environ.get("FIREBIRD_USER", "SYSDBA"),
+        os.environ.get("FIREBIRD_USER", ""),
         "--password",
-        os.environ.get("FIREBIRD_PASSWORD", "masterkey"),
+        os.environ.get("FIREBIRD_PASSWORD", ""),
     ]
     result = subprocess.run(command, capture_output=True, text=True, timeout=180, check=False)
     output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()

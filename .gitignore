@@ -4,6 +4,8 @@ Thumbs.db
 desktop.ini
 .idea/
 .vscode/
+__pycache__/
+*.pyc
 
 # Local environment and secrets
 .env

@@ -1,9 +1,9 @@
 <?php
 
 return [
-    'database' => env('FIREBIRD_DB_PATH', 'C:\ZAMBOANGUITA_DB\ZAMBOANGUITA.FDB'),
-    'user' => env('FIREBIRD_USER', 'SYSDBA'),
-    'password' => env('FIREBIRD_PASSWORD', 'masterkey'),
+    'database' => env('FIREBIRD_DB_PATH', ''),
+    'user' => env('FIREBIRD_USER', ''),
+    'password' => env('FIREBIRD_PASSWORD', ''),
     'charset' => env('FIREBIRD_CHARSET', 'UTF8'),
     'client_library' => env('FIREBIRD_CLIENT_LIBRARY', 'C:\Program Files\Firebird\Firebird_2_5\bin\fbclient.dll'),
     'python' => is_file('C:\Python314\python.exe')

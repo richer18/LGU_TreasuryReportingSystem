@@ -7,10 +7,7 @@ from pathlib import Path
 import fdb
 
 
-DEFAULT_DB_PATHS = [
-    r"E:\ZAMBOANGUITA.FDB",
-    r"C:\ZAMBOANGUITA_DB\ZAMBOANGUITA.FDB",
-]
+DEFAULT_DB_PATHS = []
 DEFAULT_CLIENT_PATH = r"C:\Program Files\Firebird\Firebird_2_5\bin\fbclient.dll"
 
 
@@ -21,14 +18,18 @@ def resolve_db_path() -> str:
     for candidate in candidates:
         if candidate and Path(candidate).exists():
             return candidate
-    return candidates[0] if candidates else DEFAULT_DB_PATHS[0]
+    return candidates[0] if candidates else ""
 
 
 def connect():
+    db_path = resolve_db_path()
+    if not db_path:
+        raise RuntimeError("FIREBIRD_DB_PATH is not configured.")
+
     return fdb.connect(
-        dsn=resolve_db_path(),
-        user=os.environ.get("FIREBIRD_USER", "SYSDBA"),
-        password=os.environ.get("FIREBIRD_PASSWORD", "masterkey"),
+        dsn=db_path,
+        user=os.environ.get("FIREBIRD_USER", ""),
+        password=os.environ.get("FIREBIRD_PASSWORD", ""),
         charset=os.environ.get("FIREBIRD_CHARSET", "UTF8"),
         fb_library_name=os.environ.get("FIREBIRD_CLIENT_LIBRARY", DEFAULT_CLIENT_PATH),
         isolation_level=fdb.ISOLATION_LEVEL_READ_COMMITED_RO,

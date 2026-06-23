@@ -160,8 +160,8 @@ def receipt_details(cursor, args):
 def write_connection():
     return fdb.connect(
         dsn=resolve_db_path(),
-        user=os.environ.get("FIREBIRD_USER", "SYSDBA"),
-        password=os.environ.get("FIREBIRD_PASSWORD", "masterkey"),
+        user=os.environ.get("FIREBIRD_USER", ""),
+        password=os.environ.get("FIREBIRD_PASSWORD", ""),
         charset=os.environ.get("FIREBIRD_CHARSET", "UTF8"),
         fb_library_name=os.environ.get("FIREBIRD_CLIENT_LIBRARY", DEFAULT_CLIENT_PATH),
     )

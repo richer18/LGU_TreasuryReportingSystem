@@ -167,3 +167,198 @@ When using this project on the laptop:
 6. Test with php artisan firebird:status.
 7. Start backend and frontend using server_runner scripts.
 ```
+## 2026-06-24 Backend ODBC and Login Setup
+
+These notes document the current backend work done on `E:\LGU_TreasuryReportingSystem`.
+
+### What was changed
+
+```text
+1. Switched backend Firebird access from local .FDB path mode to ODBC mode.
+2. Added ODBC settings in backend/config/firebird.php.
+3. Updated backend services so Laravel passes ODBC and Windows environment values to Python.
+4. Updated runner/firebird_probe.py so it can connect using pyodbc when FIREBIRD_CONNECTION=odbc.
+5. Updated runner/search_receipt.py so receipt search/update uses the same connection mode.
+6. Fixed HTTP /api/firebird/status 503 by passing required Windows env values to Python:
+   - SystemRoot
+   - WINDIR
+   - PATH
+   - USERPROFILE
+   - APPDATA
+7. Fixed Python package visibility for pyodbc when called from Laravel/PHP server.
+8. Generated Laravel APP_KEY for the local backend .env.
+9. Ran pending Laravel auth/Sanctum migrations.
+10. Seeded the default admin login account.
+```
+
+### Current backend Firebird mode
+
+The backend now expects ODBC settings in `backend/.env`:
+
+```env
+FIREBIRD_CONNECTION=odbc
+FIREBIRD_ODBC_DSN=itaxzamboanguita
+FIREBIRD_USER=SYSDBA
+FIREBIRD_PASSWORD=masterkey
+FIREBIRD_CHARSET=UTF8
+FIREBIRD_ODBC_CLIENT_LIBRARY='C:\Program Files\Firebird\Firebird_2_5\bin\fbclient.dll'
+PYTHON_BINARY='C:\Python313\python.exe'
+```
+
+Important: keep real credentials inside `backend/.env` only. Do not commit `.env`.
+
+### Current ODBC target
+
+The DSN `itaxzamboanguita` should point to the main iTAX Firebird database:
+
+```text
+Database: main-server:i_tax046zamboanguita
+Client:   C:\Program Files\Firebird\Firebird_2_5\bin\fbclient.dll
+Driver:   Firebird/InterBase(r) ODBC driver
+Dialect:  3
+```
+
+If `/api/firebird/status` fails with `Failed to locate host machine "main-server"`, check DNS/network resolution for `main-server`. The server was observed as:
+
+```text
+MAIN-SERVER.local
+192.168.101.20
+```
+
+### Verified working commands
+
+From `E:\LGU_TreasuryReportingSystem\backend`:
+
+```powershell
+php artisan config:clear
+php artisan firebird:status
+php artisan test
+```
+
+Expected Firebird status:
+
+```text
+ok: true
+connection: odbc
+database: itaxzamboanguita
+table_count: 237
+view_count: 1
+```
+
+Expected HTTP status while backend is running:
+
+```text
+GET http://127.0.0.1:8000/api/firebird/status
+StatusCode: 200
+```
+
+### Login setup completed
+
+The local Laravel auth database was prepared with:
+
+```powershell
+php artisan key:generate --force
+php artisan migrate --force
+php artisan db:seed --force
+```
+
+Default local login:
+
+```text
+Email:    admin@zamboanguita.local
+Password: admin123
+```
+
+Expected login result:
+
+```text
+POST http://127.0.0.1:8000/api/login
+StatusCode: 200
+```
+
+### New PC installation checklist
+
+On a new PC, install these first:
+
+```text
+Git
+XAMPP / PHP 8.2+
+Composer
+Node.js
+Python 3.13
+Firebird ODBC driver
+Firebird 2.5 client / fbclient.dll
+```
+
+Clone and install:
+
+```powershell
+cd E:\
+git clone https://github.com/richer18/LGU_TreasuryReportingSystem.git
+cd E:\LGU_TreasuryReportingSystem\backend
+composer install
+copy .env.example .env
+php artisan key:generate
+php artisan migrate --force
+php artisan db:seed --force
+C:\Python313\python.exe -m pip install pyodbc==5.3.0 fdb openpyxl
+```
+
+Configure `backend/.env` with the ODBC block shown above.
+
+Set up `ODBC Data Sources (64-bit)` with DSN name:
+
+```text
+itaxzamboanguita
+```
+
+Then test:
+
+```powershell
+cd E:\LGU_TreasuryReportingSystem\backend
+php artisan config:clear
+php artisan firebird:status
+```
+
+Frontend setup:
+
+```powershell
+cd E:\LGU_TreasuryReportingSystem\frontend
+npm install
+npm run dev
+```
+
+Backend run:
+
+```powershell
+cd E:\LGU_TreasuryReportingSystem\backend
+php artisan serve --host=127.0.0.1 --port=8000
+```
+
+Open:
+
+```text
+http://127.0.0.1:5173
+```
+
+### Troubleshooting notes
+
+If `/api/firebird/status` returns 503 with `pyodbc is required`, install pyodbc for the same Python used by `PYTHON_BINARY`:
+
+```powershell
+C:\Python313\python.exe -m pip install pyodbc==5.3.0
+```
+
+If `/api/login` returns 422, confirm the email/password are correct. If login returns 500 about missing encryption key, run:
+
+```powershell
+php artisan key:generate --force
+php artisan config:clear
+```
+
+If login fails because tables are missing, run:
+
+```powershell
+php artisan migrate --force
+php artisan db:seed --force
+```

@@ -29,6 +29,14 @@ class ReportPreviewService
         ];
 
         $process = Process::env([
+            'SystemRoot' => getenv('SystemRoot') ?: 'C:\\Windows',
+            'WINDIR' => getenv('WINDIR') ?: 'C:\\Windows',
+            'PATH' => getenv('PATH') ?: 'C:\\Windows\\System32;C:\\Windows;C:\\Python313;C:\\Python313\\Scripts',
+            'USERPROFILE' => getenv('USERPROFILE') ?: 'C:\\Users\\Treasurer-Server',
+            'APPDATA' => getenv('APPDATA') ?: 'C:\\Users\\Treasurer-Server\\AppData\\Roaming',
+            'FIREBIRD_CONNECTION' => config('firebird.connection'),
+            'FIREBIRD_ODBC_DSN' => config('firebird.odbc_dsn'),
+            'FIREBIRD_ODBC_CLIENT_LIBRARY' => config('firebird.odbc_client_library'),
             'FIREBIRD_DB_PATH' => config('firebird.database'),
             'FIREBIRD_USER' => config('firebird.user'),
             'FIREBIRD_PASSWORD' => config('firebird.password'),
@@ -84,6 +92,14 @@ class ReportPreviewService
         ];
 
         $process = Process::env([
+            'SystemRoot' => getenv('SystemRoot') ?: 'C:\\Windows',
+            'WINDIR' => getenv('WINDIR') ?: 'C:\\Windows',
+            'PATH' => getenv('PATH') ?: 'C:\\Windows\\System32;C:\\Windows;C:\\Python313;C:\\Python313\\Scripts',
+            'USERPROFILE' => getenv('USERPROFILE') ?: 'C:\\Users\\Treasurer-Server',
+            'APPDATA' => getenv('APPDATA') ?: 'C:\\Users\\Treasurer-Server\\AppData\\Roaming',
+            'FIREBIRD_CONNECTION' => config('firebird.connection'),
+            'FIREBIRD_ODBC_DSN' => config('firebird.odbc_dsn'),
+            'FIREBIRD_ODBC_CLIENT_LIBRARY' => config('firebird.odbc_client_library'),
             'FIREBIRD_DB_PATH' => config('firebird.database'),
             'FIREBIRD_USER' => config('firebird.user'),
             'FIREBIRD_PASSWORD' => config('firebird.password'),

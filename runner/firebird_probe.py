@@ -1,14 +1,34 @@
 import argparse
 import json
 import os
+import site
 import sys
 from pathlib import Path
 
 import fdb
 
 
+user_site_candidates = [site.getusersitepackages()]
+appdata = os.environ.get("APPDATA")
+if appdata:
+    user_site_candidates.append(str(Path(appdata) / "Python" / f"Python{sys.version_info.major}{sys.version_info.minor}" / "site-packages"))
+userprofile = os.environ.get("USERPROFILE")
+if userprofile:
+    user_site_candidates.append(str(Path(userprofile) / "AppData" / "Roaming" / "Python" / f"Python{sys.version_info.major}{sys.version_info.minor}" / "site-packages"))
+user_site_candidates.append(r"C:\Users\Treasurer-Server\AppData\Roaming\Python\Python313\site-packages")
+
+for user_site in user_site_candidates:
+    if user_site and Path(user_site).exists() and user_site not in sys.path:
+        sys.path.append(user_site)
+
+
 DEFAULT_DB_PATHS = []
 DEFAULT_CLIENT_PATH = r"C:\Program Files\Firebird\Firebird_2_5\bin\fbclient.dll"
+DEFAULT_ODBC_DSN = "itaxzamboanguita"
+
+
+def connection_mode() -> str:
+    return (os.environ.get("FIREBIRD_CONNECTION") or "native").strip().lower()
 
 
 def resolve_db_path() -> str:
@@ -21,7 +41,41 @@ def resolve_db_path() -> str:
     return candidates[0] if candidates else ""
 
 
+def resolve_odbc_dsn() -> str:
+    return (os.environ.get("FIREBIRD_ODBC_DSN") or DEFAULT_ODBC_DSN).strip()
+
+
+def resolve_odbc_client() -> str:
+    return (os.environ.get("FIREBIRD_ODBC_CLIENT_LIBRARY") or os.environ.get("FIREBIRD_CLIENT_LIBRARY") or DEFAULT_CLIENT_PATH).strip()
+
+
+def open_odbc_connection(readonly: bool = True):
+    try:
+        import pyodbc
+    except ImportError as exc:
+        raise RuntimeError("pyodbc is required for FIREBIRD_CONNECTION=odbc. Install it with: python -m pip install pyodbc==5.3.0") from exc
+
+    dsn = resolve_odbc_dsn()
+    if not dsn:
+        raise RuntimeError("FIREBIRD_ODBC_DSN is not configured.")
+
+    parts = [
+        f"DSN={dsn}",
+        f"UID={os.environ.get('FIREBIRD_USER', '')}",
+        f"PWD={os.environ.get('FIREBIRD_PASSWORD', '')}",
+    ]
+
+    client = resolve_odbc_client()
+    if client:
+        parts.append(f"CLIENT={client}")
+
+    return pyodbc.connect(";".join(parts) + ";", autocommit=False, readonly=readonly)
+
+
 def connect():
+    if connection_mode() == "odbc":
+        return open_odbc_connection(readonly=True)
+
     db_path = resolve_db_path()
     if not db_path:
         raise RuntimeError("FIREBIRD_DB_PATH is not configured.")
@@ -81,11 +135,13 @@ def main() -> int:
     parser.add_argument("--sample-limit", type=int, default=10)
     args = parser.parse_args()
 
+    mode = connection_mode()
     result = {
         "ok": False,
         "mode": "read_only_probe",
-        "database": resolve_db_path(),
-        "client_library": os.environ.get("FIREBIRD_CLIENT_LIBRARY", DEFAULT_CLIENT_PATH),
+        "connection": mode,
+        "database": resolve_odbc_dsn() if mode == "odbc" else resolve_db_path(),
+        "client_library": resolve_odbc_client() if mode == "odbc" else os.environ.get("FIREBIRD_CLIENT_LIBRARY", DEFAULT_CLIENT_PATH),
     }
 
     try:

@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import fdb
 
-from firebird_probe import DEFAULT_CLIENT_PATH, connect, resolve_db_path
+from firebird_probe import DEFAULT_CLIENT_PATH, connect, connection_mode, open_odbc_connection, resolve_db_path, resolve_odbc_dsn
 
 
 def scalar(value):
@@ -158,6 +158,9 @@ def receipt_details(cursor, args):
 
 
 def write_connection():
+    if connection_mode() == "odbc":
+        return open_odbc_connection(readonly=False)
+
     return fdb.connect(
         dsn=resolve_db_path(),
         user=os.environ.get("FIREBIRD_USER", ""),
@@ -165,7 +168,6 @@ def write_connection():
         charset=os.environ.get("FIREBIRD_CHARSET", "UTF8"),
         fb_library_name=os.environ.get("FIREBIRD_CLIENT_LIBRARY", DEFAULT_CLIENT_PATH),
     )
-
 
 def update_receipt(args):
     if os.environ.get("FIREBIRD_ALLOW_RECEIPT_UPDATE") != "1":
@@ -223,7 +225,8 @@ def main():
     payload = {
         "ok": False,
         "mode": "receipt_search",
-        "database": resolve_db_path(),
+        "database": resolve_odbc_dsn() if connection_mode() == "odbc" else resolve_db_path(),
+        "connection": connection_mode(),
         "action": args.action,
     }
 

@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'connection' => env('FIREBIRD_CONNECTION', 'native'),
+    'odbc_dsn' => env('FIREBIRD_ODBC_DSN', 'itaxzamboanguita'),
+    'odbc_client_library' => env('FIREBIRD_ODBC_CLIENT_LIBRARY', env('FIREBIRD_CLIENT_LIBRARY', 'C:\Program Files\Firebird\Firebird_2_5\bin\fbclient.dll')),
     'database' => env('FIREBIRD_DB_PATH', ''),
     'user' => env('FIREBIRD_USER', ''),
     'password' => env('FIREBIRD_PASSWORD', ''),

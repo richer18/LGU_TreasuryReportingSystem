@@ -44,15 +44,15 @@ import SearchIcon from '@mui/icons-material/Search'
 import axiosInstance from '../../axiosinstance/axiosInstance'
 
 const uiColors = {
-  navy: '#0f2747',
-  navyHover: '#0b1e38',
-  teal: '#0f6b62',
-  tealHover: '#0b544d',
-  amber: '#d6a12b',
-  steel: '#4b5d73',
-  sky: '#2f6db5',
-  cardBorder: '#d8e2ee',
-  pageBg: '#f5f7fb',
+  navy: 'var(--color-text-strong)',
+  navyHover: 'var(--color-primary-dark)',
+  teal: 'var(--color-primary)',
+  tealHover: 'var(--color-primary-dark)',
+  amber: 'var(--color-warning)',
+  steel: 'var(--color-muted)',
+  sky: 'var(--color-secondary)',
+  cardBorder: 'var(--color-border)',
+  pageBg: 'var(--color-bg)',
 }
 
 const todayValue = () => new Date().toISOString().slice(0, 10)
@@ -195,18 +195,18 @@ const metricCardSx = {
 }
 
 const statusMeta = {
-  Draft: { bg: 'rgba(214,161,43,0.16)', color: '#7a5300' },
-  'For Remittance': { bg: 'rgba(15,107,98,0.13)', color: uiColors.teal },
-  'Ready for Remittance': { bg: 'rgba(15,107,98,0.13)', color: uiColors.teal },
-  Remitted: { bg: 'rgba(46,125,50,0.14)', color: '#2e7d32' },
-  Saved: { bg: 'rgba(47,109,181,0.13)', color: uiColors.sky },
-  Printed: { bg: 'rgba(47,109,181,0.13)', color: uiColors.sky },
-  Voided: { bg: 'rgba(180,35,24,0.12)', color: '#b42318' },
-  Cancelled: { bg: 'rgba(180,35,24,0.12)', color: '#b42318' },
-  'For Review': { bg: 'rgba(15,107,98,0.13)', color: uiColors.teal },
-  Approved: { bg: 'rgba(47,109,181,0.13)', color: uiColors.sky },
-  Deposited: { bg: 'rgba(46,125,50,0.13)', color: '#2e7d32' },
-  Issued: { bg: 'rgba(15,107,98,0.13)', color: uiColors.teal },
+  Draft: { bg: 'var(--color-warning-soft)', color: 'var(--color-warning-dark)' },
+  'For Remittance': { bg: 'var(--color-primary-soft)', color: 'var(--color-primary)' },
+  'Ready for Remittance': { bg: 'var(--color-primary-soft)', color: 'var(--color-primary)' },
+  Remitted: { bg: 'var(--color-success-soft)', color: 'var(--color-success-dark)' },
+  Saved: { bg: 'var(--color-secondary-soft)', color: 'var(--color-primary)' },
+  Printed: { bg: 'var(--color-secondary-soft)', color: 'var(--color-primary)' },
+  Voided: { bg: 'var(--color-danger-soft)', color: 'var(--color-danger-dark)' },
+  Cancelled: { bg: 'var(--color-danger-soft)', color: 'var(--color-danger-dark)' },
+  'For Review': { bg: 'var(--color-primary-soft)', color: 'var(--color-primary)' },
+  Approved: { bg: 'var(--color-secondary-soft)', color: 'var(--color-primary)' },
+  Deposited: { bg: 'var(--color-success-soft)', color: 'var(--color-success-dark)' },
+  Issued: { bg: 'var(--color-primary-soft)', color: 'var(--color-primary)' },
 }
 
 const canRemitStatus = (status) => ['Saved', 'For Remittance', 'Ready for Remittance'].includes(status)
@@ -789,7 +789,7 @@ export function RcdPage({ user }) {
           <TableCell align="center" sx={{ fontWeight: 800 }}>{receiptCount || '-'}</TableCell>
           <TableCell><TextField onChange={(event) => updateLine(line.id, 'collectorAmount', Number(event.target.value.replace(/[^0-9.]/g, '') || 0))} size="small" value={line.collectorAmount || ''} /></TableCell>
           <TableCell align="right" sx={{ fontWeight: 800 }}>{line.validated ? formatPeso(line.fdbAmount) : 'Validate'}</TableCell>
-          <TableCell align="right" sx={{ color: difference === 0 ? '#2e7d32' : '#b42318', fontWeight: 900 }}>{line.validated ? formatPeso(difference) : '-'}</TableCell>
+          <TableCell align="right" sx={{ color: difference === 0 ? 'var(--color-success-dark)' : 'var(--color-danger-dark)', fontWeight: 900 }}>{line.validated ? formatPeso(difference) : '-'}</TableCell>
           <TableCell align="center"><StatusChip value={line.validationStatus} /></TableCell>
           <TableCell align="center"><Button color="error" onClick={() => removeCollectionLine(line.id)} size="small">Remove</Button></TableCell>
         </TableRow>
@@ -908,7 +908,7 @@ export function RcdPage({ user }) {
                   <TableCell align="center">{totals.receiptCount}</TableCell>
                   <TableCell align="right">{formatPeso(totals.collectorTotal)}</TableCell>
                   <TableCell align="right">{formatPeso(totals.fdbTotal)}</TableCell>
-                  <TableCell align="right" sx={{ color: totals.difference === 0 ? '#2e7d32' : '#b42318' }}>{formatPeso(totals.difference)}</TableCell>
+                  <TableCell align="right" sx={{ color: totals.difference === 0 ? 'var(--color-success-dark)' : 'var(--color-danger-dark)' }}>{formatPeso(totals.difference)}</TableCell>
                   <TableCell colSpan={2} />
                 </TableRow>
               </TableBody>
@@ -1158,7 +1158,7 @@ export function RcdPage({ user }) {
             key={item.label}
             onClick={() => runMenuAction(item.onClick)}
             sx={{
-              color: item.danger ? '#b42318' : item.accent ? uiColors.teal : uiColors.navy,
+              color: item.danger ? 'var(--color-danger-dark)' : item.accent ? uiColors.teal : uiColors.navy,
               fontWeight: item.accent || item.danger ? 900 : 700,
               minWidth: 220,
             }}

@@ -53,6 +53,12 @@ const navItems = [
 { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
+const collectionMonitorPages = {
+  trustFund: { fundScope: 'trust', title: 'Trust Fund' },
+  communityTax: { fundScope: 'community_tax', title: 'Community Tax' },
+  realPropertyTax: { fundScope: 'rpt', title: 'Real Property Tax' },
+}
+
 function App() {
   const { isAuthenticated, isCheckingAuth, login, logout, user } = useAuth()
   const [activePage, setActivePage] = useState('dashboard')
@@ -239,6 +245,13 @@ function App() {
 
         {activePage === 'generalFund' && <GeneralFundPage />}
 
+        {collectionMonitorPages[activePage] && (
+          <GeneralFundPage
+            fundScope={collectionMonitorPages[activePage].fundScope}
+            title={collectionMonitorPages[activePage].title}
+          />
+        )}
+
         {activePage === 'incometarget' && <IncomeTargetPage />}
 
         {activePage === 'searchreceipt' && <SearchReceiptPage />}
@@ -247,7 +260,7 @@ function App() {
 
         {activePage === 'acoDashboard' && <AcoDashboardPage user={user} />}
 
-        {activePage !== 'generalFund' && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'rcd' && activePage !== 'acoDashboard' && fundPages[activePage] && (
+        {activePage !== 'generalFund' && !collectionMonitorPages[activePage] && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'rcd' && activePage !== 'acoDashboard' && fundPages[activePage] && (
           <ReportsPage page={fundPages[activePage]} />
         )}
 

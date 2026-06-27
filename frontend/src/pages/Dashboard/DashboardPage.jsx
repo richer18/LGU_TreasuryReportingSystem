@@ -114,7 +114,7 @@ const formatCompactMoney = (value) => {
 
 const clamp = (value, min = 0, max = 100) => Math.min(max, Math.max(min, Number(value || 0)))
 
-const dashboardColors = ['#0f766e', '#2563eb', '#7c3aed', '#d97706', '#dc2626', '#475467']
+const dashboardColors = ['#0554F2', '#6AAED9', '#8CBF3F', '#F2D230', '#D93F07', '#6B7280']
 
 const categoryConfig = [
   {

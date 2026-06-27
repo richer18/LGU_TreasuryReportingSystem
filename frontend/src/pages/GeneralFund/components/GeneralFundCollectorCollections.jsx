@@ -16,8 +16,8 @@ import axiosInstance from '../../../axiosinstance/axiosInstance'
 import { formatMoney } from '../utils/generalFundFormat'
 
 const tableHeaderSx = {
-  backgroundColor: '#f8fafc',
-  color: '#667085',
+  backgroundColor: 'var(--color-bg)',
+  color: 'var(--color-muted)',
   fontSize: 12,
   fontWeight: 900,
   textTransform: 'uppercase',
@@ -25,7 +25,7 @@ const tableHeaderSx = {
 }
 
 const tableCellSx = {
-  color: '#132238',
+  color: 'var(--color-text)',
   fontSize: 14,
   whiteSpace: 'nowrap',
 }

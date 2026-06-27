@@ -27,6 +27,10 @@ class ReportPreviewService
             '--date-to',
             $filters['date_to'],
         ];
+        if (! empty($filters['collector'])) {
+            $command[] = '--collector';
+            $command[] = $filters['collector'];
+        }
 
         $process = Process::env([
             'SystemRoot' => getenv('SystemRoot') ?: 'C:\\Windows',
@@ -90,6 +94,10 @@ class ReportPreviewService
             '--output-dir',
             $outputDir,
         ];
+        if (! empty($filters['collector'])) {
+            $command[] = '--collector';
+            $command[] = $filters['collector'];
+        }
 
         $process = Process::env([
             'SystemRoot' => getenv('SystemRoot') ?: 'C:\\Windows',
@@ -109,7 +117,7 @@ class ReportPreviewService
                 env('PYTHONPATH'),
                 env('APPDATA') ? env('APPDATA').'\Python\Python314\site-packages' : null,
             ])),
-        ])->timeout(120)->run($command);
+        ])->timeout(240)->run($command);
 
         $payload = json_decode($process->output(), true);
 

@@ -12,9 +12,15 @@ from pathlib import Path
 from report_preview_readonly import SUMMARY_COLUMNS, build_report, scalar
 
 USER_PROFILE = os.environ.get("USERPROFILE") or r"C:\Users\LIFT-LAPTOP"
-USER_SITE = Path(USER_PROFILE) / "AppData" / "Roaming" / "Python" / "Python314" / "site-packages"
-if USER_SITE.exists() and str(USER_SITE) not in sys.path:
-    sys.path.append(str(USER_SITE))
+USER_SITE_CANDIDATES = [
+    Path(USER_PROFILE) / "AppData" / "Roaming" / "Python" / f"Python{sys.version_info.major}{sys.version_info.minor}" / "site-packages",
+    Path(USER_PROFILE) / "AppData" / "Roaming" / "Python" / "Python314" / "site-packages",
+    Path(USER_PROFILE) / "AppData" / "Roaming" / "Python" / "Python313" / "site-packages",
+    Path(USER_PROFILE) / "AppData" / "Roaming" / "Python" / "Python312" / "site-packages",
+]
+for USER_SITE in USER_SITE_CANDIDATES:
+    if USER_SITE.exists() and str(USER_SITE) not in sys.path:
+        sys.path.append(str(USER_SITE))
 
 try:
     from openpyxl import load_workbook
@@ -39,8 +45,47 @@ TEMPLATE_MAP = {
     23: "summary_of_collection_template_rpt.xlsx",
 }
 
-PARENT_COLLECTION_RUNNER = Path(__file__).resolve().parents[2] / "run_collection_query.py"
-PARENT_DELEGATED_REPORTS = {25, 26, 27, 28, 29, 30, 31, 32, 33}
+PARENT_DELEGATED_REPORTS = set(range(1, 21)) | {25, 26, 27, 28, 29, 30, 31, 32, 33, 34}
+
+
+def parent_runner_candidates():
+    this_file = Path(__file__).resolve()
+    lgu_root = this_file.parents[1]
+    desktop_root = this_file.parents[2]
+    user_home = Path(USER_PROFILE)
+    configured = os.environ.get("ESRE_PARENT_RUNNER")
+
+    candidates = []
+    if configured:
+        candidates.append(Path(configured))
+
+    candidates.extend([
+        desktop_root / "ESRE_REPORT" / "run_collection_query.py",
+        lgu_root.parent / "ESRE_REPORT" / "run_collection_query.py",
+        user_home / "OneDrive" / "Desktop" / "ESRE_REPORT" / "run_collection_query.py",
+        user_home / "Desktop" / "ESRE_REPORT" / "run_collection_query.py",
+        desktop_root / "run_collection_query.py",
+    ])
+
+    unique = []
+    seen = set()
+    for candidate in candidates:
+        resolved = str(candidate)
+        if resolved not in seen:
+            unique.append(candidate)
+            seen.add(resolved)
+    return unique
+
+
+def resolve_parent_collection_runner():
+    candidates = parent_runner_candidates()
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+PARENT_COLLECTION_RUNNER = resolve_parent_collection_runner()
 
 
 def excel_value(value):
@@ -100,9 +145,12 @@ def write_summary_workbook(report_number, payload, date_from, date_to, output_di
     return output_path, len(body_rows)
 
 
-def delegated_parent_export(report_number, date_from, date_to, output_dir):
+def delegated_parent_export(report_number, date_from, date_to, output_dir, collector=None):
     if not PARENT_COLLECTION_RUNNER.exists():
-        raise FileNotFoundError(f"Parent collection runner was not found: {PARENT_COLLECTION_RUNNER}")
+        searched = "; ".join(str(path) for path in parent_runner_candidates())
+        raise FileNotFoundError(
+            f"Parent collection runner was not found: {PARENT_COLLECTION_RUNNER}. Searched: {searched}"
+        )
 
     command = [
         sys.executable,
@@ -115,7 +163,16 @@ def delegated_parent_export(report_number, date_from, date_to, output_dir):
         "--password",
         os.environ.get("FIREBIRD_PASSWORD", ""),
     ]
-    result = subprocess.run(command, capture_output=True, text=True, timeout=180, check=False)
+    if collector:
+        command.extend(["--collector", collector])
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+        cwd=str(PARENT_COLLECTION_RUNNER.parent),
+    )
     output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
 
     if result.returncode != 0:
@@ -148,6 +205,7 @@ def main():
     parser.add_argument("--date-from", required=True)
     parser.add_argument("--date-to", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--collector", help="Optional collector filter for collector reports.")
     args = parser.parse_args()
 
     try:
@@ -157,6 +215,7 @@ def main():
                 args.date_from,
                 args.date_to,
                 Path(args.output_dir),
+                args.collector,
             )
             print(json.dumps({
                 "ok": True,

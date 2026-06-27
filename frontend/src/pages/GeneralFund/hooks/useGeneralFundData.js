@@ -50,23 +50,24 @@ const buildParams = (filters, extra = {}) => {
   return params
 }
 
-export function useGeneralFundData() {
+export function useGeneralFundData(fundScope = 'general') {
   const [filters, setFilters] = useState(defaultFilters)
   const [data, setData] = useState(initialData)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const params = useMemo(() => buildParams(filters), [filters])
+  const params = useMemo(() => buildParams(filters, { fund_scope: fundScope }), [filters, fundScope])
 
   const loadData = useCallback(async () => {
     setLoading(true)
     setError('')
 
     try {
-      const [summary, collections, collectors] = await Promise.all([
+      const [summary, collections, collectors, daily] = await Promise.all([
         axiosInstance.get('/general-fund/summary', { params }),
         axiosInstance.get('/general-fund/collections', { params: { ...params, limit: 150 } }),
         axiosInstance.get('/general-fund/collectors', { params }),
+        axiosInstance.get('/general-fund/daily', { params }),
       ])
 
       setData((current) => ({
@@ -74,13 +75,14 @@ export function useGeneralFundData() {
         summary: summary.data.data,
         collections: collections.data.data || [],
         collectors: collectors.data.data || [],
+        daily: daily.data.data || [],
       }))
     } catch (requestError) {
       setError(
         requestError.response?.data?.error ||
           requestError.response?.data?.message ||
           requestError.message ||
-          'Unable to load General Fund collections.',
+          'Unable to load collections.',
       )
     } finally {
       setLoading(false)
@@ -107,6 +109,7 @@ export function useGeneralFundData() {
       const response = await axiosInstance.get('/general-fund/receipt-report', {
         params: buildParams(filters, {
           collector: filters.collector,
+          fund_scope: fundScope,
           receipt_from: filters.receipt_from,
           receipt_to: filters.receipt_to,
           limit: 300,

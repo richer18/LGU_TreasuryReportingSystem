@@ -41,6 +41,7 @@ class ReportCatalog
             ['number' => 31, 'name' => 'Full Report Collections', 'group' => 'full_report', 'status' => 'implemented_script'],
             ['number' => 32, 'name' => 'CMCI Annex A-B Business Permit Registration Report', 'group' => 'business_permit', 'status' => 'implemented_script'],
             ['number' => 33, 'name' => 'Tax on Business Summary from BPLS Business Tax', 'group' => 'business_tax', 'status' => 'implemented_script'],
+            ['number' => 34, 'name' => 'Generate Collection Receipt Per Collector', 'group' => 'collectors', 'status' => 'implemented_script'],
         ]);
     }
 

@@ -30,7 +30,7 @@ class GeneralFundReportService
             (string) ($filters['limit'] ?? 200),
         ];
 
-        foreach (['collector', 'receipt_from', 'receipt_to', 'receipt_no', 'taxpayer', 'payment_id'] as $key) {
+        foreach (['collector', 'receipt_from', 'receipt_to', 'receipt_no', 'taxpayer', 'payment_id', 'fund_scope'] as $key) {
             if (! empty($filters[$key])) {
                 $command[] = '--'.str_replace('_', '-', $key);
                 $command[] = (string) $filters[$key];

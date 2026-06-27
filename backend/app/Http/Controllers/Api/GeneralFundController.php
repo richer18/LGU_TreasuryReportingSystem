@@ -65,6 +65,7 @@ class GeneralFundController extends Controller
             'receipt_no' => ['nullable', 'string', 'max:40'],
             'taxpayer' => ['nullable', 'string', 'max:255'],
             'collector' => ['nullable', 'string', 'max:100'],
+            'fund_scope' => ['nullable', 'string', 'in:general,trust,community_tax,rpt'],
             'total_amount' => ['required', 'numeric'],
         ]);
 
@@ -77,6 +78,7 @@ class GeneralFundController extends Controller
             'receipt_no' => $row['receipt_no'] ?? null,
             'taxpayer' => $row['taxpayer'] ?? null,
             'collector' => $row['collector'] ?? null,
+            'fund_scope' => $row['fund_scope'] ?? 'general',
             'limit' => 1000,
         ]);
 
@@ -108,6 +110,7 @@ class GeneralFundController extends Controller
             'receipt_to' => ['nullable', 'string', 'max:40'],
             'receipt_no' => ['nullable', 'string', 'max:40'],
             'taxpayer' => ['nullable', 'string', 'max:255'],
+            'fund_scope' => ['nullable', 'string', 'in:general,trust,community_tax,rpt'],
             'limit' => ['nullable', 'integer', 'min:1', 'max:1000'],
         ]);
 

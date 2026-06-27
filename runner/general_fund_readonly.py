@@ -211,6 +211,7 @@ def collection_status(row):
 
 def fetch_general_details(cursor, args, include_void=False):
     status_filter = "" if include_void else paid_payment_filter("p")
+    fund_scope = getattr(args, "fund_scope", "general")
 
     cursor.execute(
         f"""
@@ -250,14 +251,79 @@ def fetch_general_details(cursor, args, include_void=False):
     details = []
     for row in rows(cursor):
         source_name = classify_summary_source(row["source_code"], row["source_id"], row["source_ct"])
-        if not source_name or source_name == "Community Tax" or source_name in TRUST_ABSTRACT_NAMES:
+        if not source_name:
             continue
+
+        if fund_scope == "trust":
+            if source_name not in TRUST_ABSTRACT_NAMES:
+                continue
+        elif fund_scope == "community_tax":
+            if source_name != "Community Tax":
+                continue
+        else:
+            if source_name == "Community Tax" or source_name in TRUST_ABSTRACT_NAMES:
+                continue
+
         row["source_name"] = source_name
         row["parent_description"] = source_name
         row["category"] = source_category(source_name)
         row["collection_status"] = collection_status(row)
         details.append(row)
     return details
+
+
+def fetch_rpt_details(cursor, args):
+    cursor.execute(
+        f"""
+        SELECT
+            p.PAYMENT_ID,
+            CAST(p.PAYMENTDATE AS DATE) AS collection_date,
+            TRIM(p.RECEIPTNO) AS receipt_no,
+            TRIM(p.PAIDBY) AS taxpayer,
+            COALESCE(NULLIF(TRIM(p.COLLECTOR), ''), TRIM(p.USERID), 'UNSPECIFIED') AS collector,
+            COALESCE(NULLIF(TRIM(p.AFTYPE), ''), 'AF 56') AS receipt_type,
+            TRIM(p.RCDNUMBER) AS rcd_number,
+            TRIM(p.PAYGROUP_CT) AS paygroup,
+            COALESCE(p.VOID_BV, 0) AS void_bv,
+            TRIM(p.STATUS_CT) AS payment_status_code,
+            COALESCE(TRIM(st.DESCRIPTION), TRIM(p.STATUS_CT), '') AS payment_status_description,
+            p.PAYMENT_ID AS PAYMENTDETAIL_ID,
+            'RPT' AS source_code,
+            '' AS detail_status_code,
+            'Real Property Tax' AS description,
+            'Real Property Tax' AS child_description,
+            NULL AS source_id,
+            'RPT' AS source_ct,
+            COALESCE(rpt_totals.RPT_TOTAL, p.AMOUNT, 0) AS amount
+        FROM PAYMENT p
+        LEFT JOIN (
+            SELECT PAYMENT_ID, SUM(AMOUNT) AS RPT_TOTAL
+            FROM PAYMENTCLASSDETAIL
+            GROUP BY PAYMENT_ID
+        ) rpt_totals ON rpt_totals.PAYMENT_ID = p.PAYMENT_ID
+        LEFT JOIN T_STATUS st ON st.CODE = p.STATUS_CT
+        WHERE p.PAYMENTDATE >= CAST(? AS DATE)
+          AND p.PAYMENTDATE < DATEADD(1 DAY TO CAST(? AS DATE))
+          {paid_payment_filter("p")}
+          AND COALESCE(TRIM(p.PAYGROUP_CT), '') = 'RPT'
+        ORDER BY CAST(p.PAYMENTDATE AS DATE), TRIM(p.RECEIPTNO), p.PAYMENT_ID
+        """,
+        date_params(args),
+    )
+    details = []
+    for row in rows(cursor):
+        row["source_name"] = "Real Property Tax"
+        row["parent_description"] = "Real Property Tax"
+        row["category"] = "Real Property Tax"
+        row["collection_status"] = collection_status(row)
+        details.append(row)
+    return details
+
+
+def fetch_details(cursor, args, include_void=False):
+    if getattr(args, "fund_scope", "general") == "rpt":
+        return fetch_rpt_details(cursor, args)
+    return fetch_general_details(cursor, args, include_void=include_void)
 
 
 def payment_groups(details):
@@ -309,6 +375,12 @@ def payment_groups(details):
 
 
 def payment_details(cursor, args):
+    if getattr(args, "fund_scope", "general") == "rpt":
+        details = fetch_rpt_details(cursor, args)
+        if args.receipt_no:
+            return [row for row in details if str(row.get("receipt_no") or "") == str(args.receipt_no)]
+        return [row for row in details if str(row.get("payment_id") or "") == str(args.payment_id)]
+
     params = []
     filters = []
 
@@ -361,8 +433,20 @@ def payment_details(cursor, args):
     details = []
     for row in rows(cursor):
         source_name = classify_summary_source(row["source_code"], row["source_id"], row["source_ct"])
-        if not source_name or source_name == "Community Tax" or source_name in TRUST_ABSTRACT_NAMES:
+        if not source_name:
             continue
+
+        fund_scope = getattr(args, "fund_scope", "general")
+        if fund_scope == "trust":
+            if source_name not in TRUST_ABSTRACT_NAMES:
+                continue
+        elif fund_scope == "community_tax":
+            if source_name != "Community Tax":
+                continue
+        else:
+            if source_name == "Community Tax" or source_name in TRUST_ABSTRACT_NAMES:
+                continue
+
         row["source_name"] = source_name
         row["parent_description"] = source_name
         row["description"] = source_name
@@ -387,7 +471,7 @@ def aggregate(details, key):
 
 
 def summary(cursor, args):
-    details = fetch_general_details(cursor, args)
+    details = fetch_details(cursor, args)
     payments = payment_groups(details)
     collectors_seen = {row["collector"] for row in payments}
     receipt_values = [row["receipt_no"] for row in payments if row.get("receipt_no")]
@@ -414,7 +498,7 @@ def summary(cursor, args):
 
 
 def collections(cursor, args):
-    payments = payment_groups(fetch_general_details(cursor, args))
+    payments = payment_groups(fetch_details(cursor, args))
     if args.collector:
         collector = normalize_collector(args.collector)
         payments = [row for row in payments if (row["collector"] or "").upper() == collector.upper()]
@@ -427,7 +511,7 @@ def collections(cursor, args):
 
 
 def receipt_report(cursor, args):
-    payments = payment_groups(fetch_general_details(cursor, args, include_void=True))
+    payments = payment_groups(fetch_details(cursor, args, include_void=True))
     if args.collector:
         collector = normalize_collector(args.collector)
         payments = [row for row in payments if (row["collector"] or "").upper() == collector.upper()]
@@ -441,7 +525,7 @@ def receipt_report(cursor, args):
 
 def daily(cursor, args):
     grouped = {}
-    details = fetch_general_details(cursor, args)
+    details = fetch_details(cursor, args)
     payments = payment_groups(details)
     for payment in payments:
         item = grouped.setdefault(
@@ -504,7 +588,7 @@ def daily(cursor, args):
 
 def sources(cursor, args):
     grouped = {}
-    for row in fetch_general_details(cursor, args):
+    for row in fetch_details(cursor, args):
         key = (row["source_name"], row["source_code"], row["description"], row["category"])
         item = grouped.setdefault(
             key,
@@ -531,7 +615,7 @@ def sources(cursor, args):
 def collectors(cursor, args):
     return [
         {"collector": row["collector"], "receipt_count": row["receipt_count"], "total_amount": row["total_amount"]}
-        for row in aggregate(fetch_general_details(cursor, args), "collector")
+        for row in aggregate(fetch_details(cursor, args), "collector")
     ]
 
 
@@ -670,6 +754,7 @@ def main():
     parser.add_argument("--receipt-no")
     parser.add_argument("--taxpayer")
     parser.add_argument("--payment-id")
+    parser.add_argument("--fund-scope", choices=["general", "trust", "community_tax", "rpt"], default="general")
     parser.add_argument("--limit", type=int, default=200)
     args = parser.parse_args()
 

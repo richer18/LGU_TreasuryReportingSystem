@@ -35,12 +35,12 @@ import VerifiedUserIcon from '@mui/icons-material/VerifiedUser'
 import axiosInstance from '../../axiosinstance/axiosInstance'
 
 const colors = {
-  navy: '#0f2747',
-  teal: '#0f6b62',
-  tealHover: '#0b544d',
-  steel: '#4b5d73',
-  border: '#d8e2ee',
-  bg: '#f5f7fb',
+  navy: 'var(--color-text-strong)',
+  teal: 'var(--color-primary)',
+  tealHover: 'var(--color-primary-dark)',
+  steel: 'var(--color-muted)',
+  border: 'var(--color-border)',
+  bg: 'var(--color-bg)',
 }
 
 const todayValue = () => new Date().toISOString().slice(0, 10)
@@ -65,12 +65,12 @@ const countReceiptRange = (from, to) => {
 }
 
 const statusColor = (status) => {
-  if (status === 'Remitted to ACO') return { bg: 'rgba(15,107,98,0.13)', color: colors.teal }
-  if (status === 'Received by ACO') return { bg: 'rgba(46,125,50,0.14)', color: '#2e7d32' }
-  if (status === 'With Variance') return { bg: 'rgba(214,161,43,0.16)', color: '#7a5300' }
-  if (['Voided', 'Cancelled'].includes(status)) return { bg: 'rgba(180,35,24,0.12)', color: '#b42318' }
-  if (status === 'Printed') return { bg: 'rgba(47,109,181,0.13)', color: '#2f6db5' }
-  return { bg: 'rgba(75,93,115,0.12)', color: colors.steel }
+  if (status === 'Remitted to ACO') return { bg: 'var(--color-primary-soft)', color: 'var(--color-primary)' }
+  if (status === 'Received by ACO') return { bg: 'var(--color-success-soft)', color: 'var(--color-success-dark)' }
+  if (status === 'With Variance') return { bg: 'var(--color-warning-soft)', color: 'var(--color-warning-dark)' }
+  if (['Voided', 'Cancelled'].includes(status)) return { bg: 'var(--color-danger-soft)', color: 'var(--color-danger-dark)' }
+  if (status === 'Printed') return { bg: 'var(--color-secondary-soft)', color: 'var(--color-primary)' }
+  return { bg: 'rgba(107, 114, 128, 0.12)', color: colors.steel }
 }
 
 function StatusChip({ value }) {
@@ -443,7 +443,7 @@ export function AcoDashboardPage({ user }) {
 
       <Menu anchorEl={menuAnchor} onClose={closeMenu} open={Boolean(menuAnchor)}>
         {activeActions.map((item) => (
-          <MenuItem key={item.label} onClick={item.action} sx={{ color: item.danger ? '#b42318' : item.accent ? colors.teal : colors.navy, fontWeight: item.accent || item.danger ? 900 : 700, minWidth: 220 }}>
+          <MenuItem key={item.label} onClick={item.action} sx={{ color: item.danger ? 'var(--color-danger-dark)' : item.accent ? colors.teal : colors.navy, fontWeight: item.accent || item.danger ? 900 : 700, minWidth: 220 }}>
             {item.label}
           </MenuItem>
         ))}

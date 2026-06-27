@@ -1,10 +1,33 @@
 :root {
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --color-primary: #0554F2;
+  --color-primary-dark: #0442C0;
+  --color-primary-soft: rgba(5, 84, 242, 0.1);
+  --color-secondary: #6AAED9;
+  --color-secondary-soft: rgba(106, 174, 217, 0.16);
+  --color-success: #8CBF3F;
+  --color-success-dark: #4F7A1F;
+  --color-success-soft: rgba(140, 191, 63, 0.16);
+  --color-warning: #F2D230;
+  --color-warning-dark: #6B5600;
+  --color-warning-soft: rgba(242, 210, 48, 0.22);
+  --color-danger: #D93F07;
+  --color-danger-dark: #A62F05;
+  --color-danger-soft: rgba(217, 63, 7, 0.12);
+  --color-bg: #F8FAFC;
+  --color-surface: #FFFFFF;
+  --color-border: #E5E7EB;
+  --color-border-strong: #CBD5E1;
+  --color-text: #111827;
+  --color-text-strong: #020617;
+  --color-muted: #6B7280;
+  --color-sidebar: #0F172A;
+  --shadow-soft: 0 16px 45px rgba(17, 24, 39, 0.1);
 
   font: 16px/145% var(--sans);
   letter-spacing: 0;
-  color: #334155;
-  background: #eef3f7;
+  color: var(--color-text);
+  background: var(--color-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;

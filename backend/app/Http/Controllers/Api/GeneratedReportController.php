@@ -16,11 +16,12 @@ class GeneratedReportController extends Controller
 
     public function preview(Request $request, int $number): JsonResponse
     {
-        abort_if($number < 1 || $number > 33 || $number === 24, 404, 'Report not found.');
+        abort_if($number < 1 || $number > 34 || $number === 24, 404, 'Report not found.');
 
         $filters = $request->validate([
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date'],
+            'collector' => ['nullable', 'string', 'max:100'],
         ]);
 
         $filters['date_from'] ??= now()->startOfMonth()->toDateString();
@@ -33,11 +34,12 @@ class GeneratedReportController extends Controller
 
     public function download(Request $request, int $number): JsonResponse|BinaryFileResponse
     {
-        abort_if($number < 1 || $number > 33 || $number === 24, 404, 'Report not found.');
+        abort_if($number < 1 || $number > 34 || $number === 24, 404, 'Report not found.');
 
         $filters = $request->validate([
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date'],
+            'collector' => ['nullable', 'string', 'max:100'],
         ]);
 
         $filters['date_from'] ??= now()->startOfMonth()->toDateString();
@@ -52,9 +54,14 @@ class GeneratedReportController extends Controller
         $path = $result['path'] ?? null;
         abort_if(! is_string($path) || ! is_file($path), 500, 'Generated Excel file was not found.');
 
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        $contentType = $extension === 'csv'
+            ? 'text/csv; charset=UTF-8'
+            : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
         return response()
             ->download($path, $result['filename'] ?? basename($path), [
-                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'Content-Type' => $contentType,
             ])
             ->deleteFileAfterSend(true);
     }

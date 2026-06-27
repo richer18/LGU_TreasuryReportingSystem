@@ -3,8 +3,24 @@ import { useMemo, useState } from 'react'
 import axiosInstance from '../../axiosinstance/axiosInstance'
 
 const UI_REPORT_NUMBERS = new Set([21, 22, 23, 27, 28, 31, 33])
-const DOWNLOAD_ONLY_REPORT_NUMBERS = new Set([25, 26, 29, 30, 32])
+const DOWNLOAD_ONLY_REPORT_NUMBERS = new Set([
+  ...Array.from({ length: 20 }, (_, index) => index + 1),
+  25,
+  26,
+  29,
+  30,
+  32,
+  34,
+])
 const MAIN_REPORT_NUMBERS = new Set([...UI_REPORT_NUMBERS, ...DOWNLOAD_ONLY_REPORT_NUMBERS])
+const COLLECTOR_REPORT_NUMBER = 34
+const REPORT_COLLECTORS = [
+  { value: 'flora', label: 'FLORA MY D. FERRER' },
+  { value: 'agnes', label: 'AGNES B. ELLO' },
+  { value: 'ricardo', label: 'RICARDO T. ENOPIA' },
+  { value: 'angelique', label: 'ANGELIQUE IRIS A. RAFALES' },
+  { value: 'emily', label: 'EMILY E. CREDO' },
+]
 
 const currentMonth = () => {
   const today = new Date()
@@ -758,25 +774,35 @@ const TemplatePreview = ({ report }) => {
   return <AbstractTemplate template={template} />
 }
 
-export function ReportsPage({ page }) {
+export function ReportsPage({ page, variant = 'reports' }) {
   const [selectedMonth, setSelectedMonth] = useState(currentMonth())
   const [selectedReportNumber, setSelectedReportNumber] = useState('')
+  const [selectedCollector, setSelectedCollector] = useState('')
   const [generatedReport, setGeneratedReport] = useState(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const [generationError, setGenerationError] = useState('')
   const range = useMemo(() => getMonthRange(selectedMonth), [selectedMonth])
+  const isCollectionMonitor = variant === 'collectionMonitor'
   const mainReports = page.reports.filter((report) => MAIN_REPORT_NUMBERS.has(report.number))
   const otherReports = page.reports.filter((report) => report.number >= 1 && report.number <= 20)
+  const quickReports = isCollectionMonitor ? page.reports : mainReports
 
   const findReport = (value) => page.reports.find((report) => String(report.number) === value)
+  const selectedReport = findReport(selectedReportNumber)
+  const requiresCollector = selectedReport?.number === COLLECTOR_REPORT_NUMBER
 
   const downloadReport = async (report, period) => {
+    const params = {
+      date_from: period.dateFrom,
+      date_to: period.dateTo,
+    }
+    if (report.number === COLLECTOR_REPORT_NUMBER) {
+      params.collector = selectedCollector
+    }
+
     const response = await axiosInstance.get(`/generated-reports/${report.number}/download`, {
-      params: {
-        date_from: period.dateFrom,
-        date_to: period.dateTo,
-      },
+      params,
       responseType: 'blob',
     })
     const disposition = response.headers['content-disposition'] || ''
@@ -797,6 +823,11 @@ export function ReportsPage({ page }) {
     const report = findReport(selectedReportNumber)
     if (!report) return
     const isDownloadOnly = DOWNLOAD_ONLY_REPORT_NUMBERS.has(report.number)
+
+    if (report.number === COLLECTOR_REPORT_NUMBER && !selectedCollector) {
+      setGenerationError('Please select a collector for Generate Collection Receipt Per Collector.')
+      return
+    }
 
     setIsGenerating(true)
     setGenerationError('')
@@ -861,13 +892,45 @@ export function ReportsPage({ page }) {
   }
 
   return (
-    <div className="page-stack reports-page">
+    <div className={`page-stack reports-page ${isCollectionMonitor ? 'general-fund-page collection-monitor-page' : ''}`}>
+      {isCollectionMonitor && (
+        <section className="general-fund-hero">
+          <div>
+            <p className="eyebrow">Collection Monitor</p>
+            <h2>{page.title}</h2>
+          </div>
+        </section>
+      )}
+
       <section className="toolbar-panel master-report-panel report-generator-panel">
         <div className="report-generator-heading">
-          <p className="eyebrow">Office of the Municipal Treasurer</p>
-          <h2>{page.title}</h2>
-          <p className="toolbar-description">Generate, preview, export, and print official LGU treasury report templates.</p>
+          <p className="eyebrow">{isCollectionMonitor ? 'Official Collection Reports' : 'Office of the Municipal Treasurer'}</p>
+          <h2>{isCollectionMonitor ? 'Reports' : page.title}</h2>
+          <p className="toolbar-description">
+            {isCollectionMonitor
+              ? page.description
+              : 'Generate, preview, export, and print official LGU treasury report templates.'}
+          </p>
         </div>
+
+        {isCollectionMonitor && (
+          <section className="action-strip collection-monitor-report-strip" aria-label={`${page.title} quick reports`}>
+            {quickReports.map((report) => (
+              <button
+                key={report.number}
+                onClick={() => {
+                  setSelectedReportNumber(String(report.number))
+                  setGeneratedReport(null)
+                  setGenerationError('')
+                }}
+                type="button"
+              >
+                <FileText size={18} aria-hidden="true" />
+                <span>{report.name}</span>
+              </button>
+            ))}
+          </section>
+        )}
 
         <div className="report-generator-controls">
           <label className="month-filter-field">
@@ -884,7 +947,10 @@ export function ReportsPage({ page }) {
             <span><BookOpen size={14} aria-hidden="true" /> Generate Report</span>
             <select
               aria-label="Generate report"
-              onChange={(event) => setSelectedReportNumber(event.target.value)}
+              onChange={(event) => {
+                setSelectedReportNumber(event.target.value)
+                setGenerationError('')
+              }}
               value={selectedReportNumber}
             >
               <option value="">Select report</option>
@@ -899,7 +965,26 @@ export function ReportsPage({ page }) {
             </select>
           </label>
 
-          <button className="primary-button generate-selected-report-button" disabled={!selectedReportNumber || isGenerating} onClick={generateReport} type="button">
+          {requiresCollector && (
+            <label className="report-select-field">
+              <span><BookOpen size={14} aria-hidden="true" /> Collector</span>
+              <select
+                aria-label="Collector"
+                onChange={(event) => {
+                  setSelectedCollector(event.target.value)
+                  setGenerationError('')
+                }}
+                value={selectedCollector}
+              >
+                <option value="">Select collector</option>
+                {REPORT_COLLECTORS.map((collector) => (
+                  <option key={collector.value} value={collector.value}>{collector.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <button className="primary-button generate-selected-report-button" disabled={!selectedReportNumber || isGenerating || (requiresCollector && !selectedCollector)} onClick={generateReport} type="button">
             <FileText size={15} aria-hidden="true" />
             {isGenerating ? 'Generating...' : 'Generate Report'}
           </button>
@@ -909,7 +994,7 @@ export function ReportsPage({ page }) {
           <Info size={18} aria-hidden="true" />
           <div>
             <strong>Report Scope</strong>
-            <p>Choose a month and report template. Reports 21 to 33 are generated from the read-only Firebird bridge, BPLS workbook sources, and uploaded Excel templates.</p>
+            <p>Choose a month and report template. Reports 1 to 34 are generated from the read-only Firebird bridge, BPLS workbook sources, and uploaded Excel templates.</p>
           </div>
         </div>
 

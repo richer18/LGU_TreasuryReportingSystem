@@ -11,7 +11,7 @@ import { GeneralFundReceiptReport } from './components/GeneralFundReceiptReport'
 import { GeneralFundSourceBreakdown } from './components/GeneralFundSourceBreakdown'
 import { useGeneralFundData } from './hooks/useGeneralFundData'
 
-export function GeneralFundPage() {
+export function GeneralFundPage({ fundScope = 'general', title = 'General Fund' }) {
   const [activeDialog, setActiveDialog] = useState('')
   const {
     data,
@@ -20,7 +20,7 @@ export function GeneralFundPage() {
     loading,
     loadData,
     updateFilter,
-  } = useGeneralFundData()
+  } = useGeneralFundData(fundScope)
 
   const openDialog = (dialog) => {
     setActiveDialog(dialog)
@@ -31,12 +31,14 @@ export function GeneralFundPage() {
       <section className="general-fund-hero">
         <div>
           <p className="eyebrow">Collection Monitor</p>
-          <h2>General Fund</h2>
+          <h2>{title}</h2>
         </div>
-        <button className="general-fund-generate-button" onClick={() => openDialog('generateReceipt')} type="button">
-          <ReceiptText size={17} aria-hidden="true" />
-          Generate Receipt
-        </button>
+        {fundScope === 'general' && (
+          <button className="general-fund-generate-button" onClick={() => openDialog('generateReceipt')} type="button">
+            <ReceiptText size={17} aria-hidden="true" />
+            Generate Receipt
+          </button>
+        )}
       </section>
 
       <GeneralFundFilters
@@ -55,7 +57,7 @@ export function GeneralFundPage() {
       )}
 
       <GeneralFundActionStrip onOpen={openDialog} />
-      <GeneralFundCollectionsTable collections={data.collections} />
+      <GeneralFundCollectionsTable collections={data.collections} fundScope={fundScope} title={title} />
 
       <GeneralFundDialog
         onClose={() => setActiveDialog('')}
@@ -86,7 +88,7 @@ export function GeneralFundPage() {
         open={activeDialog === 'daily'}
         title="Daily Collection"
       >
-        <GeneralFundDailyTable daily={data.daily} />
+        <GeneralFundDailyTable daily={data.daily} fundScope={fundScope} />
       </GeneralFundDialog>
 
       <GeneralFundDialog
@@ -94,7 +96,7 @@ export function GeneralFundPage() {
         open={activeDialog === 'source'}
         title="Source Breakdown"
       >
-        <GeneralFundSourceBreakdown filters={filters} />
+        <GeneralFundSourceBreakdown filters={filters} fundScope={fundScope} />
       </GeneralFundDialog>
     </div>
   )

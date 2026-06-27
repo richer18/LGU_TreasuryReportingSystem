@@ -8,7 +8,11 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  ListItemIcon,
+  ListItemText,
   LinearProgress,
+  Menu,
+  MenuItem,
   Paper,
   Table,
   TableBody,
@@ -20,14 +24,14 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { Eye, Pencil, Printer, X } from 'lucide-react'
+import { ChevronDown, Eye, Pencil, Printer, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import axiosInstance from '../../../axiosinstance/axiosInstance'
 import { formatMoney } from '../utils/generalFundFormat'
 
 const tableHeaderSx = {
-  backgroundColor: '#f8fafc',
-  color: '#667085',
+  backgroundColor: 'var(--color-bg)',
+  color: 'var(--color-muted)',
   fontSize: 12,
   fontWeight: 900,
   textTransform: 'uppercase',
@@ -35,7 +39,7 @@ const tableHeaderSx = {
 }
 
 const tableCellSx = {
-  color: '#132238',
+  color: 'var(--color-text)',
   fontSize: 14,
   whiteSpace: 'nowrap',
 }
@@ -65,7 +69,7 @@ function DetailLine({ label, value }) {
       <Typography color="text.secondary" fontSize={12} fontWeight={800} textTransform="uppercase">
         {label}
       </Typography>
-      <Typography color="#132238" fontWeight={700}>
+      <Typography color="var(--color-text)" fontWeight={700}>
         {value || '-'}
       </Typography>
     </Paper>
@@ -76,7 +80,7 @@ function DialogHeader({ onClose, subtitle, title }) {
   return (
     <DialogTitle
       sx={{
-        background: 'linear-gradient(135deg, #0f2747, #2f4f7f)',
+        background: 'linear-gradient(135deg, var(--color-primary), var(--color-secondary))',
         color: '#ffffff',
         px: 3,
         py: 2,
@@ -99,7 +103,7 @@ function PaymentDescriptionCell({ detail }) {
   const description = detail.child_description || detail.raw_description || detail.description || 'General Fund payment'
 
   return (
-    <Typography color="#132238" fontSize={14} fontWeight={800}>
+    <Typography color="var(--color-text)" fontSize={14} fontWeight={800}>
       {description}
     </Typography>
   )
@@ -128,7 +132,7 @@ const escapeHtml = (value) =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;')
 
-export function GeneralFundCollectionsTable({ collections }) {
+export function GeneralFundCollectionsTable({ collections, fundScope = 'general', title = 'General Fund' }) {
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [selectedRow, setSelectedRow] = useState(null)
@@ -137,6 +141,8 @@ export function GeneralFundCollectionsTable({ collections }) {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState('')
   const [printingPaymentId, setPrintingPaymentId] = useState(null)
+  const [actionAnchor, setActionAnchor] = useState(null)
+  const [actionRow, setActionRow] = useState(null)
 
   const visibleRows = useMemo(
     () => collections.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
@@ -157,6 +163,7 @@ export function GeneralFundCollectionsTable({ collections }) {
           params: {
             date_from: row.collection_date,
             date_to: row.collection_date,
+            fund_scope: fundScope,
             receipt_no: row.receipt_no,
             taxpayer: row.taxpayer,
             collector: row.collector,
@@ -193,6 +200,7 @@ export function GeneralFundCollectionsTable({ collections }) {
         {
           params: {
             collection_date: row.collection_date,
+            fund_scope: fundScope,
             receipt_no: row.receipt_no,
             taxpayer: row.taxpayer,
             collector: row.collector,
@@ -215,9 +223,27 @@ export function GeneralFundCollectionsTable({ collections }) {
   }
 
   const openDialog = (dialog, row) => {
+    closeActionMenu()
     setSelectedRow(row)
     setActiveDialog(dialog)
     loadPaymentDetails(row)
+  }
+
+  const openActionMenu = (event, row) => {
+    setActionAnchor(event.currentTarget)
+    setActionRow(row)
+  }
+
+  const closeActionMenu = () => {
+    setActionAnchor(null)
+    setActionRow(null)
+  }
+
+  const printSelectedReceipt = () => {
+    if (!actionRow) return
+    const row = actionRow
+    closeActionMenu()
+    printReceipt(row)
   }
 
   const closeDialog = () => {
@@ -231,7 +257,7 @@ export function GeneralFundCollectionsTable({ collections }) {
     <Paper className="reports-table general-fund-table" variant="outlined">
       <div className="table-toolbar">
         <div>
-          <strong><span className="toolbar-live-dot" />General Fund Collections</strong>
+          <strong><span className="toolbar-live-dot" />{title} Collections</strong>
           <span>{collections.length} receipts loaded from the active filter period</span>
         </div>
       </div>
@@ -257,51 +283,54 @@ export function GeneralFundCollectionsTable({ collections }) {
                 <TableCell sx={tableCellSx}>{row.collector || '-'}</TableCell>
                 <TableCell sx={amountCellSx}>{formatMoney(row.total_amount)}</TableCell>
                 <TableCell sx={tableCellSx}>
-                  <Box display="flex" gap={1}>
-                    <Button
-                      onClick={() => openDialog('view', row)}
-                      size="small"
-                      startIcon={<Eye size={15} />}
-                      sx={{ borderRadius: 2, fontWeight: 800 }}
-                      variant="outlined"
-                    >
-                      View
-                    </Button>
-                    <Button
-                      color="warning"
-                      onClick={() => openDialog('update', row)}
-                      size="small"
-                      startIcon={<Pencil size={15} />}
-                      sx={{ borderRadius: 2, fontWeight: 800 }}
-                      variant="outlined"
-                    >
-                      Update
-                    </Button>
-                    <Button
-                      color="success"
-                      disabled={printingPaymentId === row.payment_id}
-                      onClick={() => printReceipt(row)}
-                      size="small"
-                      startIcon={<Printer size={15} />}
-                      sx={{ borderRadius: 2, fontWeight: 800 }}
-                      variant="outlined"
-                    >
-                      Print
-                    </Button>
-                  </Box>
+                  <Button
+                    endIcon={<ChevronDown size={15} />}
+                    onClick={(event) => openActionMenu(event, row)}
+                    size="small"
+                    sx={{ borderRadius: 2, fontWeight: 900, minWidth: 104 }}
+                    variant="outlined"
+                  >
+                    Actions
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}
             {!collections.length && (
               <TableRow>
                 <TableCell align="center" colSpan={6} sx={{ color: '#667085', py: 3 }}>
-                  No General Fund collections found.
+                  No {title} collections found.
                 </TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
       </TableContainer>
+
+      <Menu
+        anchorEl={actionAnchor}
+        onClose={closeActionMenu}
+        open={Boolean(actionAnchor)}
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            boxShadow: '0 16px 40px rgba(15, 23, 42, 0.16)',
+            minWidth: 190,
+          },
+        }}
+      >
+        <MenuItem onClick={() => openDialog('view', actionRow)}>
+          <ListItemIcon><Eye size={17} /></ListItemIcon>
+          <ListItemText primary="View" />
+        </MenuItem>
+        <MenuItem onClick={() => openDialog('update', actionRow)}>
+          <ListItemIcon><Pencil size={17} /></ListItemIcon>
+          <ListItemText primary="Update" />
+        </MenuItem>
+        <MenuItem disabled={!actionRow || printingPaymentId === actionRow.payment_id} onClick={printSelectedReceipt}>
+          <ListItemIcon><Printer size={17} /></ListItemIcon>
+          <ListItemText primary="Print" />
+        </MenuItem>
+      </Menu>
 
       <TablePagination
         component="div"
@@ -330,7 +359,7 @@ export function GeneralFundCollectionsTable({ collections }) {
           },
         }}
       >
-        <DialogHeader onClose={closeDialog} subtitle="Payment details breakdown" title="General Fund View" />
+        <DialogHeader onClose={closeDialog} subtitle="Payment details breakdown" title={`${title} View`} />
         <DialogContent sx={{ backgroundColor: '#f4f7fb', p: 2.5 }}>
           {selectedRow && (
             <Box display="grid" gap={1.5}>
@@ -407,7 +436,7 @@ export function GeneralFundCollectionsTable({ collections }) {
           },
         }}
       >
-        <DialogHeader onClose={closeDialog} subtitle="Prepared edit layout for future posting workflow" title="Update General Fund Payment" />
+        <DialogHeader onClose={closeDialog} subtitle="Prepared edit layout for future posting workflow" title={`Update ${title} Payment`} />
         <DialogContent sx={{ backgroundColor: '#f4f7fb', p: 3 }}>
           {selectedRow && (
             <Box display="grid" gap={2} pt={1}>

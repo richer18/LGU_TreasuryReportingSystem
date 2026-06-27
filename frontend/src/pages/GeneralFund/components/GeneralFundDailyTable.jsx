@@ -40,8 +40,8 @@ const currentYear = new Date().getFullYear()
 const years = Array.from({ length: 8 }, (_, index) => String(currentYear - 3 + index))
 
 const tableHeaderSx = {
-  backgroundColor: '#f3f6f9',
-  color: '#667085',
+  backgroundColor: 'var(--color-bg)',
+  color: 'var(--color-muted)',
   fontSize: 12,
   fontWeight: 900,
   textTransform: 'uppercase',
@@ -49,7 +49,7 @@ const tableHeaderSx = {
 }
 
 const tableCellSx = {
-  color: '#132238',
+  color: 'var(--color-text)',
   fontSize: 13,
   whiteSpace: 'nowrap',
 }
@@ -94,7 +94,7 @@ const formatDate = (dateValue) => {
 
 const csvValue = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`
 
-export function GeneralFundDailyTable({ daily = [] }) {
+export function GeneralFundDailyTable({ daily = [], fundScope = 'general' }) {
   const now = useMemo(() => new Date(), [])
   const [selectedMonth, setSelectedMonth] = useState(String(now.getMonth() + 1).padStart(2, '0'))
   const [selectedYear, setSelectedYear] = useState(String(now.getFullYear()))
@@ -178,7 +178,10 @@ export function GeneralFundDailyTable({ daily = [] }) {
 
     try {
       const response = await axiosInstance.get('/general-fund/daily', {
-        params: monthRange(selectedMonth, selectedYear),
+        params: {
+          ...monthRange(selectedMonth, selectedYear),
+          fund_scope: fundScope,
+        },
       })
 
       setRows(response.data.data || [])
@@ -209,6 +212,7 @@ export function GeneralFundDailyTable({ daily = [] }) {
         params: {
           date_from: dateValue,
           date_to: dateValue,
+          fund_scope: fundScope,
           limit: 1000,
         },
       })

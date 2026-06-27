@@ -4,8 +4,8 @@ import axiosInstance from '../../../axiosinstance/axiosInstance'
 import { formatMoney, formatNumber } from '../utils/generalFundFormat'
 
 const tableHeaderSx = {
-  backgroundColor: '#f3f6f9',
-  color: '#667085',
+  backgroundColor: 'var(--color-bg)',
+  color: 'var(--color-muted)',
   fontSize: 12,
   fontWeight: 900,
   textTransform: 'uppercase',
@@ -13,7 +13,7 @@ const tableHeaderSx = {
 }
 
 const tableCellSx = {
-  color: '#132238',
+  color: 'var(--color-text)',
   fontSize: 13,
   whiteSpace: 'nowrap',
 }
@@ -42,7 +42,7 @@ const monthRange = (monthValue) => {
 
 const defaultMonth = (filters) => (filters?.date_from || toDateInputValue(new Date())).slice(0, 7)
 
-export function GeneralFundSourceBreakdown({ filters }) {
+export function GeneralFundSourceBreakdown({ filters, fundScope = 'general' }) {
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth(filters))
   const [appliedMonth, setAppliedMonth] = useState(defaultMonth(filters))
   const [sources, setSources] = useState([])
@@ -55,7 +55,10 @@ export function GeneralFundSourceBreakdown({ filters }) {
 
     try {
       const response = await axiosInstance.get('/general-fund/sources', {
-        params: monthRange(appliedMonth),
+        params: {
+          ...monthRange(appliedMonth),
+          fund_scope: fundScope,
+        },
       })
 
       setSources(response.data.data || [])
@@ -70,7 +73,7 @@ export function GeneralFundSourceBreakdown({ filters }) {
     } finally {
       setLoading(false)
     }
-  }, [appliedMonth])
+  }, [appliedMonth, fundScope])
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {

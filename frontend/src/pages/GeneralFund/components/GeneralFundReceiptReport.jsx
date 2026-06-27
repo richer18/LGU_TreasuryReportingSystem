@@ -38,7 +38,7 @@ const amountCellSx = {
 
 const collectorDefaults = [
   { label: 'FLORA MY', value: 'flora' },
-  { label: 'IRIS', value: 'iris' },
+  { label: 'IRIS', value: 'angelique' },
   { label: 'AGNES', value: 'agnes' },
   { label: 'RICARDO', value: 'ricardo' },
   { label: 'AMABELLA', value: 'amabella' },
@@ -118,6 +118,7 @@ export function GeneralFundReceiptReport({ collectors = [] }) {
     collectors.forEach((row) => {
       const value = String(row.collector || row.cashier || row.value || '').trim()
       if (!value) return
+      if (options.has(value.toLowerCase())) return
 
       options.set(value.toLowerCase(), {
         label: value.toUpperCase(),

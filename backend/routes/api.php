@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\GeneralFundController;
 use App\Http\Controllers\Api\GeneratedReportController;
 use App\Http\Controllers\Api\IncomeTargetController;
 use App\Http\Controllers\Api\ReportCatalogController;
+use App\Http\Controllers\Api\RcdAccessController;
+use App\Http\Controllers\Api\RcdGenerateOrController;
 use App\Http\Controllers\Api\SearchReceiptController;
 use Illuminate\Support\Facades\Route;
 
@@ -43,4 +45,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/search-receipts/{paymentId}', [SearchReceiptController::class, 'update']);
 
     Route::get('/income-target', [IncomeTargetController::class, 'show']);
+
+    Route::get('/rcd/access/status', [RcdAccessController::class, 'status']);
+    Route::get('/rcd/batches', [RcdAccessController::class, 'index']);
+    Route::post('/rcd/batches', [RcdAccessController::class, 'store']);
+    Route::get('/rcd/batches/{reportNo}', [RcdAccessController::class, 'show']);
+    Route::patch('/rcd/batches/{reportNo}', [RcdAccessController::class, 'update']);
+    Route::delete('/rcd/batches/{reportNo}', [RcdAccessController::class, 'destroy']);
+    Route::get('/rcd/batches/{reportNo}/download', [RcdAccessController::class, 'download']);
+    Route::post('/rcd/batches/{reportNo}/remit', [RcdAccessController::class, 'remit']);
+    Route::post('/rcd/batches/{reportNo}/receive', [RcdAccessController::class, 'receive']);
+    Route::get('/rcd/batches/{reportNo}/audit', [RcdAccessController::class, 'audit']);
+    Route::get('/rcd/generate-or', RcdGenerateOrController::class);
+    Route::post('/rcd/generate-or', RcdGenerateOrController::class);
 });
+
+

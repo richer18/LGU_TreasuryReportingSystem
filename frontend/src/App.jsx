@@ -24,11 +24,13 @@ import {
 import axiosInstance from './axiosinstance/axiosInstance'
 import { useAuth } from './auth/useAuth'
 import { fundPages } from './data/reportCatalog'
+import { AcoDashboardPage } from './pages/AcoDashboard/AcoDashboardPage'
 import { DashboardPage } from './pages/Dashboard/DashboardPage'
 import { GeneralFundPage } from './pages/GeneralFund/GeneralFundPage'
 import { IncomeTargetPage } from './pages/IncomeTarget/IncomeTargetPage'
 import { LoginPage } from './pages/Login/LoginPage'
 import { ReportsPage } from './pages/Reports/ReportsPage'
+import { RcdPage } from './pages/Rcd/RcdPage'
 import { SearchReceiptPage } from './pages/SearchReceipt/SearchReceiptPage'
 import { SettingsPage } from './pages/Settings/SettingsPage'
 import { getFirebirdError, initialStatus } from './utils/firebirdStatus'
@@ -44,6 +46,7 @@ const navItems = [
 { id: 'businesspermit', label: 'Business Permits', icon: BriefcaseBusiness },
 { id: 'motorcylefranchise', label: 'MTO Permits', icon: Bike },
 { id: 'rcd', label: 'RCD', icon: ClipboardList },
+{ id: 'acoDashboard', label: 'ACO Dashboard', icon: ShieldCheck },
 { id: 'incometarget', label: 'Income Target', icon: Target },
 { id: 'searchreceipt', label: 'Search Receipt', icon: SearchCheck },
 { id: 'reports', label: 'Reports', icon: FileBarChart },
@@ -240,7 +243,11 @@ function App() {
 
         {activePage === 'searchreceipt' && <SearchReceiptPage />}
 
-        {activePage !== 'generalFund' && activePage !== 'incometarget' && activePage !== 'searchreceipt' && fundPages[activePage] && (
+        {activePage === 'rcd' && <RcdPage user={user} />}
+
+        {activePage === 'acoDashboard' && <AcoDashboardPage user={user} />}
+
+        {activePage !== 'generalFund' && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'rcd' && activePage !== 'acoDashboard' && fundPages[activePage] && (
           <ReportsPage page={fundPages[activePage]} />
         )}
 
@@ -256,3 +263,4 @@ function App() {
 }
 
 export default App
+

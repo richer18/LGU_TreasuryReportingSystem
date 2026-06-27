@@ -16,6 +16,12 @@ TRUST_ABSTRACT_NAMES = {
 
 PAID_STATUS_CODES = {"CNL", "CAN", "CNC", "CANCEL", "CANCELLED", "VOID", "VOI"}
 
+COLLECTOR_ALIASES = {
+    "iris": "angelique",
+    "iris arbolado": "angelique",
+    "angelique iris": "angelique",
+}
+
 
 def paid_payment_filter(alias="p"):
     return (
@@ -23,6 +29,13 @@ def paid_payment_filter(alias="p"):
         f"AND COALESCE(TRIM({alias}.STATUS_CT), '') NOT IN "
         "('CNL', 'CAN', 'CNC', 'CANCEL', 'CANCELLED', 'VOID', 'VOI')"
     )
+
+
+def normalize_collector(value):
+    collector = (value or "").strip()
+    if not collector:
+        return ""
+    return COLLECTOR_ALIASES.get(collector.lower(), collector)
 
 
 def scalar(value):
@@ -307,7 +320,7 @@ def payment_details(cursor, args):
             params.append(args.taxpayer)
         if args.collector:
             filters.append("COALESCE(NULLIF(TRIM(p.COLLECTOR), ''), TRIM(p.USERID), 'UNSPECIFIED') = ?")
-            params.append(args.collector)
+            params.append(normalize_collector(args.collector))
     else:
         filters.append("p.PAYMENT_ID = ?")
         params.append(args.payment_id)
@@ -403,7 +416,8 @@ def summary(cursor, args):
 def collections(cursor, args):
     payments = payment_groups(fetch_general_details(cursor, args))
     if args.collector:
-        payments = [row for row in payments if (row["collector"] or "").upper() == args.collector.upper()]
+        collector = normalize_collector(args.collector)
+        payments = [row for row in payments if (row["collector"] or "").upper() == collector.upper()]
     if args.receipt_from:
         payments = [row for row in payments if str(row.get("receipt_no") or "") >= args.receipt_from]
     if args.receipt_to:
@@ -415,7 +429,8 @@ def collections(cursor, args):
 def receipt_report(cursor, args):
     payments = payment_groups(fetch_general_details(cursor, args, include_void=True))
     if args.collector:
-        payments = [row for row in payments if (row["collector"] or "").upper() == args.collector.upper()]
+        collector = normalize_collector(args.collector)
+        payments = [row for row in payments if (row["collector"] or "").upper() == collector.upper()]
     if args.receipt_from:
         payments = [row for row in payments if str(row.get("receipt_no") or "") >= args.receipt_from]
     if args.receipt_to:

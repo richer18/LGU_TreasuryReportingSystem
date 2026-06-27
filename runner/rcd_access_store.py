@@ -98,6 +98,33 @@ def ensure_schema(conn):
     cursor = conn.cursor()
     tables = table_names(cursor)
 
+    if "rcd_accountable_form_releases" not in tables:
+        cursor.execute(
+            """
+            CREATE TABLE rcd_accountable_form_releases (
+                id COUNTER PRIMARY KEY,
+                form_type TEXT(80) NOT NULL,
+                serial_no TEXT(80),
+                receipt_no_from TEXT(30) NOT NULL,
+                receipt_no_to TEXT(30) NOT NULL,
+                collector TEXT(100) NOT NULL,
+                released_at DATETIME NOT NULL,
+                released_by TEXT(100),
+                collector_signed_by TEXT(100),
+                returned_at DATETIME,
+                returned_to TEXT(100),
+                beginning_balance_from TEXT(30),
+                beginning_balance_to TEXT(30),
+                ending_balance_from TEXT(30),
+                ending_balance_to TEXT(30),
+                status TEXT(30),
+                remarks MEMO,
+                created_at DATETIME,
+                updated_at DATETIME
+            )
+            """
+        )
+
     if "rcd_accountability_snapshots" not in tables:
         cursor.execute(
             """
@@ -155,6 +182,15 @@ def ensure_schema(conn):
 
     line_cols = column_names(cursor, "rcd_collection_lines")
     ensure_column(cursor, line_cols, "rcd_collection_lines", "raw_json", "MEMO")
+
+    release_cols = column_names(cursor, "rcd_accountable_form_releases")
+    release_columns = {
+        "receipt_count": "INTEGER",
+        "created_by": "TEXT(100)",
+        "updated_by": "TEXT(100)",
+    }
+    for column, definition in release_columns.items():
+        ensure_column(cursor, release_cols, "rcd_accountable_form_releases", column, definition)
 
     conn.commit()
 
@@ -1012,9 +1048,168 @@ def audit_trail(report_no):
     emit({"ok": True, "data": data})
 
 
+def audit_trail_records(conn):
+    cursor = conn.cursor()
+    rows = cursor.execute(
+        """
+        SELECT TOP 300 l.id, l.batch_id, l.log_action, l.performed_by, l.details, l.created_at,
+               b.report_no, b.report_date, b.collector, b.status, b.saved_total
+          FROM rcd_access_audit_logs AS l
+          LEFT JOIN rcd_batches AS b ON l.batch_id = b.id
+         ORDER BY l.created_at DESC, l.id DESC
+        """
+    ).fetchall()
+
+    data = []
+    for row in rows:
+        try:
+            details = json.loads(row.details) if row.details else {}
+        except json.JSONDecodeError:
+            details = row.details or ""
+        data.append({
+            "id": row.id,
+            "batch_id": row.batch_id,
+            "report_no": row.report_no or "-",
+            "report_date": str(row.report_date)[:10] if row.report_date else "",
+            "collector": row.collector or "",
+            "status": row.status or "",
+            "amount": money(row.saved_total),
+            "action": row.log_action,
+            "performed_by": row.performed_by or "",
+            "details": details,
+            "created_at": str(row.created_at) if row.created_at else "",
+        })
+    return data
+
+
+def list_audit_trail():
+    conn = connect()
+    emit({"ok": True, "data": audit_trail_records(conn)})
+
+
+def accountable_form_records(conn):
+    cursor = conn.cursor()
+    rows = cursor.execute(
+        """
+        SELECT id, form_type, serial_no, receipt_no_from, receipt_no_to, receipt_count,
+               collector, released_at, released_by, collector_signed_by,
+               returned_at, returned_to, ending_balance_from, ending_balance_to,
+               status, remarks, created_at, updated_at
+          FROM rcd_accountable_form_releases
+         ORDER BY released_at DESC, id DESC
+        """
+    ).fetchall()
+
+    return [{
+        "id": row.id,
+        "form_type": form_type_label(row.form_type),
+        "serial_no": row.serial_no or "",
+        "receipt_no_from": row.receipt_no_from or "",
+        "receipt_no_to": row.receipt_no_to or "",
+        "receipt_count": row.receipt_count if row.receipt_count is not None else count_range(row.receipt_no_from, row.receipt_no_to),
+        "collector": row.collector or "",
+        "collector_full_name": collector_full_name(row.collector),
+        "released_at": str(row.released_at)[:10] if row.released_at else "",
+        "released_by": row.released_by or "",
+        "collector_signed_by": row.collector_signed_by or "",
+        "returned_at": str(row.returned_at)[:10] if row.returned_at else "",
+        "returned_to": row.returned_to or "",
+        "ending_balance_from": row.ending_balance_from or "",
+        "ending_balance_to": row.ending_balance_to or "",
+        "status": row.status or "Released",
+        "remarks": row.remarks or "",
+        "created_at": str(row.created_at) if row.created_at else "",
+        "updated_at": str(row.updated_at) if row.updated_at else "",
+    } for row in rows]
+
+
+def list_accountable_forms():
+    conn = connect()
+    emit({"ok": True, "data": accountable_form_records(conn)})
+
+
+def save_accountable_form_release(payload):
+    form_type = form_type_label(payload.get("form_type") or payload.get("formType") or "")
+    receipt_from = digits(payload.get("receipt_no_from") or payload.get("receiptFrom"))
+    receipt_to = digits(payload.get("receipt_no_to") or payload.get("receiptTo") or receipt_from)
+    collector = str(payload.get("collector") or "").strip().upper()
+    released_at_value = payload.get("released_at") or payload.get("releasedAt") or datetime.now().date().isoformat()
+
+    if not form_type:
+        emit({"ok": False, "error": "Form type is required."}, 1)
+    if not receipt_from or not receipt_to:
+        emit({"ok": False, "error": "Receipt No. From and To are required."}, 1)
+    if count_range(receipt_from, receipt_to) <= 0:
+        emit({"ok": False, "error": "Invalid receipt range."}, 1)
+    if not collector:
+        emit({"ok": False, "error": "Collector is required."}, 1)
+
+    try:
+        released_at = datetime.fromisoformat(str(released_at_value)[:10])
+    except ValueError:
+        released_at = datetime.now()
+
+    conn = connect()
+    cursor = conn.cursor()
+    existing = cursor.execute(
+        """
+        SELECT id, collector
+          FROM rcd_accountable_form_releases
+         WHERE form_type = ?
+           AND status <> 'Returned'
+           AND VAL(receipt_no_from) <= ?
+           AND VAL(receipt_no_to) >= ?
+        """,
+        form_type,
+        int(receipt_to),
+        int(receipt_from),
+    ).fetchone()
+
+    if existing:
+        emit({
+            "ok": False,
+            "error": f"OR range overlaps an existing active release assigned to {existing.collector}.",
+            "existing_id": existing.id,
+        }, 1)
+
+    now = datetime.now()
+    cursor.execute(
+        """
+        INSERT INTO rcd_accountable_form_releases
+            (form_type, serial_no, receipt_no_from, receipt_no_to, receipt_count,
+             collector, released_at, released_by, collector_signed_by,
+             beginning_balance_from, beginning_balance_to, ending_balance_from, ending_balance_to,
+             status, remarks, created_at, updated_at, created_by, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        form_type,
+        payload.get("serial_no") or payload.get("serialNo") or "",
+        receipt_from,
+        receipt_to,
+        count_range(receipt_from, receipt_to),
+        collector,
+        released_at,
+        payload.get("released_by") or payload.get("releasedBy") or "",
+        payload.get("collector_signed_by") or payload.get("collectorSignedBy") or collector,
+        payload.get("beginning_balance_from") or payload.get("beginningFrom") or receipt_from,
+        payload.get("beginning_balance_to") or payload.get("beginningTo") or receipt_to,
+        payload.get("ending_balance_from") or payload.get("endingFrom") or receipt_from,
+        payload.get("ending_balance_to") or payload.get("endingTo") or receipt_to,
+        payload.get("status") or "Released",
+        payload.get("remarks") or "",
+        now,
+        now,
+        payload.get("created_by") or payload.get("createdBy") or "",
+        payload.get("updated_by") or payload.get("updatedBy") or "",
+    )
+    conn.commit()
+
+    emit({"ok": True, "message": "Accountable form release saved.", "data": accountable_form_records(conn)})
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["list", "save", "show", "export", "delete", "remit", "receive", "audit"])
+    parser.add_argument("action", choices=["list", "save", "show", "export", "delete", "remit", "receive", "audit", "audit-list", "accountable-list", "accountable-save"])
     parser.add_argument("--payload", default="{}")
     args = parser.parse_args()
 
@@ -1036,6 +1231,12 @@ def main():
             receive_remittance(payload)
         if args.action == "audit":
             audit_trail(payload.get("report_no") or "")
+        if args.action == "audit-list":
+            list_audit_trail()
+        if args.action == "accountable-list":
+            list_accountable_forms()
+        if args.action == "accountable-save":
+            save_accountable_form_release(payload)
     except Exception as exc:
         emit({"ok": False, "error": str(exc), "type": exc.__class__.__name__}, 1)
 

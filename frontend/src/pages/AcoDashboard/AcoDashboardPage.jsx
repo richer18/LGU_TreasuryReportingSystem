@@ -112,22 +112,38 @@ export function AcoDashboardPage({ user }) {
   const [receiveMessage, setReceiveMessage] = useState('')
   const [auditOpen, setAuditOpen] = useState(false)
   const [auditRows, setAuditRows] = useState([])
+  const [accountableForms, setAccountableForms] = useState([])
+  const [auditTrailRows, setAuditTrailRows] = useState([])
 
   const loadRows = async () => {
+    const response = await axiosInstance.get('/rcd/batches')
+    setRows(response.data?.data || [])
+  }
+
+  const loadAccountableForms = async () => {
+    const response = await axiosInstance.get('/rcd/accountable-forms')
+    setAccountableForms(response.data?.data || [])
+  }
+
+  const loadAuditTrailRows = async () => {
+    const response = await axiosInstance.get('/rcd/audit-trail')
+    setAuditTrailRows(response.data?.data || [])
+  }
+
+  const refreshDashboard = async () => {
     setLoading(true)
     setError('')
     try {
-      const response = await axiosInstance.get('/rcd/batches')
-      setRows(response.data?.data || [])
+      await Promise.all([loadRows(), loadAccountableForms(), loadAuditTrailRows()])
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || err.message || 'Unable to load ACO remittances.')
+      setError(err.response?.data?.error || err.response?.data?.message || err.message || 'Unable to load ACO dashboard data.')
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    loadRows()
+    refreshDashboard()
   }, [])
 
   const filteredRows = useMemo(() => {
@@ -145,6 +161,33 @@ export function AcoDashboardPage({ user }) {
     })
   }, [filters, rows])
 
+  const filteredAccountableForms = useMemo(() => {
+    const search = filters.search.trim().toLowerCase()
+    return accountableForms.filter((row) => {
+      const rowDate = String(row.released_at || '').slice(0, 10)
+      if (filters.dateFrom && rowDate && rowDate < filters.dateFrom) return false
+      if (filters.dateTo && rowDate && rowDate > filters.dateTo) return false
+      if (filters.collector && !String(row.collector_full_name || row.collector || '').toLowerCase().includes(filters.collector.toLowerCase())) return false
+      if (filters.form && !String(row.form_type || '').toLowerCase().includes(filters.form.toLowerCase())) return false
+      if (!search) return true
+      return [row.form_type, row.serial_no, row.receipt_no_from, row.receipt_no_to, row.collector_full_name, row.collector, row.status, row.remarks].join(' ').toLowerCase().includes(search)
+    })
+  }, [accountableForms, filters])
+
+  const filteredAuditTrailRows = useMemo(() => {
+    const search = filters.search.trim().toLowerCase()
+    return auditTrailRows.filter((row) => {
+      const rowDate = String(row.created_at || row.report_date || '').slice(0, 10)
+      if (filters.dateFrom && rowDate && rowDate < filters.dateFrom) return false
+      if (filters.dateTo && rowDate && rowDate > filters.dateTo) return false
+      if (filters.collector && !String(row.collector || '').toLowerCase().includes(filters.collector.toLowerCase())) return false
+      if (filters.status && row.status !== filters.status) return false
+      if (!search) return true
+      const detailsText = typeof row.details === 'string' ? row.details : JSON.stringify(row.details || {})
+      return [row.report_no, row.collector, row.status, row.action, row.performed_by, detailsText].join(' ').toLowerCase().includes(search)
+    })
+  }, [auditTrailRows, filters])
+
   const summary = useMemo(() => {
     const today = todayValue()
     return filteredRows.reduce((acc, row) => {
@@ -157,6 +200,40 @@ export function AcoDashboardPage({ user }) {
       acc.totalReceived += row.stage === 'Received by ACO' ? total : 0
       return acc
     }, { pending: 0, receivedToday: 0, totalReceived: 0, withVariance: 0, voided: 0, orCount: 0 })
+  }, [filteredRows])
+
+  const reportSummary = useMemo(() => {
+    const byCollector = new Map()
+    const byStatus = new Map()
+    const byForm = new Map()
+    filteredRows.forEach((row) => {
+      const collector = row.collector || 'Unassigned'
+      const status = row.stage || 'Unknown'
+      byCollector.set(collector, {
+        collector,
+        count: (byCollector.get(collector)?.count || 0) + 1,
+        receipts: (byCollector.get(collector)?.receipts || 0) + Number(row.receipt_count || 0),
+        total: (byCollector.get(collector)?.total || 0) + Number(row.total || 0),
+      })
+      byStatus.set(status, {
+        status,
+        count: (byStatus.get(status)?.count || 0) + 1,
+        total: (byStatus.get(status)?.total || 0) + Number(row.total || 0),
+      })
+      String(row.forms || '').split('/').map((item) => item.trim()).filter(Boolean).forEach((form) => {
+        byForm.set(form, {
+          form,
+          count: (byForm.get(form)?.count || 0) + 1,
+          receipts: (byForm.get(form)?.receipts || 0) + Number(row.receipt_count || 0),
+          total: (byForm.get(form)?.total || 0) + Number(row.total || 0),
+        })
+      })
+    })
+    return {
+      byCollector: Array.from(byCollector.values()).sort((a, b) => b.total - a.total),
+      byForm: Array.from(byForm.values()).sort((a, b) => b.total - a.total),
+      byStatus: Array.from(byStatus.values()).sort((a, b) => b.total - a.total),
+    }
   }, [filteredRows])
 
   const updateFilter = (field, value) => setFilters((current) => ({ ...current, [field]: value }))
@@ -249,7 +326,7 @@ export function AcoDashboardPage({ user }) {
       })
       setReceiveOpen(false)
       setSelectedBatch(null)
-      await loadRows()
+      await refreshDashboard()
     } catch (err) {
       const errors = err.response?.data?.errors
       setReceiveMessage(Array.isArray(errors) ? errors.join(' ') : err.response?.data?.error || err.response?.data?.message || err.message || 'Unable to receive remittance.')
@@ -270,7 +347,7 @@ export function AcoDashboardPage({ user }) {
       link.click()
       link.remove()
       window.URL.revokeObjectURL(url)
-      await loadRows()
+      await refreshDashboard()
     } catch (err) {
       setError(err.response?.data?.error || err.response?.data?.message || err.message || 'Unable to download report.')
     }
@@ -341,7 +418,7 @@ export function AcoDashboardPage({ user }) {
             <Typography variant="h4" sx={{ color: colors.navy, fontWeight: 950, lineHeight: 1.1 }}>ACO Dashboard</Typography>
             <Typography sx={{ color: colors.steel, fontWeight: 700, mt: 0.5 }}>Monitor collector remittances, verify RCD totals, and receive turn-over collections.</Typography>
           </Box>
-          <Button disabled={loading} onClick={loadRows} startIcon={loading ? <CircularProgress size={16} /> : <VerifiedUserIcon />} sx={{ bgcolor: colors.teal, borderRadius: 2, color: '#fff', fontWeight: 900, minHeight: 42, textTransform: 'none', '&:hover': { bgcolor: colors.tealHover } }} variant="contained">Refresh</Button>
+          <Button disabled={loading} onClick={refreshDashboard} startIcon={loading ? <CircularProgress size={16} /> : <VerifiedUserIcon />} sx={{ bgcolor: colors.teal, borderRadius: 2, color: '#fff', fontWeight: 900, minHeight: 42, textTransform: 'none', '&:hover': { bgcolor: colors.tealHover } }} variant="contained">Refresh</Button>
         </Box>
         {error && <Alert onClose={() => setError('')} severity="warning" sx={{ mt: 2 }}>{error}</Alert>}
       </Paper>
@@ -434,11 +511,149 @@ export function AcoDashboardPage({ user }) {
         </>
       )}
 
-      {activeTab !== 'remittances' && (
-        <Paper sx={{ border: `1px solid ${colors.border}`, borderRadius: 3, p: 3 }}>
-          <Typography variant="h6" sx={{ color: colors.navy, fontWeight: 900 }}>{activeTab === 'forms' ? 'Accountable Forms Tracking' : activeTab === 'audit' ? 'Audit Trail' : 'Reports'}</Typography>
-          <Typography sx={{ color: colors.steel, mt: 1 }}>This tab is prepared for Phase 2 after the ACO remittance workflow is stable.</Typography>
-        </Paper>
+      {activeTab === 'forms' && (
+        <TableContainer component={Paper} sx={{ border: `1px solid ${colors.border}`, borderRadius: 3 }}>
+          <Box sx={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between', p: 2.5 }}>
+            <Box>
+              <Typography variant="h6" sx={{ color: colors.navy, fontWeight: 900 }}>Accountable Forms Tracking</Typography>
+              <Typography sx={{ color: colors.steel }}>OR booklets/ranges released to collectors from the AccessDB custodian log.</Typography>
+            </Box>
+            <Chip label={`${filteredAccountableForms.length} releases`} sx={{ bgcolor: 'var(--color-primary-soft)', color: colors.teal, fontWeight: 900 }} />
+          </Box>
+          <Table sx={{ minWidth: 1220 }}>
+            <TableHead>
+              <TableRow sx={{ '& th': { bgcolor: '#f7f9fc', color: colors.navy, fontWeight: 900, textTransform: 'uppercase' } }}>
+                <TableCell>Released</TableCell>
+                <TableCell>Form</TableCell>
+                <TableCell>Serial</TableCell>
+                <TableCell>Collector</TableCell>
+                <TableCell>OR Range</TableCell>
+                <TableCell align="center">Receipts</TableCell>
+                <TableCell>Released By</TableCell>
+                <TableCell>Signed By</TableCell>
+                <TableCell>Ending Balance</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Remarks</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filteredAccountableForms.length === 0 ? (
+                <TableRow><TableCell align="center" colSpan={11} sx={{ color: colors.steel, fontWeight: 800, py: 5 }}>No accountable form releases found.</TableCell></TableRow>
+              ) : filteredAccountableForms.map((row) => (
+                <TableRow hover key={row.id || `${row.form_type}-${row.receipt_no_from}-${row.receipt_no_to}`}>
+                  <TableCell>{row.released_at || '-'}</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>{row.form_type || '-'}</TableCell>
+                  <TableCell>{row.serial_no || '-'}</TableCell>
+                  <TableCell>{row.collector_full_name || row.collector || '-'}</TableCell>
+                  <TableCell>{row.receipt_no_from || '-'} - {row.receipt_no_to || '-'}</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 900 }}>{row.receipt_count || 0}</TableCell>
+                  <TableCell>{row.released_by || '-'}</TableCell>
+                  <TableCell>{row.collector_signed_by || '-'}</TableCell>
+                  <TableCell>{row.ending_balance_from || '-'} - {row.ending_balance_to || '-'}</TableCell>
+                  <TableCell><StatusChip value={row.status || 'Released'} /></TableCell>
+                  <TableCell>{row.remarks || '-'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+
+      {activeTab === 'audit' && (
+        <TableContainer component={Paper} sx={{ border: `1px solid ${colors.border}`, borderRadius: 3 }}>
+          <Box sx={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between', p: 2.5 }}>
+            <Box>
+              <Typography variant="h6" sx={{ color: colors.navy, fontWeight: 900 }}>Audit Trail</Typography>
+              <Typography sx={{ color: colors.steel }}>Recent RCD actions from AccessDB audit logs.</Typography>
+            </Box>
+            <Chip label={`${filteredAuditTrailRows.length} logs`} sx={{ bgcolor: 'var(--color-secondary-soft)', color: colors.teal, fontWeight: 900 }} />
+          </Box>
+          <Table sx={{ minWidth: 1180 }}>
+            <TableHead>
+              <TableRow sx={{ '& th': { bgcolor: '#f7f9fc', color: colors.navy, fontWeight: 900, textTransform: 'uppercase' } }}>
+                <TableCell>Date/Time</TableCell>
+                <TableCell>RCD No.</TableCell>
+                <TableCell>Collector</TableCell>
+                <TableCell>Action</TableCell>
+                <TableCell>Performed By</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell align="right">Amount</TableCell>
+                <TableCell>Details</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filteredAuditTrailRows.length === 0 ? (
+                <TableRow><TableCell align="center" colSpan={8} sx={{ color: colors.steel, fontWeight: 800, py: 5 }}>No audit records found.</TableCell></TableRow>
+              ) : filteredAuditTrailRows.map((row) => (
+                <TableRow hover key={row.id}>
+                  <TableCell>{row.created_at || '-'}</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>{row.report_no || '-'}</TableCell>
+                  <TableCell>{row.collector || '-'}</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>{row.action || '-'}</TableCell>
+                  <TableCell>{row.performed_by || '-'}</TableCell>
+                  <TableCell><StatusChip value={row.status || '-'} /></TableCell>
+                  <TableCell align="right">{formatPeso(row.amount)}</TableCell>
+                  <TableCell sx={{ maxWidth: 420, whiteSpace: 'pre-wrap' }}>
+                    {typeof row.details === 'string' ? row.details : JSON.stringify(row.details || {}, null, 2)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+
+      {activeTab === 'reports' && (
+        <Box sx={{ display: 'grid', gap: 3 }}>
+          <Paper sx={{ border: `1px solid ${colors.border}`, borderRadius: 3, p: 2.5 }}>
+            <Typography variant="h6" sx={{ color: colors.navy, fontWeight: 900 }}>ACO Reports</Typography>
+            <Typography sx={{ color: colors.steel, mt: 0.5 }}>Operational summaries from the active RCD filters.</Typography>
+          </Paper>
+
+          <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' } }}>
+            <TableContainer component={Paper} sx={{ border: `1px solid ${colors.border}`, borderRadius: 3 }}>
+              <Box sx={{ p: 2 }}><Typography sx={{ color: colors.navy, fontWeight: 900 }}>Collection per Collector</Typography></Box>
+              <Table size="small">
+                <TableHead><TableRow><TableCell>Collector</TableCell><TableCell align="center">RCDs</TableCell><TableCell align="center">ORs</TableCell><TableCell align="right">Total</TableCell></TableRow></TableHead>
+                <TableBody>
+                  {reportSummary.byCollector.length === 0 ? (
+                    <TableRow><TableCell align="center" colSpan={4}>No collector totals.</TableCell></TableRow>
+                  ) : reportSummary.byCollector.map((row) => (
+                    <TableRow key={row.collector}><TableCell sx={{ fontWeight: 900 }}>{row.collector}</TableCell><TableCell align="center">{row.count}</TableCell><TableCell align="center">{row.receipts}</TableCell><TableCell align="right" sx={{ fontWeight: 900 }}>{formatPeso(row.total)}</TableCell></TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <TableContainer component={Paper} sx={{ border: `1px solid ${colors.border}`, borderRadius: 3 }}>
+              <Box sx={{ p: 2 }}><Typography sx={{ color: colors.navy, fontWeight: 900 }}>Status Summary</Typography></Box>
+              <Table size="small">
+                <TableHead><TableRow><TableCell>Status</TableCell><TableCell align="center">RCDs</TableCell><TableCell align="right">Total</TableCell></TableRow></TableHead>
+                <TableBody>
+                  {reportSummary.byStatus.length === 0 ? (
+                    <TableRow><TableCell align="center" colSpan={3}>No status totals.</TableCell></TableRow>
+                  ) : reportSummary.byStatus.map((row) => (
+                    <TableRow key={row.status}><TableCell><StatusChip value={row.status} /></TableCell><TableCell align="center">{row.count}</TableCell><TableCell align="right" sx={{ fontWeight: 900 }}>{formatPeso(row.total)}</TableCell></TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Box>
+
+          <TableContainer component={Paper} sx={{ border: `1px solid ${colors.border}`, borderRadius: 3 }}>
+            <Box sx={{ p: 2 }}><Typography sx={{ color: colors.navy, fontWeight: 900 }}>Form / OR Type Summary</Typography></Box>
+            <Table size="small">
+              <TableHead><TableRow><TableCell>Form / Type</TableCell><TableCell align="center">RCD Lines</TableCell><TableCell align="center">OR Count</TableCell><TableCell align="right">Total</TableCell></TableRow></TableHead>
+              <TableBody>
+                {reportSummary.byForm.length === 0 ? (
+                  <TableRow><TableCell align="center" colSpan={4}>No form totals.</TableCell></TableRow>
+                ) : reportSummary.byForm.map((row) => (
+                  <TableRow key={row.form}><TableCell sx={{ fontWeight: 900 }}>{row.form}</TableCell><TableCell align="center">{row.count}</TableCell><TableCell align="center">{row.receipts}</TableCell><TableCell align="right" sx={{ fontWeight: 900 }}>{formatPeso(row.total)}</TableCell></TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
       )}
 
       <Menu anchorEl={menuAnchor} onClose={closeMenu} open={Boolean(menuAnchor)}>

@@ -871,6 +871,7 @@ def build_report(number, date_from, date_to):
                 "barangay_share_25",
             ],
             "rows": rows,
+            "template_cells": fetch_summary_sharing_template_cells(date_from, date_to),
         }
     elif number == 31:
         rows = fetch_full_report_collections(date_from, date_to)

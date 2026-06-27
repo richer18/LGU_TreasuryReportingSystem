@@ -19,13 +19,28 @@
 .brand-mark,
 .system-logo {
   align-items: center;
-  background: var(--color-primary);
+  background: var(--color-surface);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 8px;
   color: #ffffff;
   display: inline-flex;
   height: 48px;
   justify-content: center;
+  overflow: hidden;
   width: 48px;
+}
+
+.brand-mark {
+  border-color: var(--color-border);
+  box-shadow: 0 10px 24px rgba(17, 24, 39, 0.08);
+}
+
+.brand-mark img,
+.system-logo img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
 }
 
 .login-panel h1 {
@@ -134,7 +149,8 @@ select:focus {
 .app-layout {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  min-height: 100svh;
+  height: 100svh;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -142,7 +158,11 @@ select:focus {
   color: #ffffff;
   display: flex;
   flex-direction: column;
+  height: 100svh;
+  overflow: hidden;
   padding: 18px;
+  position: sticky;
+  top: 0;
 }
 
 .sidebar-header {
@@ -165,6 +185,8 @@ select:focus {
 .sidebar-nav {
   display: grid;
   gap: 8px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .sidebar-nav button,
@@ -192,11 +214,15 @@ select:focus {
 }
 
 .logout-button {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
   margin-top: auto;
+  padding-top: 14px;
 }
 
 .workspace {
+  height: 100svh;
   min-width: 0;
+  overflow-y: auto;
   padding: 24px;
 }
 
@@ -206,6 +232,10 @@ select:focus {
   gap: 16px;
   justify-content: space-between;
   margin-bottom: 22px;
+}
+
+.workspace-topbar.is-hidden {
+  display: none;
 }
 
 .workspace-topbar h1 {
@@ -2648,6 +2678,14 @@ dd {
   width: 100%;
 }
 
+.sharing-col-label {
+  width: 29%;
+}
+
+.sharing-col-amount {
+  width: 14.2%;
+}
+
 .sharing-template-table th,
 .sharing-template-table td {
   border: 1px solid #111827;
@@ -2658,6 +2696,7 @@ dd {
   padding: 3px 5px;
   text-align: center;
   vertical-align: middle;
+  overflow-wrap: anywhere;
   word-break: normal;
 }
 
@@ -2667,8 +2706,9 @@ dd {
 
 .sharing-template-table td:first-child,
 .sharing-template-table th:first-child {
+  overflow-wrap: anywhere;
   text-align: left;
-  width: 30%;
+  width: 29%;
 }
 
 .sharing-section-row th {
@@ -2702,6 +2742,83 @@ dd {
   border-left: 0;
   border-right: 0;
   height: 10px;
+}
+
+.provincial-coding-preview {
+  display: grid;
+  gap: 28px;
+  max-width: 1180px;
+}
+
+.provincial-coding-sheet {
+  display: grid;
+  gap: 12px;
+}
+
+.provincial-coding-sheet + .provincial-coding-sheet {
+  border-top: 2px solid #111827;
+  padding-top: 24px;
+}
+
+.provincial-coding-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.provincial-coding-table th,
+.provincial-coding-table td {
+  border: 1px solid #111827;
+  color: #000f2f;
+  font-size: 10px;
+  height: 25px;
+  line-height: 1.25;
+  padding: 4px 6px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.provincial-coding-table th {
+  font-weight: 800;
+}
+
+.provincial-coding-table th:nth-child(1),
+.provincial-coding-table td:nth-child(1) {
+  text-align: left;
+  width: 26%;
+}
+
+.provincial-coding-table th:nth-child(2),
+.provincial-coding-table td:nth-child(2),
+.provincial-coding-table th:nth-child(4),
+.provincial-coding-table td:nth-child(4),
+.provincial-coding-table th:nth-child(6),
+.provincial-coding-table td:nth-child(6),
+.provincial-coding-table th:nth-child(8),
+.provincial-coding-table td:nth-child(8) {
+  width: 15%;
+}
+
+.provincial-coding-table th:nth-child(3),
+.provincial-coding-table td:nth-child(3),
+.provincial-coding-table th:nth-child(5),
+.provincial-coding-table td:nth-child(5),
+.provincial-coding-table th:nth-child(7),
+.provincial-coding-table td:nth-child(7),
+.provincial-coding-table th:nth-child(9),
+.provincial-coding-table td:nth-child(9) {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  width: 8%;
+}
+
+.provincial-coding-subtotal td,
+.provincial-coding-remittance td {
+  font-weight: 900;
+}
+
+.provincial-coding-remittance td {
+  height: 32px;
 }
 
 @media (max-width: 980px) {

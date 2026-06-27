@@ -190,6 +190,22 @@ const provincialRows = [
   ['Land Agricultural', '40102050-401-01-05', '', '40102050-401-01-05', '', '40102050-402-01-05', '', '40102050-402-01-05', ''],
 ]
 
+const provincialCodingRows = [
+  { label: 'Land Residential', code: '40102040-101-01-01', sourceRow: 12 },
+  { label: 'Land Commercial', code: '40102040-101-01-02', sourceRow: 13 },
+  { label: 'Land Industrial', code: '40102040-101-01-03', sourceRow: 14 },
+  { label: 'Land Machinery', code: '40102040-101-01-04', sourceRow: null },
+  { label: 'Land Agricultural', code: '40102040-101-01-05', sourceRow: 11 },
+  { label: 'Land Recreational', code: '40102040-101-01-06', sourceRow: null },
+  { label: 'Land-TIMBER', code: '', sourceRow: null },
+  { label: 'Building Residential', code: '40102040-101-02-01', sourceRow: 23 },
+  { label: 'Building Commercial', code: '40102040-101-02-02', sourceRow: 24 },
+  { label: 'Building Industrial', code: '40102040-101-02-03', sourceRow: 26 },
+  { label: 'Building Machinery', code: '40102040-101-02-04', sourceRow: 22 },
+  { label: 'Building Agricultural', code: '40102040-101-02-05', sourceRow: 25 },
+  { label: 'Building Recreational', code: '40102040-101-02-06', sourceRow: null },
+]
+
 const taxOnBusinessRows = [
   ['Manufacturing', '-', '-', '-'],
   ['Distributor', '-', '-', '-'],
@@ -265,6 +281,45 @@ const apiSharingCellsToMap = (cells = []) => cells.reduce((lookup, cell) => {
   return lookup
 }, {})
 
+const buildProvincialCodingSheet = (cellMap, sheet) => {
+  const isGf = sheet === 'GF'
+  const columns = isGf
+    ? { current: 3, discount: 4, prior: 5, penaltyCurrent: 6, penaltyPrior: 7 }
+    : { current: 10, discount: 11, prior: 12, penaltyCurrent: 13, penaltyPrior: 14 }
+  const rate = isGf ? 0.35 : 0.50
+  const totalLabel = isGf ? 'TOTAL REMITTANCE GF' : 'TOTAL REMITTANCE SEF'
+  const valueAt = (row, column) => Number(cellMap?.[`${row}:${column}`] || 0)
+  const amountFor = (row, column) => Number(row?.sourceRow ? valueAt(row.sourceRow, column) * rate : 0)
+  const currentFor = (row) => Number(row?.sourceRow ? (valueAt(row.sourceRow, columns.current) - valueAt(row.sourceRow, columns.discount)) * rate : 0)
+  const rows = provincialCodingRows.map((row) => [
+    row.label,
+    row.code,
+    formatAmount(currentFor(row)),
+    row.code,
+    formatAmount(amountFor(row, columns.prior)),
+    row.code ? row.code.replace('-101-', '-102-') : '',
+    formatAmount(amountFor(row, columns.penaltyCurrent)),
+    row.code ? row.code.replace('-101-', '-102-') : '',
+    formatAmount(amountFor(row, columns.penaltyPrior)),
+  ])
+  const subtotal = rows.reduce((totals, row) => {
+    totals.current += Number(String(row[2] || '').replace(/,/g, '')) || 0
+    totals.prior += Number(String(row[4] || '').replace(/,/g, '')) || 0
+    totals.penaltyCurrent += Number(String(row[6] || '').replace(/,/g, '')) || 0
+    totals.penaltyPrior += Number(String(row[8] || '').replace(/,/g, '')) || 0
+    return totals
+  }, { current: 0, prior: 0, penaltyCurrent: 0, penaltyPrior: 0 })
+  const totalRemittance = subtotal.current + subtotal.prior + subtotal.penaltyCurrent + subtotal.penaltyPrior
+
+  return {
+    fundTitle: isGf ? 'GENERAL FUND' : 'SEF',
+    headersTop: ['', '', 'CURRENT YEAR', '', 'PRIOR YEAR', '', 'CURRENT YEAR PENALTY', '', 'PRIOR YEAR'],
+    rows,
+    subtotal: ['SUB TOTAL', '', formatAmount(subtotal.current), '', formatAmount(subtotal.prior), '', formatAmount(subtotal.penaltyCurrent), '', formatAmount(subtotal.penaltyPrior)],
+    totalRemittance: [totalLabel, '', '', '', '', '', '', '', formatAmount(totalRemittance)],
+  }
+}
+
 const apiFullReportRowToTemplateRow = (row) => [
   row.date,
   formatAmount(row.ctc),
@@ -339,19 +394,18 @@ const getTemplateDefinition = (report, period) => {
   }
 
   if (report.number === 28) {
-    const provincialPreviewRows = report.previewData?.rows?.map(apiSharingRowToTemplateRow)
+    const cellMap = apiSharingCellsToMap(report.previewData?.template_cells)
 
     return {
-      kind: 'provincial',
+      kind: 'provincial-coding',
       title: 'MONTHLY REPORT ON THE COLLECTION OF REAL PROPERTY TAX',
       subtitle: 'BY PROPERTY CLASSIFICATION',
       municipality: 'Municipality of Zamboanguita',
       periodText: `For the month of ${period.monthName} ${period.year}`,
-      fundTitle: 'SEF',
-      headers: provincialPreviewRows
-        ? ['Property Group', 'Category', 'BSC Gross', "35% Prov'l Share", '40% Mun. Share', '25% Brgy. Share']
-        : ['', '', 'CURRENT YEAR', '', 'PRIOR YEAR', '', 'CURRENT YEAR PENALTY', '', 'PRIOR YEAR'],
-      rows: provincialPreviewRows ?? provincialRows,
+      sheets: [
+        buildProvincialCodingSheet(cellMap, 'GF'),
+        buildProvincialCodingSheet(cellMap, 'SEF'),
+      ],
     }
   }
 
@@ -534,10 +588,17 @@ const SharingCollectionPanel = ({ columns, title, template }) => {
     <section className="sharing-template-panel">
       <h2>{title}</h2>
       <table className="sharing-template-table">
+        <colgroup>
+          <col className="sharing-col-label" />
+          <col className="sharing-col-amount" />
+          <col className="sharing-col-amount" />
+          <col className="sharing-col-amount" />
+          <col className="sharing-col-amount" />
+          <col className="sharing-col-amount" />
+        </colgroup>
         <tbody>
           <tr className="sharing-section-row">
-            <th>LAND</th>
-            <th colSpan="2"></th>
+            <th colSpan="4">LAND</th>
             <th colSpan="2">Penalties</th>
           </tr>
           <tr>
@@ -564,8 +625,7 @@ const SharingCollectionPanel = ({ columns, title, template }) => {
           </tr>
           <tr className="sharing-spacer-row"><td colSpan="6"></td></tr>
           <tr className="sharing-section-row">
-            <th>BUILDING</th>
-            <th colSpan="2"></th>
+            <th colSpan="4">BUILDING</th>
             <th colSpan="2">Penalties</th>
           </tr>
           <tr>
@@ -727,6 +787,50 @@ const ProvincialTemplate = ({ template }) => (
   </article>
 )
 
+const ProvincialCodingSheet = ({ sheet, template }) => (
+  <section className="provincial-coding-sheet">
+    <header className="excel-template-heading">
+      <h1>{template.title}</h1>
+      <h2>{template.subtitle}</h2>
+      <p>{template.municipality}</p>
+      <p>{template.periodText}</p>
+      <strong>{sheet.fundTitle}</strong>
+    </header>
+    <div className="excel-table-scroll">
+      <table className="provincial-coding-table">
+        <thead>
+          <tr>
+            {sheet.headersTop.map((header, index) => (
+              <th key={`${sheet.fundTitle}-header-${index}`}>{header}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sheet.rows.map((row, rowIndex) => (
+            <tr key={`${sheet.fundTitle}-${rowIndex}`}>
+              {row.map((value, index) => <td key={`${sheet.fundTitle}-${rowIndex}-${index}`}>{value}</td>)}
+            </tr>
+          ))}
+          <tr className="provincial-coding-subtotal">
+            {sheet.subtotal.map((value, index) => <td key={`${sheet.fundTitle}-subtotal-${index}`}>{value}</td>)}
+          </tr>
+          <tr className="provincial-coding-remittance">
+            {sheet.totalRemittance.map((value, index) => <td key={`${sheet.fundTitle}-remittance-${index}`}>{value}</td>)}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+)
+
+const ProvincialCodingTemplate = ({ template }) => (
+  <article className="excel-template-sheet provincial-coding-preview printable-report">
+    {template.sheets.map((sheet) => (
+      <ProvincialCodingSheet key={sheet.fundTitle} sheet={sheet} template={template} />
+    ))}
+  </article>
+)
+
 const AbstractTemplate = ({ template }) => (
   <article className="excel-template-sheet printable-report">
     <header className="excel-template-heading">
@@ -768,6 +872,7 @@ const TemplatePreview = ({ report }) => {
   if (template.kind === 'record') return <RecordTemplate template={template} />
   if (template.kind === 'sharing') return <SharingTemplate template={template} />
   if (template.kind === 'provincial') return <ProvincialTemplate template={template} />
+  if (template.kind === 'provincial-coding') return <ProvincialCodingTemplate template={template} />
   if (template.kind === 'abstract') return <AbstractTemplate template={template} />
   if (template.kind === 'full') return <FullTemplate template={template} />
   if (template.kind === 'tax-business') return <TaxOnBusinessTemplate template={template} />
@@ -784,7 +889,9 @@ export function ReportsPage({ page, variant = 'reports' }) {
   const [generationError, setGenerationError] = useState('')
   const range = useMemo(() => getMonthRange(selectedMonth), [selectedMonth])
   const isCollectionMonitor = variant === 'collectionMonitor'
-  const mainReports = page.reports.filter((report) => MAIN_REPORT_NUMBERS.has(report.number))
+  const mainReports = page.reports.filter((report) => (
+    MAIN_REPORT_NUMBERS.has(report.number) && !(report.number >= 1 && report.number <= 20)
+  ))
   const otherReports = page.reports.filter((report) => report.number >= 1 && report.number <= 20)
   const quickReports = isCollectionMonitor ? page.reports : mainReports
 

@@ -56,6 +56,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcd/batches/{reportNo}/remit', [RcdAccessController::class, 'remit']);
     Route::post('/rcd/batches/{reportNo}/receive', [RcdAccessController::class, 'receive']);
     Route::get('/rcd/batches/{reportNo}/audit', [RcdAccessController::class, 'audit']);
+    Route::get('/rcd/audit-trail', [RcdAccessController::class, 'auditTrail']);
+    Route::get('/rcd/accountable-forms', [RcdAccessController::class, 'accountableForms']);
+    Route::post('/rcd/accountable-forms', [RcdAccessController::class, 'storeAccountableForm']);
     Route::get('/rcd/generate-or', RcdGenerateOrController::class);
     Route::post('/rcd/generate-or', RcdGenerateOrController::class);
 });

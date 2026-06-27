@@ -15,7 +15,6 @@ import {
   Settings,
   LogOut,
   Menu,
-  ReceiptText,
   X,
 } from 'lucide-react';
 
@@ -34,6 +33,7 @@ import { RcdPage } from './pages/Rcd/RcdPage'
 import { SearchReceiptPage } from './pages/SearchReceipt/SearchReceiptPage'
 import { SettingsPage } from './pages/Settings/SettingsPage'
 import { getFirebirdError, initialStatus } from './utils/firebirdStatus'
+import treasurerLogo from './assets/TREASURER_ORIGINAL_LOGO.png'
 import './App.css'
 
 const navItems = [
@@ -58,6 +58,18 @@ const collectionMonitorPages = {
   communityTax: { fundScope: 'community_tax', title: 'Community Tax' },
   realPropertyTax: { fundScope: 'rpt', title: 'Real Property Tax' },
 }
+
+const hiddenTopbarPages = new Set([
+  'generalFund',
+  'trustFund',
+  'communityTax',
+  'realPropertyTax',
+  'rcd',
+  'acoDashboard',
+  'incometarget',
+  'searchreceipt',
+  'reports',
+])
 
 function App() {
   const { isAuthenticated, isCheckingAuth, login, logout, user } = useAuth()
@@ -176,7 +188,7 @@ function App() {
       <aside className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
         <div className="sidebar-header">
           <div className="system-logo">
-            <ReceiptText size={24} aria-hidden="true" />
+            <img alt="Treasurer Office logo" src={treasurerLogo} />
           </div>
           <div>
             <strong>LGU Treasury</strong>
@@ -211,7 +223,7 @@ function App() {
       </aside>
 
       <section className="workspace">
-        <header className="workspace-topbar">
+        <header className={`workspace-topbar ${hiddenTopbarPages.has(activePage) ? 'is-hidden' : ''}`}>
           <button className="icon-button mobile-menu" onClick={() => setSidebarOpen(true)} type="button">
             <Menu size={20} aria-hidden="true" />
             <span className="sr-only">Open menu</span>

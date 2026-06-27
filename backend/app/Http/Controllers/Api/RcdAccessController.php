@@ -122,4 +122,25 @@ class RcdAccessController extends Controller
 
         return response()->json($result, ($result['ok'] ?? false) ? 200 : 404);
     }
+
+    public function auditTrail(): JsonResponse
+    {
+        $result = $this->store->run('audit-list');
+
+        return response()->json($result, ($result['ok'] ?? false) ? 200 : 500);
+    }
+
+    public function accountableForms(): JsonResponse
+    {
+        $result = $this->store->run('accountable-list');
+
+        return response()->json($result, ($result['ok'] ?? false) ? 200 : 500);
+    }
+
+    public function storeAccountableForm(Request $request): JsonResponse
+    {
+        $result = $this->store->run('accountable-save', $request->all());
+
+        return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
+    }
 }

@@ -261,7 +261,20 @@ export function RcdPage({ user }) {
   const [auditTitle, setAuditTitle] = useState('')
   const [actionMenuAnchor, setActionMenuAnchor] = useState(null)
   const [actionMenuRow, setActionMenuRow] = useState(null)
-  const [accountabilityRows] = useState([])
+  const [accountabilityRows, setAccountabilityRows] = useState([])
+  const [accountabilityMessage, setAccountabilityMessage] = useState('')
+  const [savingAccountability, setSavingAccountability] = useState(false)
+  const [accountabilityForm, setAccountabilityForm] = useState({
+    collector: 'IRIS',
+    collectorSignedBy: '',
+    formType: 'AF 51',
+    receiptFrom: '',
+    receiptTo: '',
+    releasedAt: todayValue(),
+    releasedBy: user?.name || '',
+    remarks: '',
+    serialNo: '',
+  })
   const [form, setForm] = useState({
     template: '100_GF + 200_SEF',
     collector: 'IRIS',
@@ -280,6 +293,11 @@ export function RcdPage({ user }) {
     const receiptCount = collectionLines.reduce((sum, line) => sum + countReceiptRange(line.receiptFrom, line.receiptTo), 0)
     return { collectorTotal, fdbTotal, receiptCount, difference: collectorTotal - fdbTotal }
   }, [collectionLines])
+
+  const accountabilityReceiptCount = useMemo(
+    () => countReceiptRange(accountabilityForm.receiptFrom, accountabilityForm.receiptTo || accountabilityForm.receiptFrom),
+    [accountabilityForm.receiptFrom, accountabilityForm.receiptTo],
+  )
 
   const remitVariance = useMemo(
     () => Number(remitForm.amountRemitted || 0) - Number(remitBatch?.total || 0),
@@ -520,6 +538,68 @@ export function RcdPage({ user }) {
     setBatches(response.data?.data || [])
   }
 
+  const loadAccountableForms = async () => {
+    const response = await axiosInstance.get('/rcd/accountable-forms')
+    setAccountabilityRows(response.data?.data || [])
+  }
+
+  const updateAccountabilityForm = (field, value) => {
+    setAccountabilityForm((current) => ({ ...current, [field]: value }))
+  }
+
+  const resetAccountabilityForm = () => {
+    setAccountabilityForm((current) => ({
+      ...current,
+      collector: 'IRIS',
+      collectorSignedBy: '',
+      formType: 'AF 51',
+      receiptFrom: '',
+      receiptTo: '',
+      releasedAt: todayValue(),
+      releasedBy: user?.name || '',
+      remarks: '',
+      serialNo: '',
+    }))
+  }
+
+  const saveAccountableFormRelease = async () => {
+    if (!accountabilityForm.formType || !accountabilityForm.receiptFrom || !accountabilityForm.collector) {
+      setAccountabilityMessage('Please encode Form Type, OR From, OR To, and Collector before saving.')
+      return
+    }
+
+    if (accountabilityReceiptCount <= 0) {
+      setAccountabilityMessage('Invalid OR range. Please check OR From and OR To.')
+      return
+    }
+
+    setSavingAccountability(true)
+    setAccountabilityMessage('')
+
+    try {
+      const response = await axiosInstance.post('/rcd/accountable-forms', {
+        collector: accountabilityForm.collector,
+        collector_signed_by: accountabilityForm.collectorSignedBy,
+        created_by: user?.name || '',
+        form_type: accountabilityForm.formType,
+        receipt_no_from: accountabilityForm.receiptFrom,
+        receipt_no_to: accountabilityForm.receiptTo || accountabilityForm.receiptFrom,
+        released_at: accountabilityForm.releasedAt,
+        released_by: accountabilityForm.releasedBy,
+        remarks: accountabilityForm.remarks,
+        serial_no: accountabilityForm.serialNo,
+        updated_by: user?.name || '',
+      })
+      setAccountabilityRows(response.data?.data || [])
+      setAccountabilityMessage(response.data?.message || 'Accountable form release saved.')
+      resetAccountabilityForm()
+    } catch (error) {
+      setAccountabilityMessage(error.response?.data?.error || error.response?.data?.message || error.message || 'Unable to save accountable form release.')
+    } finally {
+      setSavingAccountability(false)
+    }
+  }
+
   const openUpdateEntry = async (row) => {
     setSavingAction('Loading')
     try {
@@ -752,6 +832,7 @@ export function RcdPage({ user }) {
   useEffect(() => {
     loadAccessStatus()
     loadRcdBatches().catch((error) => setAccessError(error.response?.data?.error || error.message || 'Unable to load RCD batches.'))
+    loadAccountableForms().catch((error) => setAccessError(error.response?.data?.error || error.message || 'Unable to load accountable forms.'))
   }, [])
 
   const actionTabs = [
@@ -760,7 +841,7 @@ export function RcdPage({ user }) {
     // { key: 'generate-rcd', label: 'Generate RCD', icon: <LocalPrintshopIcon /> },
     // { key: 'review-queue', label: 'Review Queue', icon: <FactCheckIcon /> },
     // { key: 'deposit-queue', label: 'Deposit Queue', icon: <PaidIcon /> },
-    // { key: 'accountability', label: 'Accountability', icon: <Inventory2Icon /> },
+    { key: 'accountability', label: 'Accountable Forms', icon: <Inventory2Icon /> },
   ]
 
   const renderCollectionRows = () => {
@@ -1056,22 +1137,102 @@ export function RcdPage({ user }) {
   const renderAccountability = () => (
     <Box sx={{ display: 'grid', gap: 3 }}>
       <Paper sx={{ border: `1px solid ${uiColors.cardBorder}`, borderRadius: 4, p: 3 }}>
-        <Typography variant="h6" sx={{ color: uiColors.navy, fontWeight: 900, mb: 0.5 }}>Accountability Workspace</Typography>
-        <Typography variant="body2" sx={{ color: uiColors.steel, mb: 2 }}>Custodian side: purchase forms, assign/release to collector, check stock, return unused forms, and logbook history.</Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
-          {['Assign Form', 'Check Stock', 'Inventory', 'Issue Form', 'Return Form', 'Return History', 'Purchase Form', 'Logs'].map((label) => (
-            <Button key={label} sx={secondaryToolbarButtonSx(label === 'Assign Form' ? uiColors.teal : uiColors.navy)} variant="outlined">{label}</Button>
-          ))}
+        <Box sx={{ alignItems: 'flex-start', display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'space-between', mb: 2 }}>
+          <Box>
+            <Typography variant="h6" sx={{ color: uiColors.navy, fontWeight: 900, mb: 0.5 }}>Accountable Forms Tracking</Typography>
+            <Typography variant="body2" sx={{ color: uiColors.steel }}>
+              Phase 2: encode the Accountable Forms released by the custodian to each collector. These ranges will be used by RCD validation.
+            </Typography>
+          </Box>
+          <Chip label={`${accountabilityRows.length} releases`} sx={{ bgcolor: 'var(--color-primary-soft)', color: uiColors.teal, fontWeight: 900 }} />
+        </Box>
+
+        <Alert severity="info" sx={{ borderRadius: 3, mb: 2 }}>
+          This records the logbook release only. Firebird remains read-only, and sold OR totals still come from RCD validation.
+        </Alert>
+        {accountabilityMessage && (
+          <Alert severity={accountabilityMessage.toLowerCase().includes('saved') ? 'success' : 'warning'} sx={{ borderRadius: 3, mb: 2 }}>
+            {accountabilityMessage}
+          </Alert>
+        )}
+
+        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(4, 1fr)' } }}>
+          <TextField
+            label="Type / Form No."
+            onChange={(event) => updateAccountabilityForm('formType', event.target.value)}
+            select
+            value={accountabilityForm.formType}
+          >
+            {formTypeOptions.map((option) => <MenuItem key={option} value={option}>{option}</MenuItem>)}
+          </TextField>
+          <TextField label="Serial / Booklet No." onChange={(event) => updateAccountabilityForm('serialNo', event.target.value)} value={accountabilityForm.serialNo} />
+          <TextField label="OR From" onChange={(event) => updateAccountabilityForm('receiptFrom', event.target.value)} value={accountabilityForm.receiptFrom} />
+          <TextField label="OR To" onChange={(event) => updateAccountabilityForm('receiptTo', event.target.value)} value={accountabilityForm.receiptTo} />
+          <TextField
+            label="Collector"
+            onChange={(event) => updateAccountabilityForm('collector', event.target.value)}
+            select
+            value={accountabilityForm.collector}
+          >
+            {collectorOptions.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
+          </TextField>
+          <TextField InputLabelProps={{ shrink: true }} label="Date Released" onChange={(event) => updateAccountabilityForm('releasedAt', event.target.value)} type="date" value={accountabilityForm.releasedAt} />
+          <TextField label="Released By" onChange={(event) => updateAccountabilityForm('releasedBy', event.target.value)} value={accountabilityForm.releasedBy} />
+          <TextField label="Collector Signed By" onChange={(event) => updateAccountabilityForm('collectorSignedBy', event.target.value)} value={accountabilityForm.collectorSignedBy} />
+        </Box>
+
+        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr auto auto' }, mt: 2 }}>
+          <TextField label="Remarks" onChange={(event) => updateAccountabilityForm('remarks', event.target.value)} value={accountabilityForm.remarks} />
+          <Paper variant="outlined" sx={{ alignItems: 'center', borderRadius: 2, display: 'flex', minHeight: 56, px: 2 }}>
+            <Typography sx={{ color: uiColors.steel, fontWeight: 800, mr: 1 }}>Receipts:</Typography>
+            <Typography sx={{ color: uiColors.navy, fontWeight: 950 }}>{accountabilityReceiptCount}</Typography>
+          </Paper>
+          <Button
+            disabled={savingAccountability}
+            onClick={saveAccountableFormRelease}
+            startIcon={savingAccountability ? <CircularProgress color="inherit" size={16} /> : <SaveIcon />}
+            sx={toolbarButtonSx(uiColors.teal, uiColors.tealHover)}
+            variant="contained"
+          >
+            Save Release
+          </Button>
         </Box>
       </Paper>
+
       <TableContainer component={Paper} sx={{ borderRadius: 4 }}>
-        <Table sx={{ minWidth: 1040 }}>
-          <TableHead><TableRow sx={{ '& th': { bgcolor: '#f7f9fc', color: uiColors.navy, fontWeight: 900, textTransform: 'uppercase' } }}><TableCell>Released</TableCell><TableCell>Form</TableCell><TableCell>Serial</TableCell><TableCell>Collector</TableCell><TableCell>Receipt Range</TableCell><TableCell>Beginning</TableCell><TableCell>Issued/Sold</TableCell><TableCell>Ending</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
+        <Table sx={{ minWidth: 1220 }}>
+          <TableHead>
+            <TableRow sx={{ '& th': { bgcolor: '#f7f9fc', color: uiColors.navy, fontWeight: 900, textTransform: 'uppercase' } }}>
+              <TableCell>Released</TableCell>
+              <TableCell>Form</TableCell>
+              <TableCell>Serial</TableCell>
+              <TableCell>Collector</TableCell>
+              <TableCell>OR Range</TableCell>
+              <TableCell align="center">Receipts</TableCell>
+              <TableCell>Released By</TableCell>
+              <TableCell>Signed By</TableCell>
+              <TableCell>Ending Balance</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Remarks</TableCell>
+            </TableRow>
+          </TableHead>
           <TableBody>
             {accountabilityRows.length === 0 ? (
-              <TableRow><TableCell align="center" colSpan={9} sx={{ color: uiColors.steel, fontWeight: 800, py: 4 }}>No accountability records loaded yet.</TableCell></TableRow>
+              <TableRow><TableCell align="center" colSpan={11} sx={{ color: uiColors.steel, fontWeight: 800, py: 4 }}>No accountable form releases saved yet.</TableCell></TableRow>
             ) : accountabilityRows.map((row) => (
-              <TableRow hover key={`${row.formType}-${row.serial}`}><TableCell>{row.released}</TableCell><TableCell>{row.formType}</TableCell><TableCell>{row.serial}</TableCell><TableCell>{row.collector}</TableCell><TableCell>{row.receiptRange}</TableCell><TableCell>{row.beginning}</TableCell><TableCell>{row.issued}</TableCell><TableCell>{row.ending}</TableCell><TableCell><StatusChip value={row.status} /></TableCell></TableRow>
+              <TableRow hover key={row.id || `${row.form_type}-${row.receipt_no_from}-${row.receipt_no_to}`}>
+                <TableCell>{row.released_at || '-'}</TableCell>
+                <TableCell sx={{ fontWeight: 900 }}>{row.form_type || '-'}</TableCell>
+                <TableCell>{row.serial_no || '-'}</TableCell>
+                <TableCell>{row.collector_full_name || row.collector || '-'}</TableCell>
+                <TableCell>{row.receipt_no_from || '-'} to {row.receipt_no_to || '-'}</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 900 }}>{row.receipt_count || 0}</TableCell>
+                <TableCell>{row.released_by || '-'}</TableCell>
+                <TableCell>{row.collector_signed_by || '-'}</TableCell>
+                <TableCell>{row.ending_balance_from || '-'} to {row.ending_balance_to || '-'}</TableCell>
+                <TableCell><StatusChip value={row.status || 'Released'} /></TableCell>
+                <TableCell>{row.remarks || '-'}</TableCell>
+              </TableRow>
             ))}
           </TableBody>
         </Table>
@@ -1082,9 +1243,9 @@ export function RcdPage({ user }) {
   const renderMainSection = () => {
     if (activeSection === 'entries') return renderBatchTable('Daily Entries', 'Saved and draft RCD batches for the selected period.')
     if (activeSection === 'generate-rcd') return renderGenerateRcd()
+    if (activeSection === 'accountability') return renderAccountability()
     // Review Queue hidden temporarily while focusing on core RCD validation.
     // Deposit Queue hidden temporarily while focusing on core RCD validation.
-    // Accountability hidden temporarily while focusing on core RCD validation.
     return (
       <Box sx={{ display: 'grid', gap: 3 }}>
         <Alert severity="info" sx={{ borderRadius: 3 }}>

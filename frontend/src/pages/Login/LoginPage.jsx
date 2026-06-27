@@ -1,4 +1,4 @@
-import { ShieldCheck } from 'lucide-react'
+import treasurerLogo from '../../assets/TREASURER_ORIGINAL_LOGO.png'
 
 export function LoginPage({
   connectionClass,
@@ -15,7 +15,7 @@ export function LoginPage({
       <main className="login-screen">
         <section className="login-panel">
           <div className="brand-mark">
-            <ShieldCheck size={30} aria-hidden="true" />
+            <img alt="Treasurer Office logo" src={treasurerLogo} />
           </div>
           <p className="eyebrow">LGU Treasury Reporting System</p>
           <h1>Checking Sign In</h1>
@@ -32,7 +32,7 @@ export function LoginPage({
     <main className="login-screen">
       <section className="login-panel">
         <div className="brand-mark">
-          <ShieldCheck size={30} aria-hidden="true" />
+          <img alt="Treasurer Office logo" src={treasurerLogo} />
         </div>
         <p className="eyebrow">LGU Treasury Reporting System</p>
         <h1>Treasurer Office Sign In</h1>

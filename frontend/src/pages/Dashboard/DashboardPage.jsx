@@ -9,6 +9,7 @@ import {
   CalendarDays,
   Gauge,
   Landmark,
+  ListChecks,
   ReceiptText,
   RefreshCcw,
   Target,
@@ -39,6 +40,7 @@ const getPeriod = (year) => {
   return {
     dateTo: toLocalDate(dateTo),
     fullYearTo: toLocalDate(yearEnd),
+    month: dateTo.getMonth() + 1,
     monthFrom: toLocalDate(monthStart),
     monthName: dateTo.toLocaleString('en-PH', { month: 'long' }),
     selectedYear,
@@ -84,6 +86,28 @@ const targetAmount = (rows, matcher) => {
 
 const getDashboardError = (error, fallback) =>
   error.response?.data?.error || error.response?.data?.message || error.message || fallback
+
+const emptyDashboardData = {
+  collectors: null,
+  diveTickets: null,
+  diveTicketsYear: null,
+  incomeTarget: null,
+  recentPayments: null,
+  monthCollections: null,
+  rptSharing: null,
+  ytdCollections: null,
+}
+
+const mapDashboardCachePayload = (payload = {}) => ({
+  collectors: payload.collector_summary || null,
+  diveTickets: payload.dive_ticket_summary?.current_month || null,
+  diveTicketsYear: payload.dive_ticket_summary?.whole_year || null,
+  incomeTarget: payload.income_target_summary || null,
+  recentPayments: payload.recent_collections || null,
+  monthCollections: payload.report_preview_cache?.report_21_current_month || null,
+  rptSharing: payload.report_preview_cache?.report_27_ytd || null,
+  ytdCollections: payload.report_preview_cache?.report_21_ytd || null,
+})
 
 const formatPercent = (value) =>
   new Intl.NumberFormat('en-PH', {
@@ -197,16 +221,10 @@ const categoryConfig = [
 
 export function DashboardPage() {
   const [year, setYear] = useState(String(new Date().getFullYear()))
-  const [dashboardData, setDashboardData] = useState({
-    collectors: null,
-    diveTickets: null,
-    diveTicketsYear: null,
-    incomeTarget: null,
-    monthCollections: null,
-    rptSharing: null,
-    ytdCollections: null,
-  })
+  const [dashboardData, setDashboardData] = useState(emptyDashboardData)
+  const [cacheMeta, setCacheMeta] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
 
   const period = useMemo(() => getPeriod(year), [year])
@@ -217,68 +235,25 @@ export function DashboardPage() {
     setError('')
 
     try {
-      const [incomeTarget, ytdCollections, monthCollections, rptSharing, collectors, diveTickets, diveTicketsYear] = await Promise.all([
-        axiosInstance.get('/income-target', { params: { year: targetYear } }),
-        axiosInstance.get('/generated-reports/21/preview', {
-          params: {
-            date_from: nextPeriod.ytdFrom,
-            date_to: nextPeriod.dateTo,
-          },
-        }),
-        axiosInstance.get('/generated-reports/21/preview', {
-          params: {
-            date_from: nextPeriod.monthFrom,
-            date_to: nextPeriod.dateTo,
-          },
-        }),
-        axiosInstance.get('/generated-reports/27/preview', {
-          params: {
-            date_from: nextPeriod.ytdFrom,
-            date_to: nextPeriod.dateTo,
-          },
-        }),
-        axiosInstance.get('/general-fund/collectors', {
-          params: {
-            date_from: nextPeriod.ytdFrom,
-            date_to: nextPeriod.dateTo,
-            limit: 1000,
-          },
-        }),
-        axiosInstance.get('/general-fund/dive-tickets', {
-          params: {
-            date_from: nextPeriod.monthFrom,
-            date_to: nextPeriod.dateTo,
-            limit: 100,
-          },
-        }),
-        axiosInstance.get('/general-fund/dive-tickets', {
-          params: {
-            date_from: nextPeriod.ytdFrom,
-            date_to: nextPeriod.fullYearTo,
-            limit: 100,
-          },
-        }),
-      ])
+      const response = await axiosInstance.get('/dashboard/summary', {
+        params: {
+          year: targetYear,
+          month: nextPeriod.month,
+        },
+      })
 
-      setDashboardData({
-        collectors: collectors.data.data,
-        diveTickets: diveTickets.data.data,
-        diveTicketsYear: diveTicketsYear.data.data,
-        incomeTarget: incomeTarget.data.data,
-        monthCollections: monthCollections.data,
-        rptSharing: rptSharing.data,
-        ytdCollections: ytdCollections.data,
-      })
+      setCacheMeta(response.data)
+
+      if (!response.data.success) {
+        setDashboardData(emptyDashboardData)
+        setError(response.data.message || 'Dashboard cache not found. Please refresh dashboard data first.')
+        return
+      }
+
+      setDashboardData(mapDashboardCachePayload(response.data.payload))
     } catch (requestError) {
-      setDashboardData({
-        collectors: null,
-        diveTickets: null,
-        diveTicketsYear: null,
-        incomeTarget: null,
-        monthCollections: null,
-        rptSharing: null,
-        ytdCollections: null,
-      })
+      setDashboardData(emptyDashboardData)
+      setCacheMeta(null)
       setError(getDashboardError(requestError, 'Unable to load collection target dashboard.'))
     } finally {
       setLoading(false)
@@ -287,80 +262,10 @@ export function DashboardPage() {
 
   useEffect(() => {
     let isActive = true
-    const targetYear = year
-    const nextPeriod = getPeriod(targetYear)
 
-    Promise.all([
-      axiosInstance.get('/income-target', { params: { year: targetYear } }),
-      axiosInstance.get('/generated-reports/21/preview', {
-        params: {
-          date_from: nextPeriod.ytdFrom,
-          date_to: nextPeriod.dateTo,
-        },
-      }),
-      axiosInstance.get('/generated-reports/21/preview', {
-        params: {
-          date_from: nextPeriod.monthFrom,
-          date_to: nextPeriod.dateTo,
-        },
-      }),
-      axiosInstance.get('/generated-reports/27/preview', {
-        params: {
-          date_from: nextPeriod.ytdFrom,
-          date_to: nextPeriod.dateTo,
-        },
-      }),
-      axiosInstance.get('/general-fund/collectors', {
-        params: {
-          date_from: nextPeriod.ytdFrom,
-          date_to: nextPeriod.dateTo,
-          limit: 1000,
-        },
-      }),
-      axiosInstance.get('/general-fund/dive-tickets', {
-        params: {
-          date_from: nextPeriod.monthFrom,
-          date_to: nextPeriod.dateTo,
-          limit: 100,
-        },
-      }),
-      axiosInstance.get('/general-fund/dive-tickets', {
-        params: {
-          date_from: nextPeriod.ytdFrom,
-          date_to: nextPeriod.fullYearTo,
-          limit: 100,
-        },
-      }),
-    ])
-      .then(([incomeTarget, ytdCollections, monthCollections, rptSharing, collectors, diveTickets, diveTicketsYear]) => {
-        if (!isActive) return
-        setDashboardData({
-          collectors: collectors.data.data,
-          diveTickets: diveTickets.data.data,
-          diveTicketsYear: diveTicketsYear.data.data,
-          incomeTarget: incomeTarget.data.data,
-          monthCollections: monthCollections.data,
-          rptSharing: rptSharing.data,
-          ytdCollections: ytdCollections.data,
-        })
-      })
-      .catch((requestError) => {
-        if (!isActive) return
-        setDashboardData({
-          collectors: null,
-          diveTickets: null,
-          diveTicketsYear: null,
-          incomeTarget: null,
-          monthCollections: null,
-          rptSharing: null,
-          ytdCollections: null,
-        })
-        setError(getDashboardError(requestError, 'Unable to load collection target dashboard.'))
-      })
-      .finally(() => {
-        if (!isActive) return
-        setLoading(false)
-      })
+    loadDashboard(year).finally(() => {
+      if (!isActive) return
+    })
 
     return () => {
       isActive = false
@@ -371,6 +276,26 @@ export function DashboardPage() {
     setLoading(true)
     setError('')
     setYear(event.target.value)
+  }
+
+  const refreshDashboardData = async () => {
+    const nextPeriod = getPeriod(year)
+    setRefreshing(true)
+    setError('')
+
+    try {
+      await axiosInstance.post('/dashboard/summary/refresh', null, {
+        params: {
+          year,
+          month: nextPeriod.month,
+        },
+      })
+      await loadDashboard(year)
+    } catch (requestError) {
+      setError(getDashboardError(requestError, 'Unable to refresh dashboard cache.'))
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   const collectionModel = useMemo(() => {
@@ -476,6 +401,18 @@ export function DashboardPage() {
     [categoryRows],
   )
 
+  const recentPaymentLogs = useMemo(
+    () => (dashboardData.recentPayments || [])
+      .filter((row) => String(row.collection_status || 'Paid') === 'Paid')
+      .sort((a, b) => {
+        const dateSort = String(b.collection_date || '').localeCompare(String(a.collection_date || ''))
+        if (dateSort !== 0) return dateSort
+        return String(b.receipt_no || '').localeCompare(String(a.receipt_no || ''), undefined, { numeric: true })
+      })
+      .slice(0, 8),
+    [dashboardData.recentPayments],
+  )
+
   const paceStatus = collectionModel.varianceToDate >= 0 ? 'On Pace' : 'Behind Target'
   const paceClass = collectionModel.varianceToDate >= 0 ? 'is-good' : 'is-warning'
 
@@ -500,10 +437,13 @@ export function DashboardPage() {
               value={year}
             />
           </label>
-          <button className="secondary-button" disabled={loading} onClick={() => loadDashboard()} type="button">
+          <button className="secondary-button" disabled={loading || refreshing} onClick={refreshDashboardData} type="button">
             <RefreshCcw size={16} aria-hidden="true" />
-            Refresh
+            {refreshing ? 'Refreshing...' : 'Refresh Data'}
           </button>
+          {cacheMeta?.generated_at && (
+            <span className="dashboard-cache-updated">Last updated: {cacheMeta.generated_at}</span>
+          )}
         </div>
       </section>
 
@@ -671,29 +611,33 @@ export function DashboardPage() {
         </div>
 
         <div className="panel">
-          <h3>Collection Share</h3>
-          <dl>
+          <div className="panel-title-row">
             <div>
-              <dt>Municipal General Fund</dt>
-              <dd>{formatMoney(collectionModel.ytdRow.municipal_general_fund || 0)}</dd>
+              <h3>Logs</h3>
+              <span>Latest paid receipts from Firebird .FDB</span>
             </div>
-            <div>
-              <dt>Municipal SEF</dt>
-              <dd>{formatMoney(collectionModel.ytdRow.municipal_sef || 0)}</dd>
+            <div className="target-status-pill is-good">
+              <ListChecks size={16} aria-hidden="true" />
+              Paid only
             </div>
-            <div>
-              <dt>Provincial Share</dt>
-              <dd>{formatMoney(collectionModel.ytdRow.provincial_total || 0)}</dd>
-            </div>
-            <div>
-              <dt>Barangay / Fisheries Share</dt>
-              <dd>
-                {formatMoney(
-                  Number(collectionModel.ytdRow.barangay_share || 0) + Number(collectionModel.ytdRow.fisheries || 0),
-                )}
-              </dd>
-            </div>
-          </dl>
+          </div>
+          <div className="payment-log-list">
+            {recentPaymentLogs.map((row) => (
+              <div className="payment-log-row" key={`${row.payment_id}-${row.receipt_no}`}>
+                <div>
+                  <strong>{row.taxpayer || 'UNSPECIFIED'}</strong>
+                  <span>OR {row.receipt_no || '-'} • {row.collection_date || '-'} • {row.collector || 'Unassigned'}</span>
+                </div>
+                <em>{formatMoney(row.total_amount || 0)}</em>
+              </div>
+            ))}
+            {!recentPaymentLogs.length && (
+              <div className="payment-log-empty">
+                <ListChecks size={18} aria-hidden="true" />
+                <span>No recent paid receipt logs for the selected year.</span>
+              </div>
+            )}
+          </div>
         </div>
       </section>
     </div>

@@ -15,6 +15,10 @@ return [
             'reports.export',
             'settings.view',
         ],
+        'cashier' => [
+            'dashboard.view',
+            'reports.view',
+        ],
         'collector' => [
             'dashboard.view',
             'reports.view',

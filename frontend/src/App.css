@@ -418,6 +418,224 @@ select:focus {
   grid-template-columns: 140px auto;
 }
 
+.dashboard-cache-updated {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 800;
+  grid-column: 1 / -1;
+  text-align: right;
+}
+
+.user-accounts-page .compact-hero {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.user-account-toolbar {
+  align-items: end;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(220px, 1fr) 180px 180px auto;
+  padding: 18px;
+}
+
+.user-account-table-panel {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.user-action-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.text-button {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-primary);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 900;
+  gap: 5px;
+  padding: 7px 9px;
+}
+
+.text-button:hover {
+  background: rgba(5, 84, 242, 0.08);
+}
+
+.text-button.danger {
+  color: var(--color-danger);
+}
+
+.text-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.success-alert {
+  background: rgba(140, 191, 63, 0.12);
+  border-color: rgba(140, 191, 63, 0.35);
+  color: #3f6212;
+}
+
+.user-account-modal {
+  max-width: 720px;
+}
+
+.user-form-modal {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.2);
+  max-width: 760px;
+  overflow: hidden;
+  width: min(760px, calc(100vw - 32px));
+}
+
+.user-detail-modal {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.2);
+  max-width: 780px;
+  overflow: hidden;
+  width: min(780px, calc(100vw - 32px));
+}
+
+.user-detail-header {
+  align-items: flex-start;
+  background: linear-gradient(180deg, rgba(106, 174, 217, 0.14), rgba(255, 255, 255, 0));
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding: 22px 24px 18px;
+}
+
+.user-detail-profile {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  min-width: 0;
+}
+
+.user-detail-avatar {
+  align-items: center;
+  background: var(--color-primary);
+  border-radius: 50%;
+  box-shadow: 0 10px 24px rgba(5, 84, 242, 0.24);
+  color: #fff;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 26px;
+  font-weight: 900;
+  height: 58px;
+  justify-content: center;
+  width: 58px;
+}
+
+.user-detail-profile h2 {
+  color: var(--color-text-strong);
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.15;
+  margin: 2px 0 4px;
+}
+
+.user-detail-profile span {
+  color: var(--color-muted);
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.user-detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.user-detail-close {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  color: var(--color-muted);
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 22px;
+  font-weight: 700;
+  height: 40px;
+  justify-content: center;
+  line-height: 1;
+  width: 40px;
+}
+
+.user-detail-close:hover {
+  background: rgba(217, 63, 7, 0.08);
+  border-color: rgba(217, 63, 7, 0.32);
+  color: var(--color-danger);
+}
+
+.user-account-form {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 22px 24px 24px;
+}
+
+.user-account-form footer {
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  gap: 10px;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  margin: 6px -24px -24px;
+  padding: 16px 24px;
+}
+
+.user-detail-list {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding: 20px 24px 24px;
+}
+
+.user-detail-list div {
+  background: #f8fafc;
+  border: 1px solid #e6edf5;
+  border-radius: 10px;
+  padding: 13px 14px;
+}
+
+.user-detail-list dt {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.user-detail-list dd {
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 900;
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
 .target-monitor-panel {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -526,6 +744,64 @@ select:focus {
   font-size: 13px;
   font-weight: 800;
   text-align: right;
+}
+
+.payment-log-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.payment-log-row {
+  align-items: center;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 10px 12px;
+}
+
+.payment-log-row strong,
+.payment-log-row span {
+  display: block;
+  min-width: 0;
+}
+
+.payment-log-row strong {
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.payment-log-row span {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 3px;
+}
+
+.payment-log-row em {
+  color: var(--color-primary);
+  font-style: normal;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.payment-log-empty {
+  align-items: center;
+  background: var(--color-secondary-soft);
+  border: 1px solid rgba(106, 174, 217, 0.35);
+  border-radius: 8px;
+  color: var(--color-muted);
+  display: flex;
+  font-weight: 800;
+  gap: 10px;
+  padding: 14px;
 }
 
 .dashboard-category-panel {
@@ -2107,6 +2383,35 @@ dd {
 
   .modal-layer {
     padding: 14px;
+  }
+
+  .user-detail-header {
+    padding: 18px;
+  }
+
+  .user-detail-profile {
+    gap: 12px;
+  }
+
+  .user-detail-avatar {
+    font-size: 22px;
+    height: 48px;
+    width: 48px;
+  }
+
+  .user-detail-list {
+    grid-template-columns: 1fr;
+    padding: 16px 18px 18px;
+  }
+
+  .user-account-form {
+    grid-template-columns: 1fr;
+    padding: 18px;
+  }
+
+  .user-account-form footer {
+    margin: 4px -18px -18px;
+    padding: 14px 18px;
   }
 
   .receipt-filter-strip {

@@ -32,6 +32,7 @@ import { ReportsPage } from './pages/Reports/ReportsPage'
 import { RcdPage } from './pages/Rcd/RcdPage'
 import { SearchReceiptPage } from './pages/SearchReceipt/SearchReceiptPage'
 import { SettingsPage } from './pages/Settings/SettingsPage'
+import { UserAccountsPage } from './pages/UserAccounts/UserAccountsPage'
 import { getFirebirdError, initialStatus } from './utils/firebirdStatus'
 import treasurerLogo from './assets/TREASURER_ORIGINAL_LOGO.png'
 import './App.css'
@@ -49,6 +50,7 @@ const navItems = [
 { id: 'acoDashboard', label: 'ACO Dashboard', icon: ShieldCheck },
 { id: 'incometarget', label: 'Income Target', icon: Target },
 { id: 'searchreceipt', label: 'Search Receipt', icon: SearchCheck },
+{ id: 'userAccounts', label: "User's Accounts", icon: UsersRound, permission: 'users.manage' },
 { id: 'reports', label: 'Reports', icon: FileBarChart },
 { id: 'settings', label: 'Settings', icon: Settings },
 ]
@@ -68,6 +70,7 @@ const hiddenTopbarPages = new Set([
   'acoDashboard',
   'incometarget',
   'searchreceipt',
+  'userAccounts',
   'reports',
 ])
 
@@ -136,6 +139,16 @@ function App() {
   }, [firebirdStatus])
 
   const connectionClass = firebirdStatus.data?.ok ? 'is-connected' : 'is-offline'
+  const visibleNavItems = useMemo(
+    () => navItems.filter((item) => !item.permission || user?.permissions?.includes(item.permission)),
+    [user],
+  )
+
+  useEffect(() => {
+    if (!visibleNavItems.some((item) => item.id === activePage)) {
+      setActivePage('dashboard')
+    }
+  }, [activePage, visibleNavItems])
 
   const handleLoginFormChange = (field, value) => {
     setLoginForm((current) => ({ ...current, [field]: value }))
@@ -197,7 +210,7 @@ function App() {
         </div>
 
         <nav className="sidebar-nav" aria-label="Main navigation">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon
             return (
               <button
@@ -230,7 +243,7 @@ function App() {
           </button>
           <div>
             <p className="eyebrow">Municipality of Zamboanguita</p>
-            <h1>{navItems.find((item) => item.id === activePage)?.label}</h1>
+            <h1>{visibleNavItems.find((item) => item.id === activePage)?.label}</h1>
             <span className="signed-in-user">{user?.name} - {user?.role}</span>
           </div>
           <div className={`connection-pill ${connectionClass}`}>
@@ -268,11 +281,13 @@ function App() {
 
         {activePage === 'searchreceipt' && <SearchReceiptPage />}
 
+        {activePage === 'userAccounts' && <UserAccountsPage user={user} />}
+
         {activePage === 'rcd' && <RcdPage user={user} />}
 
         {activePage === 'acoDashboard' && <AcoDashboardPage user={user} />}
 
-        {activePage !== 'generalFund' && !collectionMonitorPages[activePage] && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'rcd' && activePage !== 'acoDashboard' && fundPages[activePage] && (
+        {activePage !== 'generalFund' && !collectionMonitorPages[activePage] && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'userAccounts' && activePage !== 'rcd' && activePage !== 'acoDashboard' && fundPages[activePage] && (
           <ReportsPage page={fundPages[activePage]} />
         )}
 

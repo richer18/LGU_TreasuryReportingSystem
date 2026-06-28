@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\DashboardSummaryController;
 use App\Http\Controllers\Api\FirebirdStatusController;
 use App\Http\Controllers\Api\GeneralFundController;
 use App\Http\Controllers\Api\GeneratedReportController;
@@ -9,6 +10,7 @@ use App\Http\Controllers\Api\ReportCatalogController;
 use App\Http\Controllers\Api\RcdAccessController;
 use App\Http\Controllers\Api\RcdGenerateOrController;
 use App\Http\Controllers\Api\SearchReceiptController;
+use App\Http\Controllers\Api\UserAccountController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', fn () => [
@@ -24,6 +26,18 @@ Route::get('/firebird/status', FirebirdStatusController::class);
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
     Route::post('/logout', [AuthController::class, 'logout']);
+
+    Route::get('/dashboard/summary', [DashboardSummaryController::class, 'show']);
+    Route::post('/dashboard/summary/refresh', [DashboardSummaryController::class, 'refresh']);
+
+    Route::middleware('admin')->group(function () {
+        Route::get('/users', [UserAccountController::class, 'index']);
+        Route::get('/users/{user}', [UserAccountController::class, 'show']);
+        Route::post('/users', [UserAccountController::class, 'store']);
+        Route::put('/users/{user}', [UserAccountController::class, 'update']);
+        Route::patch('/users/{user}/status', [UserAccountController::class, 'status']);
+        Route::patch('/users/{user}/reset-password', [UserAccountController::class, 'resetPassword']);
+    });
 
     Route::prefix('general-fund')->group(function () {
         Route::get('/summary', [GeneralFundController::class, 'summary']);

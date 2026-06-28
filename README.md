@@ -843,3 +843,24 @@ runner/rcd_access_store.py now supports:
 Laravel API endpoint added:
 - GET /api/rcd/audit-trail
 ```
+
+## 2026-06-27 Dashboard Logs Panel Update
+
+The bottom-right Dashboard panel was changed from `Collection Share` to `Logs`.
+
+Purpose:
+
+```text
+Show the latest paid receipt activity so the Treasurer can quickly see who recently paid.
+```
+
+Implementation:
+
+```text
+- Dashboard now loads recent paid collections from GET /api/general-fund/collections for the latest month window.
+- The Logs panel displays newest paid receipts first.
+- Cancelled/voided receipts are excluded by using rows with collection_status = Paid.
+- Each log row shows taxpayer, OR number, payment date, collector, and total amount.
+- The old Collection Share detail list was removed from that bottom panel.
+- The existing Collection Share donut chart near the top remains available.
+```

@@ -23,7 +23,7 @@ for USER_SITE in USER_SITE_CANDIDATES:
         sys.path.append(str(USER_SITE))
 
 try:
-    from openpyxl import load_workbook
+    from openpyxl import Workbook, load_workbook
 except ModuleNotFoundError as exc:
     print(json.dumps({
         "ok": False,
@@ -43,6 +43,76 @@ TEMPLATE_MAP = {
     21: "summary_of_collection_template.xlsx",
     22: "summary_of_collection_template_no_rpt.xlsx",
     23: "summary_of_collection_template_rpt.xlsx",
+}
+
+RECEIPT_EXCEPTION_REPORTS = {35: "canceled-void", 36: "not-remitted"}
+RECEIPT_EXCEPTION_DEFINITIONS = {
+    35: {
+        "title": "Canceled / Void Receipts Report",
+        "headers": [
+            "OR Date",
+            "OR Number",
+            "Taxpayer Name",
+            "Amount",
+            "Fund Type",
+            "Transaction Type",
+            "Collector / Cashier",
+            "Status",
+            "Status Code",
+            "Void Flag",
+            "Remarks",
+            "Transaction Date",
+            "User ID",
+        ],
+        "fields": [
+            "or_date",
+            "or_number",
+            "taxpayer_name",
+            "amount",
+            "fund_type",
+            "transaction_type",
+            "collector_cashier",
+            "status",
+            "status_code",
+            "void_flag",
+            "remarks",
+            "transaction_date",
+            "user_id",
+        ],
+    },
+    36: {
+        "title": "Receipts Not Remitted Report",
+        "headers": [
+            "OR Date",
+            "OR Number",
+            "Taxpayer Name",
+            "Amount",
+            "Fund Type",
+            "Transaction Type",
+            "Collector / Cashier",
+            "Transaction Date",
+            "RCD Number",
+            "RCD Date",
+            "RCD Status",
+            "Days Unremitted",
+            "Remarks",
+        ],
+        "fields": [
+            "or_date",
+            "or_number",
+            "taxpayer_name",
+            "amount",
+            "fund_type",
+            "transaction_type",
+            "collector_cashier",
+            "transaction_date",
+            "rcd_number",
+            "rcd_date",
+            "rcd_status",
+            "days_unremitted",
+            "remarks",
+        ],
+    },
 }
 
 PARENT_DELEGATED_REPORTS = set(range(1, 21)) | {25, 26, 27, 28, 29, 30, 31, 32, 33, 34}
@@ -145,6 +215,75 @@ def write_summary_workbook(report_number, payload, date_from, date_to, output_di
     return output_path, len(body_rows)
 
 
+def receipt_exception_args(report_number, date_from, date_to):
+    class Args:
+        pass
+
+    args = Args()
+    args.report = RECEIPT_EXCEPTION_REPORTS[report_number]
+    args.date_from = date_from
+    args.date_to = date_to
+    args.fund_type = ""
+    args.collector = ""
+    args.status = ""
+    args.transaction_type = ""
+    args.or_number = ""
+    args.taxpayer = ""
+    args.page = 1
+    args.limit = 500
+    return args
+
+
+def receipt_exception_rows(report_number, date_from, date_to):
+    from receipt_exceptions_readonly import canceled_void_report, not_remitted_report
+
+    args = receipt_exception_args(report_number, date_from, date_to)
+    if report_number == 35:
+        rows, warnings = canceled_void_report(args)
+    else:
+        rows, warnings = not_remitted_report(args)
+    return rows, warnings
+
+
+def write_receipt_exception_workbook(report_number, date_from, date_to, output_dir):
+    definition = RECEIPT_EXCEPTION_DEFINITIONS[report_number]
+    rows, warnings = receipt_exception_rows(report_number, date_from, date_to)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = safe_filename(definition["title"])[:31]
+
+    sheet["A1"] = definition["title"]
+    sheet["A2"] = "Municipality of Zamboanguita"
+    sheet["A3"] = f"Period: {date_from} to {date_to}"
+    if warnings:
+        sheet["A4"] = "Warnings: " + " | ".join(warnings)
+
+    header_row = 6
+    for column_index, header in enumerate(definition["headers"], start=1):
+        cell = sheet.cell(header_row, column_index)
+        cell.value = header
+        cell.font = cell.font.copy(bold=True)
+
+    for row_index, row in enumerate(rows, start=header_row + 1):
+        for column_index, field in enumerate(definition["fields"], start=1):
+            sheet.cell(row_index, column_index).value = excel_value(row.get(field, ""))
+
+    amount_column = definition["fields"].index("amount") + 1
+    for row_index in range(header_row + 1, header_row + len(rows) + 1):
+        sheet.cell(row_index, amount_column).number_format = '#,##0.00'
+
+    for column in sheet.columns:
+        max_length = max(len(str(cell.value or "")) for cell in column)
+        sheet.column_dimensions[column[0].column_letter].width = min(max(max_length + 2, 12), 45)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_name = safe_filename(f"report_{report_number}_{date_from}_to_{date_to}_{definition['title']}.xlsx")
+    output_path = output_dir / output_name
+    workbook.save(output_path)
+
+    return output_path, len(rows)
+
+
 def delegated_parent_export(report_number, date_from, date_to, output_dir, collector=None):
     if not PARENT_COLLECTION_RUNNER.exists():
         searched = "; ".join(str(path) for path in parent_runner_candidates())
@@ -209,6 +348,25 @@ def main():
     args = parser.parse_args()
 
     try:
+        if args.report_number in RECEIPT_EXCEPTION_REPORTS:
+            output_path, row_count = write_receipt_exception_workbook(
+                args.report_number,
+                args.date_from,
+                args.date_to,
+                Path(args.output_dir),
+            )
+            print(json.dumps({
+                "ok": True,
+                "mode": "read_only_excel_export",
+                "report_number": args.report_number,
+                "date_from": args.date_from,
+                "date_to": args.date_to,
+                "row_count": row_count,
+                "path": str(output_path),
+                "filename": output_path.name,
+            }, default=scalar))
+            return 0
+
         if args.report_number in PARENT_DELEGATED_REPORTS:
             output_path, row_count = delegated_parent_export(
                 args.report_number,

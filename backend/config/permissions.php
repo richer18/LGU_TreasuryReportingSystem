@@ -4,6 +4,7 @@ return [
     'roles' => [
         'admin' => [
             'dashboard.view',
+            'calendar.view',
             'general_fund.view',
             'trust_fund.view',
             'community_tax.view',
@@ -23,6 +24,7 @@ return [
         ],
         'treasurer' => [
             'dashboard.view',
+            'calendar.view',
             'general_fund.view',
             'trust_fund.view',
             'community_tax.view',
@@ -37,17 +39,20 @@ return [
         ],
         'cashier' => [
             'dashboard.view',
+            'calendar.view',
             'rcd.view',
             'search_receipts.view',
             'reports.view',
             'settings.view',
         ],
         'collector' => [
+            'calendar.view',
             'rcd.view',
             'settings.view',
         ],
         'viewer' => [
             'dashboard.view',
+            'calendar.view',
             'income_target.view',
             'settings.view',
         ],

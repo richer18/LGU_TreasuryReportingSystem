@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
 
 class ReceiptExceptionsReportService
@@ -64,10 +65,19 @@ class ReceiptExceptionsReportService
             return $payload;
         }
 
+        $technicalError = trim($process->errorOutput() ?: $process->output());
+
+        Log::error('Receipt exceptions runner failed.', [
+            'report' => $report,
+            'exit_code' => $process->exitCode(),
+            'error' => $technicalError,
+        ]);
+
         return [
             'ok' => false,
             'exit_code' => $process->exitCode(),
-            'error' => trim($process->errorOutput() ?: $process->output()),
+            'error' => 'Unable to load report. Please check the backend logs.',
+            'technical_error' => $technicalError,
         ];
     }
 }

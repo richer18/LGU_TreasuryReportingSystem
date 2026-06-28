@@ -17,8 +17,13 @@ DEFAULT_ACCESS_DB = PROJECT_ROOT / "backend" / "database" / "rcd" / "rcd_remitta
 ACCESS_DRIVER = "Microsoft Access Driver (*.mdb, *.accdb)"
 
 
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def emit(payload, code=0):
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False, default=str))
+    sys.stdout.write(json.dumps(payload, ensure_ascii=True, default=str))
     raise SystemExit(code)
 
 

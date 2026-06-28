@@ -125,7 +125,7 @@ export function ReceiptExceptionsPage() {
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(25)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(null)
 
   const activeConfig = tabConfig[activeTab]
   const columns = useMemo(
@@ -137,9 +137,11 @@ export function ReceiptExceptionsPage() {
     setFilters((current) => ({ ...current, [field]: value }))
   }
 
+  const dateRangeLabel = `${filters.date_from || '-'} to ${filters.date_to || '-'}`
+
   const loadReport = async (nextPage = 0, nextLimit = rowsPerPage) => {
     setLoading(true)
-    setError('')
+    setError(null)
 
     try {
       const response = await axiosInstance.get(activeConfig.endpoint, {
@@ -161,7 +163,10 @@ export function ReceiptExceptionsPage() {
     } catch (requestError) {
       setRows([])
       setSummary({ total_count: 0, total_amount: 0, note: '', warnings: [] })
-      setError(requestError.response?.data?.error || requestError.message || 'Unable to load receipt exceptions.')
+      setError({
+        message: requestError.response?.data?.error || 'Unable to load report. Please check the backend logs.',
+        details: requestError.response?.data?.technical_error || requestError.message || '',
+      })
     } finally {
       setLoading(false)
     }
@@ -183,6 +188,13 @@ export function ReceiptExceptionsPage() {
     loadReport(0, rowsPerPage)
   }
 
+  const handleResetFilters = () => {
+    setFilters(initialFilters)
+    setRows([])
+    setPage(0)
+    setError(null)
+  }
+
   const handleChangePage = (_event, nextPage) => {
     loadReport(nextPage, rowsPerPage)
   }
@@ -200,17 +212,23 @@ export function ReceiptExceptionsPage() {
           <p className="eyebrow">Receipt Exception Monitoring</p>
           <h2>Receipt Exceptions Report</h2>
           <p>
-            Review canceled/void receipts and paid receipts that are not fully matched to remitted RCD records.
+            Review receipt issues and remittance gaps for the selected period.
           </p>
         </div>
-        <div className="exception-summary-card">
-          <span>Total Amount</span>
-          <strong>{money(summary.total_amount)}</strong>
-          <small>{summary.total_count.toLocaleString()} receipt(s)</small>
+        <div className="exception-header-summary">
+          <div className="exception-summary-card">
+            <span>Total Amount</span>
+            <strong>{money(summary.total_amount)}</strong>
+          </div>
+          <div className="exception-summary-card">
+            <span>Total Receipts</span>
+            <strong>{summary.total_count.toLocaleString()}</strong>
+          </div>
         </div>
       </section>
 
-      <section className="toolbar-panel receipt-exceptions-tabs" aria-label="Receipt exception report tabs">
+      <section className="toolbar-panel receipt-exceptions-tabs">
+        <div className="exception-tab-switcher" aria-label="Receipt exception report tabs">
         {Object.entries(tabConfig).map(([key, item]) => (
           <button
             className={activeTab === key ? 'is-active' : ''}
@@ -222,45 +240,53 @@ export function ReceiptExceptionsPage() {
             {item.title}
           </button>
         ))}
+        </div>
       </section>
 
       <form className="toolbar-panel exception-filter-panel" onSubmit={handleSearch}>
-        <label>
-          <span><Calendar size={15} /> Date From</span>
-          <input type="date" value={filters.date_from} onChange={(event) => updateFilter('date_from', event.target.value)} />
-        </label>
-        <label>
-          <span><Calendar size={15} /> Date To</span>
-          <input type="date" value={filters.date_to} onChange={(event) => updateFilter('date_to', event.target.value)} />
-        </label>
-        <label>
-          <span><Filter size={15} /> Fund Type</span>
-          <input value={filters.fund_type} onChange={(event) => updateFilter('fund_type', event.target.value)} placeholder="All funds" />
-        </label>
-        <label>
-          <span><Filter size={15} /> Collector / Cashier</span>
-          <input value={filters.collector} onChange={(event) => updateFilter('collector', event.target.value)} placeholder="All collectors" />
-        </label>
-        <label>
-          <span><Filter size={15} /> Status</span>
-          <input value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} placeholder="All statuses" />
-        </label>
-        <label>
-          <span><Filter size={15} /> Transaction Type</span>
-          <input value={filters.transaction_type} onChange={(event) => updateFilter('transaction_type', event.target.value)} placeholder="All types" />
-        </label>
-        <label>
-          <span><Search size={15} /> OR Number</span>
-          <input value={filters.or_number} onChange={(event) => updateFilter('or_number', event.target.value)} placeholder="Search OR" />
-        </label>
-        <label>
-          <span><Search size={15} /> Taxpayer</span>
-          <input value={filters.taxpayer} onChange={(event) => updateFilter('taxpayer', event.target.value)} placeholder="Search taxpayer" />
-        </label>
-        <button className="primary-button exception-search-button" disabled={loading} type="submit">
-          <RefreshCcw size={17} aria-hidden="true" />
-          {loading ? 'Loading...' : 'Load Report'}
-        </button>
+        <div className="exception-filter-grid">
+          <label>
+            <span><Calendar size={15} /> Date From</span>
+            <input type="date" value={filters.date_from} onChange={(event) => updateFilter('date_from', event.target.value)} />
+          </label>
+          <label>
+            <span><Calendar size={15} /> Date To</span>
+            <input type="date" value={filters.date_to} onChange={(event) => updateFilter('date_to', event.target.value)} />
+          </label>
+          <label>
+            <span><Filter size={15} /> Fund Type</span>
+            <input value={filters.fund_type} onChange={(event) => updateFilter('fund_type', event.target.value)} placeholder="All funds" />
+          </label>
+          <label>
+            <span><Filter size={15} /> Collector / Cashier</span>
+            <input value={filters.collector} onChange={(event) => updateFilter('collector', event.target.value)} placeholder="All collectors" />
+          </label>
+          <label>
+            <span><Filter size={15} /> Status</span>
+            <input value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} placeholder="All statuses" />
+          </label>
+          <label>
+            <span><Filter size={15} /> Transaction Type</span>
+            <input value={filters.transaction_type} onChange={(event) => updateFilter('transaction_type', event.target.value)} placeholder="All types" />
+          </label>
+          <label>
+            <span><Search size={15} /> OR Number</span>
+            <input value={filters.or_number} onChange={(event) => updateFilter('or_number', event.target.value)} placeholder="Search OR" />
+          </label>
+          <label>
+            <span><Search size={15} /> Taxpayer</span>
+            <input value={filters.taxpayer} onChange={(event) => updateFilter('taxpayer', event.target.value)} placeholder="Search taxpayer" />
+          </label>
+        </div>
+        <div className="exception-filter-actions">
+          <button className="secondary-button" disabled={loading} onClick={handleResetFilters} type="button">
+            Reset Filters
+          </button>
+          <button className="primary-button exception-search-button" disabled={loading} type="submit">
+            <RefreshCcw size={17} aria-hidden="true" />
+            {loading ? 'Loading...' : 'Load Report'}
+          </button>
+        </div>
       </form>
 
       <section className="toolbar-panel exception-report-panel">
@@ -269,10 +295,24 @@ export function ReceiptExceptionsPage() {
             <p className="eyebrow">{activeConfig.title}</p>
             <h3>{activeConfig.description}</h3>
           </div>
-          <div className="exception-report-totals">
+        </div>
+
+        <div className="exception-summary-grid">
+          <div>
+            <span>Total Records</span>
             <strong>{summary.total_count.toLocaleString()}</strong>
-            <span>records</span>
+          </div>
+          <div>
+            <span>Total Amount</span>
             <strong>{money(summary.total_amount)}</strong>
+          </div>
+          <div>
+            <span>Report Type</span>
+            <strong>{activeConfig.title}</strong>
+          </div>
+          <div>
+            <span>Date Range</span>
+            <strong>{dateRangeLabel}</strong>
           </div>
         </div>
 
@@ -294,7 +334,20 @@ export function ReceiptExceptionsPage() {
           </div>
         )}
 
-        {error && <div className="report-generation-error">{error}</div>}
+        {error && (
+          <div className="exception-error-alert">
+            <AlertCircle size={18} aria-hidden="true" />
+            <div>
+              <strong>{error.message}</strong>
+              {error.details && (
+                <details className="exception-error-details">
+                  <summary>Technical details</summary>
+                  <pre>{error.details}</pre>
+                </details>
+              )}
+            </div>
+          </div>
+        )}
 
         <TableContainer className="exception-table-wrap">
           <Table size="small" stickyHeader>
@@ -308,8 +361,12 @@ export function ReceiptExceptionsPage() {
             <TableBody>
               {!loading && rows.length === 0 && (
                 <TableRow>
-                  <TableCell align="center" colSpan={columns.length}>
-                    No receipt exceptions found for the selected filters.
+                  <TableCell colSpan={columns.length}>
+                    <div className="exception-empty-state">
+                      <FileWarning size={22} aria-hidden="true" />
+                      <strong>No receipt exceptions found</strong>
+                      <span>No records matched the selected filters.</span>
+                    </div>
                   </TableCell>
                 </TableRow>
               )}

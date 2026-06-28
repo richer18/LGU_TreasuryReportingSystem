@@ -46,6 +46,7 @@ class DashboardSummaryBuilder
                 'date_from' => $ytdFrom,
                 'date_to' => $dateTo,
                 'limit' => 1000,
+                'fund_scope' => 'report21',
             ]),
             'collector summary'
         );
@@ -77,7 +78,9 @@ class DashboardSummaryBuilder
         $recentRows = $recentCollections['data'] ?? [];
         $monthTotal = $this->reportTotal($report21Month);
         $ytdTotal = $this->reportTotal($report21Ytd);
+        $collectorSummaryTotal = $this->sumRows($collectors['data'] ?? [], 'total_amount');
         $targetTotal = (float) (($incomeTarget['data']['summary']['grand_target'] ?? 0) ?: 0);
+        $collectorDifference = round($ytdTotal - $collectorSummaryTotal, 2);
 
         return [
             'cache_key' => sprintf('dashboard_summary_%04d_%02d', $year, $month),
@@ -102,6 +105,13 @@ class DashboardSummaryBuilder
                     'percentage' => $targetTotal > 0 ? round(($ytdTotal / $targetTotal) * 100, 2) : 0,
                 ],
                 'collector_summary' => $collectors['data'] ?? [],
+                'collector_reconciliation' => [
+                    'overall_total_collection' => round($ytdTotal, 2),
+                    'collector_summary_total' => round($collectorSummaryTotal, 2),
+                    'difference' => $collectorDifference,
+                    'is_matched' => abs($collectorDifference) <= 0.01,
+                    'basis' => 'Report 21 YTD gross total_collections grouped by PAYMENT.COLLECTOR',
+                ],
                 'dive_ticket_summary' => [
                     'current_month' => $diveTicketsMonth['data'] ?? [],
                     'whole_year' => $diveTicketsYear['data'] ?? [],

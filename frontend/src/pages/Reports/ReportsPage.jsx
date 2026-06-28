@@ -12,6 +12,8 @@ const DOWNLOAD_ONLY_REPORT_NUMBERS = new Set([
   30,
   32,
   34,
+  35,
+  36,
 ])
 const MAIN_REPORT_NUMBERS = new Set([...UI_REPORT_NUMBERS, ...DOWNLOAD_ONLY_REPORT_NUMBERS])
 const COLLECTOR_REPORT_NUMBER = 34
@@ -1111,7 +1113,7 @@ export function ReportsPage({ page, variant = 'reports', user }) {
           <Info size={18} aria-hidden="true" />
           <div>
             <strong>Report Scope</strong>
-            <p>Choose a month and report template. Reports 1 to 34 are generated from the read-only Firebird bridge, BPLS workbook sources, and uploaded Excel templates.</p>
+            <p>Choose a month and report template. Reports 1 to 36 are generated from the read-only Firebird bridge, BPLS workbook sources, and uploaded Excel templates.</p>
           </div>
         </div>
 

@@ -1072,3 +1072,215 @@ Testing checklist:
 9. Login as non-admin and confirm User's Accounts is hidden.
 10. Call /api/users as non-admin and confirm 403 Forbidden.
 ```
+
+## 2026-06-28 Receipt Exceptions Report
+
+The system now has a first-version read-only Receipt Exceptions Report module.
+
+Scope of this phase:
+
+```text
+- Read-only report module only
+- No Firebird writes
+- No AccessDB writes
+- No MySQL
+- No migration
+- No new database table
+- No RCD save/remit workflow change
+- No Dashboard JSON cache change
+- No User's Accounts change
+```
+
+Sidebar page:
+
+```text
+Receipt Exceptions
+```
+
+The page is available to users with `reports.view` permission and contains two tabs:
+
+```text
+1. Canceled / Void
+2. Not Remitted
+```
+
+Implemented backend routes:
+
+```text
+GET /api/reports/receipt-exceptions/canceled-void
+GET /api/reports/receipt-exceptions/not-remitted
+```
+
+Frontend Axios calls use the existing `/api` base URL, so React calls:
+
+```text
+GET /reports/receipt-exceptions/canceled-void
+GET /reports/receipt-exceptions/not-remitted
+```
+
+New/updated implementation files:
+
+```text
+runner/receipt_exceptions_readonly.py
+backend/app/Services/ReceiptExceptionsReportService.php
+backend/app/Http/Controllers/Api/ReceiptExceptionsController.php
+backend/config/firebird.php
+backend/routes/api.php
+frontend/src/pages/ReceiptExceptions/ReceiptExceptionsPage.jsx
+frontend/src/App.jsx
+frontend/src/App.css
+```
+
+Canceled / Void detection uses confirmed Firebird fields:
+
+```text
+PAYMENT.VOID_BV = 1
+PAYMENT.STATUS_CT IN ('VOID', 'VOI', 'CNL', 'CAN', 'CNC', 'CANCEL', 'CANCELLED')
+T_STATUS.DESCRIPTION contains CANCEL or VOID
+PAYMENTCLASSDETAIL.CANCELLED_BV = 1
+```
+
+Canceled / Void report columns:
+
+```text
+OR Date
+OR Number
+Taxpayer Name
+Amount
+Fund Type
+Transaction Type
+Collector / Cashier
+Status
+Status Code
+Void Flag
+Remarks
+Transaction Date
+User ID
+```
+
+Not Remitted detection uses first-version range-based matching:
+
+```text
+1. Start from valid/paid Firebird PAYMENT records.
+2. Exclude canceled/void receipts using the same canceled/void rules.
+3. If PAYMENT.RCDNUMBER has a value, treat the receipt as remitted.
+4. If PAYMENT.RCDNUMBER is blank, compare the OR number against AccessDB rcd_collection_lines receipt_no_from and receipt_no_to ranges.
+5. If the OR is inside a final/remitted RCD range, treat it as remitted and exclude it from the report.
+6. If the OR is inside a draft/pending RCD range, show it as Pending / Not Fully Remitted.
+7. If no matching final range is found, show it as Not Remitted.
+```
+
+Final/remitted RCD statuses for first version:
+
+```text
+Remitted to ACO
+Received by ACO
+Posted
+Completed
+```
+
+Pending/not-final RCD statuses for first version:
+
+```text
+Draft
+Saved
+For Remittance
+Ready for Remittance
+With Variance
+```
+
+Not Remitted report columns:
+
+```text
+OR Date
+OR Number
+Taxpayer Name
+Amount
+Fund Type
+Transaction Type
+Collector / Cashier
+Transaction Date
+RCD Number
+RCD Date
+RCD Status
+Days Unremitted
+Remarks
+```
+
+Filters available in the UI:
+
+```text
+Date From
+Date To
+Fund Type
+Collector / Cashier
+Status
+Transaction Type
+OR Number
+Taxpayer
+```
+
+Pagination:
+
+```text
+page
+limit
+```
+
+The frontend table supports rows per page:
+
+```text
+25
+50
+100
+250
+```
+
+Sample API calls:
+
+```text
+GET /api/reports/receipt-exceptions/canceled-void?date_from=2026-06-01&date_to=2026-06-30&page=1&limit=25
+GET /api/reports/receipt-exceptions/not-remitted?date_from=2026-06-01&date_to=2026-06-30&collector=ricardo&page=1&limit=25
+```
+
+OR number handling:
+
+```text
+- Original PAYMENT.RECEIPTNO is preserved for display.
+- A normalized numeric OR value is used only for AccessDB range matching.
+- If an OR cannot be safely converted to numeric form, the row is not crashed or skipped.
+- The row is marked Unable to range-match with a clear remarks value.
+```
+
+Important limitation:
+
+```text
+Not Remitted detection uses PAYMENT.RCDNUMBER plus RCD range matching.
+Exact per-OR remittance tracking can be improved later by populating rcd_entries.
+```
+
+Testing checklist:
+
+```text
+1. Start backend and frontend.
+2. Login as a user with reports.view permission.
+3. Open Receipt Exceptions from the sidebar.
+4. Confirm Canceled / Void loads using current-month date defaults.
+5. Set Date From and Date To, then click Load Report.
+6. Switch to Not Remitted.
+7. Confirm the note about PAYMENT.RCDNUMBER plus RCD range matching appears.
+8. Test OR Number and Taxpayer filters.
+9. Confirm totals show total_count and total_amount.
+10. Confirm pagination changes the page/limit without loading all rows at once.
+```
+
+Verification commands used:
+
+```powershell
+php -l backend/routes/api.php
+php -l backend/app/Http/Controllers/Api/ReceiptExceptionsController.php
+php -l backend/app/Services/ReceiptExceptionsReportService.php
+php -l backend/config/firebird.php
+php artisan route:list --path=receipt-exceptions
+npm run build
+```

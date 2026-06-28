@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   LayoutDashboard,
+  CalendarDays,
   WalletCards,
   ShieldCheck,
   UsersRound,
@@ -12,7 +13,6 @@ import {
   Target,
   SearchCheck,
   FileBarChart,
-  FileWarning,
   Settings,
   LogOut,
   Menu,
@@ -25,12 +25,12 @@ import axiosInstance from './axiosinstance/axiosInstance'
 import { useAuth } from './auth/useAuth'
 import { fundPages } from './data/reportCatalog'
 import { AcoDashboardPage } from './pages/AcoDashboard/AcoDashboardPage'
+import { CalendarPage } from './pages/Calendar/CalendarPage'
 import { DashboardPage } from './pages/Dashboard/DashboardPage'
 import { GeneralFundPage } from './pages/GeneralFund/GeneralFundPage'
 import { IncomeTargetPage } from './pages/IncomeTarget/IncomeTargetPage'
 import { LoginPage } from './pages/Login/LoginPage'
 import { ReportsPage } from './pages/Reports/ReportsPage'
-import { ReceiptExceptionsPage } from './pages/ReceiptExceptions/ReceiptExceptionsPage'
 import { RcdPage } from './pages/Rcd/RcdPage'
 import { SearchReceiptPage } from './pages/SearchReceipt/SearchReceiptPage'
 import { SettingsPage } from './pages/Settings/SettingsPage'
@@ -41,6 +41,7 @@ import './App.css'
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard.view' },
+{ id: 'calendar', label: 'Calendar', icon: CalendarDays, permission: 'calendar.view' },
 { id: 'generalFund', label: 'General Fund', icon: WalletCards, permission: 'general_fund.view' },
 { id: 'trustFund', label: 'Trust Fund', icon: ShieldCheck, permission: 'trust_fund.view' },
 { id: 'communityTax', label: 'Community Tax', icon: UsersRound, permission: 'community_tax.view' },
@@ -54,7 +55,6 @@ const navItems = [
 { id: 'searchreceipt', label: 'Search Receipt', icon: SearchCheck, permission: 'search_receipts.view' },
 { id: 'userAccounts', label: "User's Accounts", icon: UsersRound, permission: 'users.manage' },
 { id: 'reports', label: 'Reports', icon: FileBarChart, permission: 'reports.view' },
-{ id: 'receiptExceptions', label: 'Receipt Exceptions', icon: FileWarning, permission: 'reports.view' },
 { id: 'settings', label: 'Settings', icon: Settings, permission: 'settings.view' },
 ]
 
@@ -66,6 +66,7 @@ const collectionMonitorPages = {
 
 const hiddenTopbarPages = new Set([
   'generalFund',
+  'calendar',
   'trustFund',
   'communityTax',
   'realPropertyTax',
@@ -75,7 +76,6 @@ const hiddenTopbarPages = new Set([
   'searchreceipt',
   'userAccounts',
   'reports',
-  'receiptExceptions',
 ])
 
 function App() {
@@ -150,7 +150,7 @@ function App() {
 
   useEffect(() => {
     if (!visibleNavItems.some((item) => item.id === activePage)) {
-      setActivePage('dashboard')
+      setActivePage(visibleNavItems[0]?.id || 'settings')
     }
   }, [activePage, visibleNavItems])
 
@@ -274,6 +274,8 @@ function App() {
 
         {activePage === 'generalFund' && <GeneralFundPage user={user} />}
 
+        {activePage === 'calendar' && <CalendarPage user={user} />}
+
         {collectionMonitorPages[activePage] && (
           <GeneralFundPage
             fundScope={collectionMonitorPages[activePage].fundScope}
@@ -292,9 +294,7 @@ function App() {
 
         {activePage === 'acoDashboard' && <AcoDashboardPage user={user} />}
 
-        {activePage === 'receiptExceptions' && <ReceiptExceptionsPage user={user} />}
-
-        {activePage !== 'generalFund' && !collectionMonitorPages[activePage] && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'userAccounts' && activePage !== 'rcd' && activePage !== 'acoDashboard' && activePage !== 'receiptExceptions' && fundPages[activePage] && (
+        {activePage !== 'generalFund' && activePage !== 'calendar' && !collectionMonitorPages[activePage] && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'userAccounts' && activePage !== 'rcd' && activePage !== 'acoDashboard' && fundPages[activePage] && (
           <ReportsPage page={fundPages[activePage]} user={user} />
         )}
 

@@ -470,6 +470,83 @@ def aggregate(details, key):
     return result
 
 
+def report21_collector_name_sql(alias="p"):
+    return f"""
+        CASE
+            WHEN NULLIF(TRIM({alias}.COLLECTOR), '') IS NULL THEN 'Unassigned / Unknown'
+            ELSE TRIM({alias}.COLLECTOR)
+        END
+    """
+
+
+def report21_collector_summary(cursor, args):
+    grouped = {}
+    collector_sql = report21_collector_name_sql("p")
+
+    def add_amount(collector, payment_id, amount):
+        collector = collector or "Unassigned / Unknown"
+        item = grouped.setdefault(
+            collector,
+            {"collector": collector, "receipt_ids": set(), "total_amount": 0.0},
+        )
+        item["receipt_ids"].add(payment_id)
+        item["total_amount"] += float(amount or 0)
+
+    cursor.execute(
+        f"""
+        SELECT
+            {collector_sql} AS collector,
+            p.PAYMENT_ID,
+            pd.ITAXTYPE_CT,
+            pd.SOURCEID,
+            pd.SOURCE_CT,
+            SUM(pd.AMOUNTPAID) AS amount
+        FROM PAYMENT p
+        JOIN PAYMENTDETAIL pd ON pd.PAYMENT_ID = p.PAYMENT_ID
+        WHERE p.PAYMENTDATE >= CAST(? AS DATE)
+          AND p.PAYMENTDATE < DATEADD(1 DAY TO CAST(? AS DATE))
+          {paid_payment_filter("p")}
+          AND COALESCE(TRIM(p.PAYGROUP_CT), '') <> 'RPT'
+        GROUP BY {collector_sql}, p.PAYMENT_ID, pd.ITAXTYPE_CT, pd.SOURCEID, pd.SOURCE_CT
+        """,
+        date_params(args),
+    )
+
+    for row in rows(cursor):
+        source = classify_summary_source(row["itaxtype_ct"], row["sourceid"], row["source_ct"])
+        if source:
+            add_amount(row["collector"], row["payment_id"], row["amount"])
+
+    cursor.execute(
+        f"""
+        SELECT
+            {collector_sql} AS collector,
+            p.PAYMENT_ID,
+            SUM(pcd.AMOUNT) AS amount
+        FROM PAYMENT p
+        JOIN PAYMENTCLASSDETAIL pcd ON pcd.PAYMENT_ID = p.PAYMENT_ID
+        WHERE p.PAYMENTDATE >= CAST(? AS DATE)
+          AND p.PAYMENTDATE < DATEADD(1 DAY TO CAST(? AS DATE))
+          AND COALESCE(TRIM(p.PAYGROUP_CT), '') = 'RPT'
+          {paid_payment_filter("p")}
+          AND COALESCE(pcd.CANCELLED_BV, 0) = 0
+        GROUP BY {collector_sql}, p.PAYMENT_ID
+        """,
+        date_params(args),
+    )
+
+    for row in rows(cursor):
+        add_amount(row["collector"], row["payment_id"], row["amount"])
+
+    result = []
+    for item in grouped.values():
+        item["receipt_count"] = len(item.pop("receipt_ids"))
+        item["total_amount"] = round(item["total_amount"], 4)
+        result.append(item)
+    result.sort(key=lambda item: item["total_amount"], reverse=True)
+    return result
+
+
 def summary(cursor, args):
     details = fetch_details(cursor, args)
     payments = payment_groups(details)
@@ -613,6 +690,9 @@ def sources(cursor, args):
 
 
 def collectors(cursor, args):
+    if getattr(args, "fund_scope", "general") == "report21":
+        return report21_collector_summary(cursor, args)
+
     return [
         {"collector": row["collector"], "receipt_count": row["receipt_count"], "total_amount": row["total_amount"]}
         for row in aggregate(fetch_details(cursor, args), "collector")
@@ -754,7 +834,7 @@ def main():
     parser.add_argument("--receipt-no")
     parser.add_argument("--taxpayer")
     parser.add_argument("--payment-id")
-    parser.add_argument("--fund-scope", choices=["general", "trust", "community_tax", "rpt"], default="general")
+    parser.add_argument("--fund-scope", choices=["general", "trust", "community_tax", "rpt", "report21"], default="general")
     parser.add_argument("--limit", type=int, default=200)
     args = parser.parse_args()
 

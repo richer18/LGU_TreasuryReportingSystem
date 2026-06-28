@@ -8,7 +8,7 @@ class CashierCollectorAssignment
 {
     public static function collectorForUser(?User $user): ?array
     {
-        if (! $user || $user->role !== 'cashier') {
+        if (! $user || ! in_array($user->role, ['cashier', 'collector'], true)) {
             return null;
         }
 

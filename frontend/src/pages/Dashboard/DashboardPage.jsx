@@ -96,10 +96,12 @@ const emptyDashboardData = {
   monthCollections: null,
   rptSharing: null,
   ytdCollections: null,
+  collectorsReconciliation: null,
 }
 
 const mapDashboardCachePayload = (payload = {}) => ({
   collectors: payload.collector_summary || null,
+  collectorsReconciliation: payload.collector_reconciliation || null,
   diveTickets: payload.dive_ticket_summary?.current_month || null,
   diveTicketsYear: payload.dive_ticket_summary?.whole_year || null,
   incomeTarget: payload.income_target_summary || null,
@@ -349,10 +351,24 @@ export function DashboardPage() {
     })
   }, [dashboardData])
 
-  const topCollectors = useMemo(
-    () => (dashboardData.collectors || []).slice(0, 6),
-    [dashboardData.collectors],
-  )
+  const collectorDisplayRows = useMemo(() => {
+    const rows = dashboardData.collectors || []
+    if (rows.length <= 6) return rows
+
+    const topRows = rows.slice(0, 5)
+    const others = rows.slice(5).reduce(
+      (total, row) => ({
+        collector: 'Others / Unassigned',
+        receipt_count: total.receipt_count + Number(row.receipt_count || 0),
+        total_amount: total.total_amount + Number(row.total_amount || 0),
+      }),
+      { collector: 'Others / Unassigned', receipt_count: 0, total_amount: 0 },
+    )
+
+    return [...topRows, others]
+  }, [dashboardData.collectors])
+
+  const collectorReconciliation = dashboardData.collectorsReconciliation || {}
 
   const diveTickets = dashboardData.diveTickets || {}
   const topDiveBuyers = useMemo(
@@ -374,12 +390,12 @@ export function DashboardPage() {
   }, [collectionModel.ytdRow])
 
   const collectorChartRows = useMemo(
-    () => topCollectors.map((collector, index) => ({
+    () => collectorDisplayRows.map((collector, index) => ({
       color: dashboardColors[index % dashboardColors.length],
       label: collector.collector || 'Unspecified',
       value: Number(collector.total_amount || 0),
     })),
-    [topCollectors],
+    [collectorDisplayRows],
   )
 
   const diveBuyerChartRows = useMemo(
@@ -501,8 +517,14 @@ export function DashboardPage() {
         </Paper>
 
         <Paper className="dashboard-chart-card" elevation={0} variant="outlined">
-          <ChartHeader title="Collector Collection" subtitle="Top collectors by paid amount" />
+          <ChartHeader title="Collector Collection" subtitle="Overall total collection grouped by collector/cashier." />
           <HorizontalBarChart rows={collectorChartRows} />
+          {collectorReconciliation.overall_total_collection !== undefined && (
+            <p className="dashboard-note">
+              Total: {formatMoney(collectorReconciliation.collector_summary_total || 0)} - {' '}
+              {collectorReconciliation.is_matched ? 'Matched with Overall Total Collection' : `Difference ${formatMoney(collectorReconciliation.difference || 0)}`}
+            </p>
+          )}
         </Paper>
 
         <Paper className="dashboard-chart-card" elevation={0} variant="outlined">
@@ -524,7 +546,7 @@ export function DashboardPage() {
         <div className="panel">
           <h3>Collector Collection</h3>
           <div className="snapshot-list">
-            {topCollectors.map((collector, index) => (
+            {collectorDisplayRows.map((collector, index) => (
               <Snapshot
                 icon={Users}
                 key={collector.collector || index}
@@ -532,8 +554,15 @@ export function DashboardPage() {
                 value={`${formatMoney(collector.total_amount)} - ${collector.receipt_count} receipts`}
               />
             ))}
-            {!topCollectors.length && (
+            {!collectorDisplayRows.length && (
               <Snapshot icon={Users} label="Collectors" value="No collection data for the selected period." />
+            )}
+            {collectorReconciliation.overall_total_collection !== undefined && (
+              <Snapshot
+                icon={ListChecks}
+                label={collectorReconciliation.is_matched ? 'Matched with Overall Total Collection' : 'Reconciliation Difference'}
+                value={`Overall ${formatMoney(collectorReconciliation.overall_total_collection || 0)} | Collectors ${formatMoney(collectorReconciliation.collector_summary_total || 0)} | Difference ${formatMoney(collectorReconciliation.difference || 0)}`}
+              />
             )}
           </div>
         </div>

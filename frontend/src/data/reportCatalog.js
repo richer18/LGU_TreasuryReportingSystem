@@ -37,6 +37,8 @@ export const fundPages = {
       { number: 32, name: 'CMCI Annex A-B Business Permit Registration Report', group: 'Business Permit', status: 'Ready' },
       { number: 33, name: 'Tax on Business Summary from BPLS Business Tax', group: 'Business Tax', status: 'Ready' },
       { number: 34, name: 'Generate Collection Receipt Per Collector', group: 'Collectors', status: 'Ready' },
+      { number: 35, name: 'Canceled / Void Receipts Report', group: 'Receipt Exceptions', status: 'Ready' },
+      { number: 36, name: 'Receipts Not Remitted Report', group: 'Receipt Exceptions', status: 'Ready' },
     ],
   },
   generalFund: {

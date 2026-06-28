@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\CalendarController;
 use App\Http\Controllers\Api\DashboardSummaryController;
 use App\Http\Controllers\Api\FirebirdStatusController;
 use App\Http\Controllers\Api\GeneralFundController;
@@ -30,6 +31,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/dashboard/summary', [DashboardSummaryController::class, 'show']);
     Route::post('/dashboard/summary/refresh', [DashboardSummaryController::class, 'refresh']);
+    Route::get('/calendar/summary', [CalendarController::class, 'summary'])
+        ->middleware('permission:calendar.view');
+    Route::get('/calendar/day', [CalendarController::class, 'day'])
+        ->middleware('permission:calendar.view');
 
     Route::middleware('admin')->group(function () {
         Route::get('/users', [UserAccountController::class, 'index']);

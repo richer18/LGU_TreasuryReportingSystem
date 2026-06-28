@@ -12,6 +12,13 @@ import {
 import { Eye, KeyRound, Pencil, Plus, RefreshCcw, Search, ShieldCheck, UserX } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import axiosInstance from '../../axiosinstance/axiosInstance'
+import {
+  CASHIER_COLLECTOR_ASSIGNMENTS,
+  getCashierAssignmentByName,
+  isCashierAssignmentName,
+} from '../../utils/cashierAssignments'
+
+const defaultCashierAssignmentName = CASHIER_COLLECTOR_ASSIGNMENTS[0]?.label || ''
 
 const emptyUserForm = {
   name: '',
@@ -138,11 +145,14 @@ export function UserAccountsPage({ user }) {
   }
 
   const openEdit = (row) => {
+    const role = row.role || 'viewer'
+    const cashierAssignment = getCashierAssignmentByName(row.name)
+
     setSelectedUser(row)
     setUserForm({
-      name: row.name || '',
+      name: role === 'cashier' ? (cashierAssignment?.label || defaultCashierAssignmentName) : row.name || '',
       email: row.email || '',
-      role: row.role || 'viewer',
+      role,
       account_status: row.account_status || 'active',
       password: '',
       password_confirmation: '',
@@ -175,6 +185,16 @@ export function UserAccountsPage({ user }) {
 
   const updateUserForm = (field, value) => {
     setUserForm((current) => ({ ...current, [field]: value }))
+  }
+
+  const handleRoleChange = (role) => {
+    setUserForm((current) => ({
+      ...current,
+      role,
+      name: role === 'cashier' && !isCashierAssignmentName(current.name)
+        ? defaultCashierAssignmentName
+        : current.name,
+    }))
   }
 
   const updatePasswordForm = (field, value) => {
@@ -402,17 +422,32 @@ export function UserAccountsPage({ user }) {
               <button aria-label="Close user form" className="user-detail-close" onClick={closeModal} type="button">×</button>
             </header>
             <form className="user-account-form" onSubmit={saveUser}>
-              <label className="treasury-field">
-                <span>Full Name</span>
-                <input required value={userForm.name} onChange={(event) => updateUserForm('name', event.target.value)} />
-              </label>
+              {userForm.role === 'cashier' ? (
+                <label className="treasury-field">
+                  <span>Assigned Cashier / Collector</span>
+                  <select
+                    required
+                    value={getCashierAssignmentByName(userForm.name)?.label || ''}
+                    onChange={(event) => updateUserForm('name', event.target.value)}
+                  >
+                    {CASHIER_COLLECTOR_ASSIGNMENTS.map((assignment) => (
+                      <option key={assignment.value} value={assignment.label}>{assignment.label}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <label className="treasury-field">
+                  <span>Full Name</span>
+                  <input required value={userForm.name} onChange={(event) => updateUserForm('name', event.target.value)} />
+                </label>
+              )}
               <label className="treasury-field">
                 <span>Email / Username</span>
                 <input required type="email" value={userForm.email} onChange={(event) => updateUserForm('email', event.target.value)} />
               </label>
               <label className="treasury-field">
                 <span>Role</span>
-                <select required value={userForm.role} onChange={(event) => updateUserForm('role', event.target.value)}>
+                <select required value={userForm.role} onChange={(event) => handleRoleChange(event.target.value)}>
                   {roleOptions.map((role) => (
                     <option key={role} value={role}>{normalizeRoleLabel(role)}</option>
                   ))}

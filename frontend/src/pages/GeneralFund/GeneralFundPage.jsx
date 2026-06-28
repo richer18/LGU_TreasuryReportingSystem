@@ -10,9 +10,11 @@ import { GeneralFundFilters } from './components/GeneralFundFilters'
 import { GeneralFundReceiptReport } from './components/GeneralFundReceiptReport'
 import { GeneralFundSourceBreakdown } from './components/GeneralFundSourceBreakdown'
 import { useGeneralFundData } from './hooks/useGeneralFundData'
+import { getCashierCollectorAssignment } from '../../utils/cashierAssignments'
 
-export function GeneralFundPage({ fundScope = 'general', title = 'General Fund' }) {
+export function GeneralFundPage({ fundScope = 'general', title = 'General Fund', user }) {
   const [activeDialog, setActiveDialog] = useState('')
+  const cashierAssignment = getCashierCollectorAssignment(user)
   const {
     data,
     error,
@@ -20,7 +22,7 @@ export function GeneralFundPage({ fundScope = 'general', title = 'General Fund' 
     loading,
     loadData,
     updateFilter,
-  } = useGeneralFundData(fundScope)
+  } = useGeneralFundData(fundScope, cashierAssignment?.value || '')
 
   const openDialog = (dialog) => {
     setActiveDialog(dialog)
@@ -43,6 +45,7 @@ export function GeneralFundPage({ fundScope = 'general', title = 'General Fund' 
 
       <GeneralFundFilters
         collectors={data.collectors}
+        forcedCollector={cashierAssignment}
         filters={filters}
         loading={loading}
         onRefresh={loadData}
@@ -80,7 +83,7 @@ export function GeneralFundPage({ fundScope = 'general', title = 'General Fund' 
         open={activeDialog === 'generateReceipt'}
         title="Generate Receipt"
       >
-        <GeneralFundReceiptReport collectors={data.collectors} />
+        <GeneralFundReceiptReport collectors={data.collectors} forcedCollector={cashierAssignment} />
       </GeneralFundDialog>
 
       <GeneralFundDialog

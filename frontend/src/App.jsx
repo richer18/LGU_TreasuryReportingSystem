@@ -12,6 +12,7 @@ import {
   Target,
   SearchCheck,
   FileBarChart,
+  FileWarning,
   Settings,
   LogOut,
   Menu,
@@ -29,6 +30,7 @@ import { GeneralFundPage } from './pages/GeneralFund/GeneralFundPage'
 import { IncomeTargetPage } from './pages/IncomeTarget/IncomeTargetPage'
 import { LoginPage } from './pages/Login/LoginPage'
 import { ReportsPage } from './pages/Reports/ReportsPage'
+import { ReceiptExceptionsPage } from './pages/ReceiptExceptions/ReceiptExceptionsPage'
 import { RcdPage } from './pages/Rcd/RcdPage'
 import { SearchReceiptPage } from './pages/SearchReceipt/SearchReceiptPage'
 import { SettingsPage } from './pages/Settings/SettingsPage'
@@ -38,21 +40,22 @@ import treasurerLogo from './assets/TREASURER_ORIGINAL_LOGO.png'
 import './App.css'
 
 const navItems = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-{ id: 'generalFund', label: 'General Fund', icon: WalletCards },
-{ id: 'trustFund', label: 'Trust Fund', icon: ShieldCheck },
-{ id: 'communityTax', label: 'Community Tax', icon: UsersRound },
-{ id: 'realPropertyTax', label: 'Real Property Tax', icon: Landmark },
-{ id: 'cashtickets', label: 'Cash Tickets', icon: Tickets },
-{ id: 'businesspermit', label: 'Business Permits', icon: BriefcaseBusiness },
-{ id: 'motorcylefranchise', label: 'MTO Permits', icon: Bike },
-{ id: 'rcd', label: 'RCD', icon: ClipboardList },
-{ id: 'acoDashboard', label: 'ACO Dashboard', icon: ShieldCheck },
-{ id: 'incometarget', label: 'Income Target', icon: Target },
-{ id: 'searchreceipt', label: 'Search Receipt', icon: SearchCheck },
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard.view' },
+{ id: 'generalFund', label: 'General Fund', icon: WalletCards, permission: 'general_fund.view' },
+{ id: 'trustFund', label: 'Trust Fund', icon: ShieldCheck, permission: 'trust_fund.view' },
+{ id: 'communityTax', label: 'Community Tax', icon: UsersRound, permission: 'community_tax.view' },
+{ id: 'realPropertyTax', label: 'Real Property Tax', icon: Landmark, permission: 'real_property_tax.view' },
+{ id: 'cashtickets', label: 'Cash Tickets', icon: Tickets, permission: 'cash_tickets.view' },
+{ id: 'businesspermit', label: 'Business Permits', icon: BriefcaseBusiness, permission: 'business_permits.view' },
+{ id: 'motorcylefranchise', label: 'MTO Permits', icon: Bike, permission: 'mto_permits.view' },
+{ id: 'rcd', label: 'RCD', icon: ClipboardList, permission: 'rcd.view' },
+{ id: 'acoDashboard', label: 'ACO Dashboard', icon: ShieldCheck, permission: 'aco_dashboard.view' },
+{ id: 'incometarget', label: 'Income Target', icon: Target, permission: 'income_target.view' },
+{ id: 'searchreceipt', label: 'Search Receipt', icon: SearchCheck, permission: 'search_receipts.view' },
 { id: 'userAccounts', label: "User's Accounts", icon: UsersRound, permission: 'users.manage' },
-{ id: 'reports', label: 'Reports', icon: FileBarChart },
-{ id: 'settings', label: 'Settings', icon: Settings },
+{ id: 'reports', label: 'Reports', icon: FileBarChart, permission: 'reports.view' },
+{ id: 'receiptExceptions', label: 'Receipt Exceptions', icon: FileWarning, permission: 'reports.view' },
+{ id: 'settings', label: 'Settings', icon: Settings, permission: 'settings.view' },
 ]
 
 const collectionMonitorPages = {
@@ -72,6 +75,7 @@ const hiddenTopbarPages = new Set([
   'searchreceipt',
   'userAccounts',
   'reports',
+  'receiptExceptions',
 ])
 
 function App() {
@@ -268,18 +272,19 @@ function App() {
           />
         )}
 
-        {activePage === 'generalFund' && <GeneralFundPage />}
+        {activePage === 'generalFund' && <GeneralFundPage user={user} />}
 
         {collectionMonitorPages[activePage] && (
           <GeneralFundPage
             fundScope={collectionMonitorPages[activePage].fundScope}
             title={collectionMonitorPages[activePage].title}
+            user={user}
           />
         )}
 
         {activePage === 'incometarget' && <IncomeTargetPage />}
 
-        {activePage === 'searchreceipt' && <SearchReceiptPage />}
+        {activePage === 'searchreceipt' && <SearchReceiptPage user={user} />}
 
         {activePage === 'userAccounts' && <UserAccountsPage user={user} />}
 
@@ -287,8 +292,10 @@ function App() {
 
         {activePage === 'acoDashboard' && <AcoDashboardPage user={user} />}
 
-        {activePage !== 'generalFund' && !collectionMonitorPages[activePage] && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'userAccounts' && activePage !== 'rcd' && activePage !== 'acoDashboard' && fundPages[activePage] && (
-          <ReportsPage page={fundPages[activePage]} />
+        {activePage === 'receiptExceptions' && <ReceiptExceptionsPage user={user} />}
+
+        {activePage !== 'generalFund' && !collectionMonitorPages[activePage] && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'userAccounts' && activePage !== 'rcd' && activePage !== 'acoDashboard' && activePage !== 'receiptExceptions' && fundPages[activePage] && (
+          <ReportsPage page={fundPages[activePage]} user={user} />
         )}
 
         {activePage === 'settings' && (

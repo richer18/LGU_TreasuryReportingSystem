@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Services\GeneralFundReceiptPdfService;
 use App\Services\GeneralFundReportService;
+use App\Support\CashierCollectorAssignment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -117,9 +118,21 @@ class GeneralFundController extends Controller
         $filters['date_from'] ??= now()->startOfMonth()->toDateString();
         $filters['date_to'] ??= now()->toDateString();
         $filters = array_merge($filters, $extraFilters);
+        $filters = $this->applyCashierCollectorScope($request, $filters);
 
         $result = $this->reports->run($report, $filters);
 
         return response()->json($result, $result['ok'] ? 200 : 500);
+    }
+
+    private function applyCashierCollectorScope(Request $request, array $filters): array
+    {
+        $assignment = CashierCollectorAssignment::collectorForUser($request->user());
+
+        if ($request->user()?->role === 'cashier') {
+            $filters['collector'] = $assignment['code'] ?? '__unassigned_cashier__';
+        }
+
+        return $filters;
     }
 }

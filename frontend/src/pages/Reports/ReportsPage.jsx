@@ -1,6 +1,7 @@
 import { BookOpen, Calendar, FileSpreadsheet, FileText, Info, Printer } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import axiosInstance from '../../axiosinstance/axiosInstance'
+import { getCashierCollectorAssignment } from '../../utils/cashierAssignments'
 
 const UI_REPORT_NUMBERS = new Set([21, 22, 23, 27, 28, 31, 33])
 const DOWNLOAD_ONLY_REPORT_NUMBERS = new Set([
@@ -879,7 +880,7 @@ const TemplatePreview = ({ report }) => {
   return <AbstractTemplate template={template} />
 }
 
-export function ReportsPage({ page, variant = 'reports' }) {
+export function ReportsPage({ page, variant = 'reports', user }) {
   const [selectedMonth, setSelectedMonth] = useState(currentMonth())
   const [selectedReportNumber, setSelectedReportNumber] = useState('')
   const [selectedCollector, setSelectedCollector] = useState('')
@@ -888,6 +889,8 @@ export function ReportsPage({ page, variant = 'reports' }) {
   const [isDownloading, setIsDownloading] = useState(false)
   const [generationError, setGenerationError] = useState('')
   const range = useMemo(() => getMonthRange(selectedMonth), [selectedMonth])
+  const cashierAssignment = getCashierCollectorAssignment(user)
+  const collectorOptions = cashierAssignment ? [cashierAssignment] : REPORT_COLLECTORS
   const isCollectionMonitor = variant === 'collectionMonitor'
   const mainReports = page.reports.filter((report) => (
     MAIN_REPORT_NUMBERS.has(report.number) && !(report.number >= 1 && report.number <= 20)
@@ -898,6 +901,12 @@ export function ReportsPage({ page, variant = 'reports' }) {
   const findReport = (value) => page.reports.find((report) => String(report.number) === value)
   const selectedReport = findReport(selectedReportNumber)
   const requiresCollector = selectedReport?.number === COLLECTOR_REPORT_NUMBER
+
+  useEffect(() => {
+    if (cashierAssignment && requiresCollector) {
+      setSelectedCollector(cashierAssignment.value)
+    }
+  }, [cashierAssignment, requiresCollector])
 
   const downloadReport = async (report, period) => {
     const params = {
@@ -1077,14 +1086,15 @@ export function ReportsPage({ page, variant = 'reports' }) {
               <span><BookOpen size={14} aria-hidden="true" /> Collector</span>
               <select
                 aria-label="Collector"
+                disabled={Boolean(cashierAssignment)}
                 onChange={(event) => {
                   setSelectedCollector(event.target.value)
                   setGenerationError('')
                 }}
                 value={selectedCollector}
               >
-                <option value="">Select collector</option>
-                {REPORT_COLLECTORS.map((collector) => (
+                {!cashierAssignment && <option value="">Select collector</option>}
+                {collectorOptions.map((collector) => (
                   <option key={collector.value} value={collector.value}>{collector.label}</option>
                 ))}
               </select>

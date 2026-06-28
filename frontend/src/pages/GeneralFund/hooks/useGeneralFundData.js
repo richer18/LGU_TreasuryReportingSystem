@@ -38,6 +38,9 @@ const buildParams = (filters, extra = {}) => {
   const params = {
     date_from: filters.date_from,
     date_to: filters.date_to,
+    collector: filters.collector,
+    receipt_from: filters.receipt_from,
+    receipt_to: filters.receipt_to,
     ...extra,
   }
 
@@ -50,13 +53,26 @@ const buildParams = (filters, extra = {}) => {
   return params
 }
 
-export function useGeneralFundData(fundScope = 'general') {
-  const [filters, setFilters] = useState(defaultFilters)
+export function useGeneralFundData(fundScope = 'general', forcedCollector = '') {
+  const [filters, setFilters] = useState(() => ({
+    ...defaultFilters,
+    collector: forcedCollector || '',
+  }))
   const [data, setData] = useState(initialData)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   const params = useMemo(() => buildParams(filters, { fund_scope: fundScope }), [filters, fundScope])
+
+  useEffect(() => {
+    if (!forcedCollector) return
+
+    setFilters((current) => (
+      current.collector === forcedCollector
+        ? current
+        : { ...current, collector: forcedCollector }
+    ))
+  }, [forcedCollector])
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -98,6 +114,11 @@ export function useGeneralFundData(fundScope = 'general') {
   }, [loadData])
 
   const updateFilter = (field, value) => {
+    if (field === 'collector' && forcedCollector) {
+      setFilters((current) => ({ ...current, collector: forcedCollector }))
+      return
+    }
+
     setFilters((current) => ({ ...current, [field]: value }))
   }
 

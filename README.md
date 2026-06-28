@@ -864,3 +864,211 @@ Implementation:
 - The old Collection Share detail list was removed from that bottom panel.
 - The existing Collection Share donut chart near the top remains available.
 ```
+
+## 2026-06-28 Dashboard JSON Cache Snapshot
+
+The Dashboard was optimized so normal page load no longer triggers many Firebird/Python scans.
+
+Previous flow:
+
+```text
+Dashboard -> many API calls -> Laravel -> Python runners -> Firebird .FDB scans
+```
+
+Current flow:
+
+```text
+Dashboard -> GET /api/dashboard/summary -> Laravel reads JSON cache -> fast response
+```
+
+Implemented endpoints:
+
+```text
+GET  /api/dashboard/summary
+POST /api/dashboard/summary/refresh
+```
+
+Frontend calls use the existing Axios base URL, so React calls:
+
+```text
+GET  /dashboard/summary
+POST /dashboard/summary/refresh
+```
+
+JSON cache file location:
+
+```text
+backend/storage/app/dashboard-cache/dashboard_summary_YYYY_MM.json
+```
+
+Example:
+
+```text
+backend/storage/app/dashboard-cache/dashboard_summary_2026_06.json
+```
+
+Lock file:
+
+```text
+backend/storage/app/dashboard-cache/dashboard_summary_YYYY_MM.lock
+```
+
+Important behavior:
+
+```text
+- Normal dashboard page load reads JSON only.
+- Firebird/Python runners do not run automatically on normal page load.
+- Firebird/Python runners run only when the user clicks Refresh Data.
+- Refresh writes a temporary JSON file first.
+- Existing JSON is kept if refresh fails.
+- Lock file prevents duplicate refresh scans.
+```
+
+New backend files:
+
+```text
+backend/app/Http/Controllers/Api/DashboardSummaryController.php
+backend/app/Services/Dashboard/DashboardCacheService.php
+backend/app/Services/Dashboard/DashboardSummaryBuilder.php
+backend/app/Services/Dashboard/JsonDashboardCacheStore.php
+backend/config/dashboard.php
+docs/future-dashboard-cache-mysql.md
+```
+
+No MySQL table, migration, or MySQL dependency was added for this dashboard cache phase.
+
+Testing checklist:
+
+```text
+1. Login as admin.
+2. Open Dashboard.
+3. If cache is missing, click Refresh Data.
+4. Confirm JSON file is created in backend/storage/app/dashboard-cache/.
+5. Refresh the browser.
+6. Confirm Dashboard loads from JSON cache quickly.
+7. Confirm Laravel logs show cache read during normal page load.
+8. Confirm Firebird/Python work happens only during POST /api/dashboard/summary/refresh.
+```
+
+## 2026-06-28 User's Accounts Module
+
+The system now has an Admin-only User's Accounts module for managing local Laravel/SQLite users.
+
+No MySQL table was added.
+No new users table was created.
+No migration was added for this phase.
+
+The module uses the existing users table fields:
+
+```text
+name
+email
+password
+role
+account_status
+created_at
+updated_at
+```
+
+Email is used as the login username for now because there is no separate username column yet.
+
+Implemented routes:
+
+```text
+GET   /api/users
+GET   /api/users/{user}
+POST  /api/users
+PUT   /api/users/{user}
+PATCH /api/users/{user}/status
+PATCH /api/users/{user}/reset-password
+```
+
+Frontend calls use the existing Axios base URL, so React calls:
+
+```text
+GET   /users
+POST  /users
+PUT   /users/{id}
+PATCH /users/{id}/status
+PATCH /users/{id}/reset-password
+```
+
+Security behavior:
+
+```text
+- User management APIs are protected by auth:sanctum and admin middleware.
+- Only users with role admin can access the backend user management routes.
+- Sidebar shows User's Accounts only if the logged-in user has users.manage permission.
+- Non-admin users get 403 Forbidden if they call the API manually.
+- Passwords are hashed with Laravel Hash::make().
+- Passwords and password hashes are never returned in API responses.
+- Passwords are never logged.
+- Reset password is separate from normal edit.
+- Current admin cannot deactivate their own account.
+- Deactivating a user deletes that user's active Sanctum tokens.
+```
+
+Roles currently defined:
+
+```text
+admin
+treasurer
+cashier
+collector
+viewer
+```
+
+New backend files:
+
+```text
+backend/app/Http/Controllers/Api/UserAccountController.php
+backend/app/Http/Middleware/EnsureAdminUser.php
+```
+
+Frontend files:
+
+```text
+frontend/src/pages/UserAccounts/UserAccountsPage.jsx
+frontend/src/App.jsx
+frontend/src/App.css
+```
+
+User's Accounts UI includes:
+
+```text
+- User list table
+- Search by name/email
+- Filter by role
+- Filter by status
+- View details modal
+- New User Account modal
+- Edit User modal
+- Reset Password modal
+- Activate/Deactivate action
+```
+
+The User Details, New User Account, Edit User, and Reset Password modals were improved with:
+
+```text
+- Compact centered modal layout
+- Profile/avatar header
+- Role and status chips
+- Top-right close button
+- Cleaner form spacing
+- Responsive layout for smaller screens
+```
+
+Testing checklist:
+
+```text
+1. Login as admin@zamboanguita.local.
+2. Confirm User's Accounts appears in the sidebar.
+3. Create a user with an 8+ character password.
+4. Confirm password is not visible in API response.
+5. Edit name/email/role/status without changing password.
+6. Reset password from the separate reset modal.
+7. Deactivate another user and confirm login is blocked.
+8. Confirm current admin cannot deactivate self.
+9. Login as non-admin and confirm User's Accounts is hidden.
+10. Call /api/users as non-admin and confirm 403 Forbidden.
+```

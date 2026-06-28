@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\GeneralFundController;
 use App\Http\Controllers\Api\GeneratedReportController;
 use App\Http\Controllers\Api\IncomeTargetController;
 use App\Http\Controllers\Api\ReportCatalogController;
+use App\Http\Controllers\Api\ReceiptExceptionsController;
 use App\Http\Controllers\Api\RcdAccessController;
 use App\Http\Controllers\Api\RcdGenerateOrController;
 use App\Http\Controllers\Api\SearchReceiptController;
@@ -53,10 +54,13 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/generated-reports/{number}/preview', [GeneratedReportController::class, 'preview']);
     Route::get('/generated-reports/{number}/download', [GeneratedReportController::class, 'download']);
+    Route::get('/reports/receipt-exceptions/canceled-void', [ReceiptExceptionsController::class, 'canceledVoid']);
+    Route::get('/reports/receipt-exceptions/not-remitted', [ReceiptExceptionsController::class, 'notRemitted']);
 
     Route::get('/search-receipts', [SearchReceiptController::class, 'index']);
     Route::get('/search-receipts/{paymentId}', [SearchReceiptController::class, 'show']);
-    Route::patch('/search-receipts/{paymentId}', [SearchReceiptController::class, 'update']);
+    Route::patch('/search-receipts/{paymentId}', [SearchReceiptController::class, 'update'])
+        ->middleware('permission:search_receipts.edit');
 
     Route::get('/income-target', [IncomeTargetController::class, 'show']);
 

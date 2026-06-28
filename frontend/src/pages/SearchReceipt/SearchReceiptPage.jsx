@@ -103,7 +103,7 @@ function DetailBox({ label, value }) {
   )
 }
 
-export function SearchReceiptPage() {
+export function SearchReceiptPage({ user }) {
   const [receiptNo, setReceiptNo] = useState('')
   const [rows, setRows] = useState([])
   const [selectedReceipt, setSelectedReceipt] = useState(null)
@@ -122,6 +122,7 @@ export function SearchReceiptPage() {
     () => rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
     [page, rows, rowsPerPage],
   )
+  const canEditReceipts = user?.permissions?.includes('search_receipts.edit')
 
   const searchReceipts = async (event) => {
     event.preventDefault()
@@ -307,16 +308,18 @@ export function SearchReceiptPage() {
                       >
                         View
                       </Button>
-                      <Button
-                        color="warning"
-                        onClick={() => loadDetail(row, 'update')}
-                        size="small"
-                        startIcon={<Pencil size={15} />}
-                        sx={{ borderRadius: 2, fontWeight: 800 }}
-                        variant="outlined"
-                      >
-                        Update
-                      </Button>
+                      {canEditReceipts && (
+                        <Button
+                          color="warning"
+                          onClick={() => loadDetail(row, 'update')}
+                          size="small"
+                          startIcon={<Pencil size={15} />}
+                          sx={{ borderRadius: 2, fontWeight: 800 }}
+                          variant="outlined"
+                        >
+                          Update
+                        </Button>
+                      )}
                     </Box>
                   </TableCell>
                 </TableRow>

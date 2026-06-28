@@ -11,7 +11,7 @@ import {
   TableRow,
 } from '@mui/material'
 import { Download, FileSearch } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import axiosInstance from '../../../axiosinstance/axiosInstance'
 import { formatMoney } from '../utils/generalFundFormat'
 
@@ -96,13 +96,13 @@ const statusColor = (status) => {
   return 'default'
 }
 
-export function GeneralFundReceiptReport({ collectors = [] }) {
+export function GeneralFundReceiptReport({ collectors = [], forcedCollector = null }) {
   const today = useMemo(() => new Date(), [])
   const [dateType, setDateType] = useState('dateRange')
   const [dateFrom, setDateFrom] = useState(toDateInputValue(today))
   const [dateTo, setDateTo] = useState(toDateInputValue(today))
   const [monthValue, setMonthValue] = useState(toDateInputValue(today).slice(0, 7))
-  const [collector, setCollector] = useState(collectorDefaults[0].value)
+  const [collector, setCollector] = useState(forcedCollector?.value || collectorDefaults[0].value)
   const [receiptFrom, setReceiptFrom] = useState('')
   const [receiptTo, setReceiptTo] = useState('')
   const [rows, setRows] = useState([])
@@ -112,6 +112,10 @@ export function GeneralFundReceiptReport({ collectors = [] }) {
   const [rowsPerPage, setRowsPerPage] = useState(5)
 
   const collectorOptions = useMemo(() => {
+    if (forcedCollector) {
+      return [forcedCollector]
+    }
+
     const options = new Map()
 
     collectorDefaults.forEach((option) => options.set(option.value, option))
@@ -127,7 +131,13 @@ export function GeneralFundReceiptReport({ collectors = [] }) {
     })
 
     return Array.from(options.values())
-  }, [collectors])
+  }, [collectors, forcedCollector])
+
+  useEffect(() => {
+    if (forcedCollector?.value) {
+      setCollector(forcedCollector.value)
+    }
+  }, [forcedCollector])
 
   const visibleRows = useMemo(
     () => rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
@@ -253,7 +263,7 @@ export function GeneralFundReceiptReport({ collectors = [] }) {
 
           <label>
             Collector
-            <select value={collector} onChange={(event) => setCollector(event.target.value)}>
+            <select disabled={Boolean(forcedCollector)} value={collector} onChange={(event) => setCollector(event.target.value)}>
               {collectorOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}

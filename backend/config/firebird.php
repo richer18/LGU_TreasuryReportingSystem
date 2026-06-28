@@ -23,5 +23,6 @@ return [
     'income_target_dir' => base_path('../IncomeTarget'),
     'report_preview_script' => base_path('../runner/report_preview_readonly.py'),
     'report_excel_script' => base_path('../runner/report_excel_export_readonly.py'),
+    'receipt_exceptions_script' => base_path('../runner/receipt_exceptions_readonly.py'),
     'allow_receipt_update' => env('FIREBIRD_ALLOW_RECEIPT_UPDATE', false),
 ];

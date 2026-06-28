@@ -1,6 +1,13 @@
 import { Calendar, RefreshCcw, Search, User } from 'lucide-react'
 
-export function GeneralFundFilters({ collectors, filters, loading, onRefresh, onUpdateFilter }) {
+export function GeneralFundFilters({ collectors, filters, forcedCollector, loading, onRefresh, onUpdateFilter }) {
+  const collectorOptions = forcedCollector
+    ? [{ collector: forcedCollector.value, label: forcedCollector.label }]
+    : collectors.map((collector) => ({
+        collector: collector.collector,
+        label: collector.collector,
+      }))
+
   return (
     <section className="toolbar-panel general-fund-filters treasury-filter-panel">
       <div className="filter-row general-fund-filter-row">
@@ -26,13 +33,14 @@ export function GeneralFundFilters({ collectors, filters, loading, onRefresh, on
           <span><User size={14} aria-hidden="true" /> Collector</span>
           <select
             aria-label="Collector"
+            disabled={Boolean(forcedCollector)}
             onChange={(event) => onUpdateFilter('collector', event.target.value)}
             value={filters.collector}
           >
-            <option value="">All collectors</option>
-            {collectors.map((collector) => (
+            {!forcedCollector && <option value="">All collectors</option>}
+            {collectorOptions.map((collector) => (
               <option key={collector.collector} value={collector.collector}>
-                {collector.collector}
+                {collector.label}
               </option>
             ))}
           </select>

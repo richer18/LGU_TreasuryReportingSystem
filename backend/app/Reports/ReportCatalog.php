@@ -44,6 +44,7 @@ class ReportCatalog
             ['number' => 34, 'name' => 'Generate Collection Receipt Per Collector', 'group' => 'collectors', 'status' => 'implemented_script'],
             ['number' => 35, 'name' => 'Canceled / Void Receipts Report', 'group' => 'receipt_exceptions', 'status' => 'implemented_script'],
             ['number' => 36, 'name' => 'Receipts Not Remitted Report', 'group' => 'receipt_exceptions', 'status' => 'implemented_script'],
+            ['number' => 37, 'name' => 'Official Report Breakdown', 'group' => 'category_breakdown', 'status' => 'implemented_script'],
         ]);
     }
 

@@ -9,7 +9,8 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
-from report_preview_readonly import SUMMARY_COLUMNS, build_report, scalar
+from firebird_probe import connect
+from report_preview_readonly import PAID_PAYMENT_SQL, SUMMARY_COLUMNS, build_report, classify_summary_source, scalar
 
 USER_PROFILE = os.environ.get("USERPROFILE") or r"C:\Users\LIFT-LAPTOP"
 USER_SITE_CANDIDATES = [
@@ -24,6 +25,8 @@ for USER_SITE in USER_SITE_CANDIDATES:
 
 try:
     from openpyxl import Workbook, load_workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
 except ModuleNotFoundError as exc:
     print(json.dumps({
         "ok": False,
@@ -46,6 +49,64 @@ TEMPLATE_MAP = {
 }
 
 RECEIPT_EXCEPTION_REPORTS = {35: "canceled-void", 36: "not-remitted"}
+OFFICIAL_BREAKDOWN_REPORT = 37
+OFFICIAL_CATEGORY_ORDER = [
+    "Tax on Business",
+    "Receipts from Economic Enterprises",
+    "Regulatory Fees",
+    "Service/User Charges",
+]
+OFFICIAL_CATEGORY_SOURCES = {
+    "Tax on Business": {
+        "Manufacturing",
+        "Distributor",
+        "Retailing",
+        "Banks & Other Financial Int.",
+        "Other Business Tax",
+    },
+    "Regulatory Fees": {
+        "Mayor's Permit",
+        "Weights & Measures",
+        "Tricycle Permit Fee",
+        "Occupation Tax",
+        "Cert. of Ownership",
+        "Cert. of Transfer",
+        "Sand & Gravel",
+        "Fines & Penalties",
+        "Docking and Mooring Fee",
+        "Fishing Permit Fee",
+        "Miscellaneous",
+    },
+    "Receipts from Economic Enterprises": {
+        "Water Fee",
+        "Water Fees",
+        "Market Stall Fee",
+        "Cash Tickets",
+        "SlaughterHouse Fee",
+        "Slaughterhouse Fee",
+        "Rental of Equipment",
+        "Rent of Equipment",
+        "Cockpit Share",
+        "Sultadas",
+        "Diving Fee",
+    },
+    "Service/User Charges": {
+        "Registration of Birth",
+        "Marriage Fee",
+        "Marriage Fees",
+        "Burial Fee",
+        "Burial Fees",
+        "Correction of Entry",
+        "Sale of Agri. Prod.",
+        "Sale of Acct. Forms",
+        "Sale of Acc. Forms",
+        "Doc Stamp Tax",
+        "Secretaries Fees",
+        "Secretary Fees",
+        "Med./Lab. Fees",
+        "Garbage Fees",
+    },
+}
 RECEIPT_EXCEPTION_DEFINITIONS = {
     35: {
         "title": "Canceled / Void Receipts Report",
@@ -167,6 +228,315 @@ def excel_value(value):
 def safe_filename(value):
     clean = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
     return clean.strip("._") or "report"
+
+
+def official_category_for_source(source_name):
+    for category, sources in OFFICIAL_CATEGORY_SOURCES.items():
+        if source_name in sources:
+            return category
+    return None
+
+
+def period_label(date_from, date_to):
+    try:
+        start_date = datetime.strptime(date_from, "%Y-%m-%d")
+        end_date = datetime.strptime(date_to, "%Y-%m-%d")
+        start_label = f"{start_date.strftime('%B')} {start_date.day}, {start_date.year}"
+        end_label = f"{end_date.strftime('%B')} {end_date.day}, {end_date.year}"
+        return start_label if date_from == date_to else f"{start_label} to {end_label}"
+    except ValueError:
+        return f"{date_from} to {date_to}"
+
+
+def adjusted_rpt_amount(case_type, amount):
+    amount = amount or Decimal("0")
+    if (case_type or "").strip() == "DED":
+        return -abs(amount)
+    return amount
+
+
+def official_breakdown_data(date_from, date_to):
+    category_totals = {category: Decimal("0") for category in OFFICIAL_CATEGORY_ORDER}
+    detail_rows = []
+
+    non_rpt_sql = f"""
+        SELECT
+            CAST(p.PAYMENTDATE AS DATE) AS OR_DATE,
+            TRIM(p.RECEIPTNO) AS OR_NUMBER,
+            TRIM(p.PAIDBY) AS TAXPAYER_NAME,
+            COALESCE(NULLIF(TRIM(p.COLLECTOR), ''), TRIM(p.USERID), 'UNSPECIFIED') AS COLLECTOR_CASHIER,
+            p.PAYMENTDATE AS TRANSACTION_DATE,
+            TRIM(p.PAYGROUP_CT) AS FUND_TYPE,
+            TRIM(pd.ITAXTYPE_CT) AS SOURCE_CODE,
+            pd.SOURCEID AS SOURCE_ID,
+            TRIM(pd.SOURCE_CT) AS SOURCE_CT,
+            COALESCE(TRIM(it.DESCRIPTION), TRIM(pd.ITAXTYPE_CT), '') AS SOURCE_DESCRIPTION,
+            TRIM(opr.DESCRIPTION) AS CHILD_DESCRIPTION,
+            pd.AMOUNTPAID AS AMOUNT
+        FROM PAYMENT p
+        JOIN PAYMENTDETAIL pd ON pd.PAYMENT_ID = p.PAYMENT_ID
+        LEFT JOIN T_ITAXTYPE it ON it.CODE = pd.ITAXTYPE_CT
+        LEFT JOIN T_OTHERPAYMENTRATE opr ON opr.OPRATE_ID = pd.SOURCEID
+        WHERE p.PAYMENTDATE >= CAST(? AS DATE)
+          AND p.PAYMENTDATE < DATEADD(1 DAY TO CAST(? AS DATE))
+          {PAID_PAYMENT_SQL}
+          AND COALESCE(TRIM(p.PAYGROUP_CT), '') <> 'RPT'
+        ORDER BY CAST(p.PAYMENTDATE AS DATE), TRIM(p.RECEIPTNO), p.PAYMENT_ID, pd.RECEIPTITEMORDER
+    """
+    rpt_sql = f"""
+        SELECT
+            CAST(p.PAYMENTDATE AS DATE) AS OR_DATE,
+            TRIM(p.RECEIPTNO) AS OR_NUMBER,
+            TRIM(p.PAIDBY) AS TAXPAYER_NAME,
+            COALESCE(NULLIF(TRIM(p.COLLECTOR), ''), TRIM(p.USERID), 'UNSPECIFIED') AS COLLECTOR_CASHIER,
+            p.PAYMENTDATE AS TRANSACTION_DATE,
+            COALESCE(NULLIF(TRIM(p.PAYGROUP_CT), ''), 'RPT') AS FUND_TYPE,
+            TRIM(pcd.ITAXTYPE_CT) AS TAX_TYPE,
+            TRIM(pcd.CASETYPE_CT) AS CASE_TYPE,
+            SUM(pcd.AMOUNT) AS AMOUNT
+        FROM PAYMENT p
+        JOIN PAYMENTCLASSDETAIL pcd ON pcd.PAYMENT_ID = p.PAYMENT_ID
+        WHERE p.PAYMENTDATE >= CAST(? AS DATE)
+          AND p.PAYMENTDATE < DATEADD(1 DAY TO CAST(? AS DATE))
+          AND COALESCE(TRIM(p.PAYGROUP_CT), '') = 'RPT'
+          {PAID_PAYMENT_SQL}
+          AND COALESCE(pcd.CANCELLED_BV, 0) = 0
+          AND TRIM(pcd.ITAXTYPE_CT) IN ('BSC', 'SEF')
+        GROUP BY CAST(p.PAYMENTDATE AS DATE), TRIM(p.RECEIPTNO), TRIM(p.PAIDBY),
+                 COALESCE(NULLIF(TRIM(p.COLLECTOR), ''), TRIM(p.USERID), 'UNSPECIFIED'),
+                 p.PAYMENTDATE, COALESCE(NULLIF(TRIM(p.PAYGROUP_CT), ''), 'RPT'),
+                 TRIM(pcd.ITAXTYPE_CT), TRIM(pcd.CASETYPE_CT)
+        ORDER BY CAST(p.PAYMENTDATE AS DATE), TRIM(p.RECEIPTNO)
+    """
+
+    rpt_gf = Decimal("0")
+    rpt_sf = Decimal("0")
+    connection = connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(non_rpt_sql, (date_from, date_to))
+        for row in cursor.fetchall():
+            (
+                or_date,
+                or_number,
+                taxpayer_name,
+                collector_cashier,
+                transaction_date,
+                fund_type,
+                source_code,
+                source_id,
+                source_ct,
+                source_description,
+                child_description,
+                amount,
+            ) = row
+            source_name = classify_summary_source(source_code, source_id, source_ct)
+            category = official_category_for_source(source_name)
+            if not category:
+                continue
+
+            amount = amount or Decimal("0")
+            category_totals[category] += amount
+            detail_rows.append({
+                "or_date": or_date,
+                "or_number": or_number,
+                "taxpayer_name": taxpayer_name,
+                "category": category,
+                "source": source_name,
+                "amount": amount,
+                "fund_type": fund_type or "General Fund",
+                "collector_cashier": collector_cashier,
+                "transaction_date": transaction_date,
+                "remarks": child_description or source_description or source_name,
+            })
+
+        cursor.execute(rpt_sql, (date_from, date_to))
+        for row in cursor.fetchall():
+            (
+                or_date,
+                or_number,
+                taxpayer_name,
+                collector_cashier,
+                transaction_date,
+                fund_type,
+                tax_type,
+                case_type,
+                amount,
+            ) = row
+            net_amount = adjusted_rpt_amount(case_type, amount)
+            if tax_type == "BSC":
+                share = net_amount * Decimal("0.40")
+                rpt_gf += share
+                category = "RPT GF - Municipal Basic Share 40%"
+            elif tax_type == "SEF":
+                share = net_amount * Decimal("0.50")
+                rpt_sf += share
+                category = "RPT SF - Municipal SEF Share 50%"
+            else:
+                continue
+
+            detail_rows.append({
+                "or_date": or_date,
+                "or_number": or_number,
+                "taxpayer_name": taxpayer_name,
+                "category": category,
+                "source": tax_type,
+                "amount": share,
+                "fund_type": fund_type or "RPT",
+                "collector_cashier": collector_cashier,
+                "transaction_date": transaction_date,
+                "remarks": f"Municipal share from {tax_type}; DED lines subtracted before share",
+            })
+        connection.rollback()
+    finally:
+        connection.close()
+
+    rpt_municipal = rpt_gf + rpt_sf
+    grand_total = sum(category_totals.values(), Decimal("0")) + rpt_municipal
+
+    summary_rows = [
+        {
+            "category": category,
+            "amount": category_totals[category],
+            "remarks": "Paid non-RPT PAYMENTDETAIL lines grouped by existing source category mapping",
+            "is_breakdown": False,
+        }
+        for category in OFFICIAL_CATEGORY_ORDER
+    ]
+    summary_rows.extend([
+        {
+            "category": "Real Property Tax only Municipal Sharing",
+            "amount": rpt_municipal,
+            "remarks": "Subtotal only: RPT GF municipal share + RPT SF municipal share",
+            "is_breakdown": False,
+        },
+        {
+            "category": "RPT GF - Municipal Basic Share 40%",
+            "amount": rpt_gf,
+            "remarks": "Breakdown only; not added separately to Grand Total",
+            "is_breakdown": True,
+        },
+        {
+            "category": "RPT SF - Municipal SEF Share 50%",
+            "amount": rpt_sf,
+            "remarks": "Breakdown only; not added separately to Grand Total",
+            "is_breakdown": True,
+        },
+        {
+            "category": "Grand Total",
+            "amount": grand_total,
+            "remarks": "Main categories 1-4 + Real Property Tax only Municipal Sharing",
+            "is_total": True,
+        },
+    ])
+
+    return summary_rows, detail_rows, {
+        "rpt_gf": rpt_gf,
+        "rpt_sf": rpt_sf,
+        "rpt_municipal": rpt_municipal,
+        "grand_total": grand_total,
+    }
+
+
+def write_official_breakdown_workbook(date_from, date_to, output_dir):
+    summary_rows, detail_rows, totals = official_breakdown_data(date_from, date_to)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Summary"
+
+    title_fill = PatternFill("solid", fgColor="0554F2")
+    header_fill = PatternFill("solid", fgColor="EAF2FF")
+    total_fill = PatternFill("solid", fgColor="EAF7EA")
+    breakdown_fill = PatternFill("solid", fgColor="F8FAFC")
+
+    sheet.merge_cells("A1:D1")
+    sheet["A1"] = "OFFICIAL REPORT BREAKDOWN"
+    sheet["A1"].font = Font(bold=True, color="FFFFFF", size=14)
+    sheet["A1"].fill = title_fill
+    sheet["A1"].alignment = Alignment(horizontal="center")
+    sheet.merge_cells("A2:D2")
+    sheet["A2"] = "CATEGORY BREAKDOWN"
+    sheet["A2"].font = Font(bold=True, size=12)
+    sheet["A2"].alignment = Alignment(horizontal="center")
+    sheet.merge_cells("A3:D3")
+    sheet["A3"] = f"Period: {period_label(date_from, date_to)}"
+    sheet["A3"].alignment = Alignment(horizontal="center")
+
+    headers = ["Category", "Amount", "Percentage of Total", "Remarks / Basis"]
+    header_row = 5
+    for column_index, header in enumerate(headers, start=1):
+        cell = sheet.cell(header_row, column_index)
+        cell.value = header
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    grand_total = totals["grand_total"]
+    for row_index, row in enumerate(summary_rows, start=header_row + 1):
+        sheet.cell(row_index, 1).value = row["category"]
+        sheet.cell(row_index, 2).value = excel_value(row["amount"])
+        sheet.cell(row_index, 3).value = float((row["amount"] / grand_total) if grand_total else 0)
+        sheet.cell(row_index, 4).value = row["remarks"]
+        sheet.cell(row_index, 2).number_format = "#,##0.00"
+        sheet.cell(row_index, 3).number_format = "0.00%"
+
+        if row.get("is_breakdown"):
+            sheet.cell(row_index, 1).value = "  " + row["category"]
+            for column_index in range(1, 5):
+                sheet.cell(row_index, column_index).fill = breakdown_fill
+                sheet.cell(row_index, column_index).font = Font(italic=True)
+        if row.get("is_total"):
+            for column_index in range(1, 5):
+                sheet.cell(row_index, column_index).fill = total_fill
+                sheet.cell(row_index, column_index).font = Font(bold=True)
+
+    detail_sheet = workbook.create_sheet("Details")
+    detail_headers = [
+        "OR Date",
+        "OR Number",
+        "Taxpayer Name",
+        "Category",
+        "Source / Revenue Code",
+        "Amount",
+        "Fund Type",
+        "Collector / Cashier",
+        "Transaction Date",
+        "Remarks",
+    ]
+    for column_index, header in enumerate(detail_headers, start=1):
+        cell = detail_sheet.cell(1, column_index)
+        cell.value = header
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    for row_index, row in enumerate(detail_rows, start=2):
+        detail_sheet.cell(row_index, 1).value = excel_value(row["or_date"])
+        detail_sheet.cell(row_index, 2).value = row["or_number"]
+        detail_sheet.cell(row_index, 3).value = row["taxpayer_name"]
+        detail_sheet.cell(row_index, 4).value = row["category"]
+        detail_sheet.cell(row_index, 5).value = row["source"]
+        detail_sheet.cell(row_index, 6).value = excel_value(row["amount"])
+        detail_sheet.cell(row_index, 7).value = row["fund_type"]
+        detail_sheet.cell(row_index, 8).value = row["collector_cashier"]
+        detail_sheet.cell(row_index, 9).value = excel_value(row["transaction_date"])
+        detail_sheet.cell(row_index, 10).value = row["remarks"]
+        detail_sheet.cell(row_index, 6).number_format = "#,##0.00"
+
+    for target_sheet in (sheet, detail_sheet):
+        for column_index, column in enumerate(target_sheet.columns, start=1):
+            max_length = max(len(str(cell.value or "")) for cell in column)
+            target_sheet.column_dimensions[get_column_letter(column_index)].width = min(max(max_length + 2, 12), 52)
+
+    sheet.freeze_panes = "A6"
+    detail_sheet.freeze_panes = "A2"
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_name = safe_filename(f"report_37_official_report_breakdown_{date_from}_to_{date_to}.xlsx")
+    output_path = output_dir / output_name
+    workbook.save(output_path)
+
+    return output_path, len(detail_rows), totals
 
 
 def summary_excel_row(row):
@@ -348,6 +718,28 @@ def main():
     args = parser.parse_args()
 
     try:
+        if args.report_number == OFFICIAL_BREAKDOWN_REPORT:
+            output_path, row_count, totals = write_official_breakdown_workbook(
+                args.date_from,
+                args.date_to,
+                Path(args.output_dir),
+            )
+            print(json.dumps({
+                "ok": True,
+                "mode": "read_only_excel_export",
+                "report_number": args.report_number,
+                "date_from": args.date_from,
+                "date_to": args.date_to,
+                "row_count": row_count,
+                "rpt_gf": totals["rpt_gf"],
+                "rpt_sf": totals["rpt_sf"],
+                "rpt_municipal": totals["rpt_municipal"],
+                "grand_total": totals["grand_total"],
+                "path": str(output_path),
+                "filename": output_path.name,
+            }, default=scalar))
+            return 0
+
         if args.report_number in RECEIPT_EXCEPTION_REPORTS:
             output_path, row_count = write_receipt_exception_workbook(
                 args.report_number,

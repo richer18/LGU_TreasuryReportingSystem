@@ -39,6 +39,7 @@ export const fundPages = {
       { number: 34, name: 'Generate Collection Receipt Per Collector', group: 'Collectors', status: 'Ready' },
       { number: 35, name: 'Canceled / Void Receipts Report', group: 'Receipt Exceptions', status: 'Ready' },
       { number: 36, name: 'Receipts Not Remitted Report', group: 'Receipt Exceptions', status: 'Ready' },
+      { number: 37, name: 'Official Report Breakdown', group: 'Category Breakdown', status: 'Ready' },
     ],
   },
   generalFund: {

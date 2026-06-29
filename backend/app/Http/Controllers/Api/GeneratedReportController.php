@@ -17,13 +17,17 @@ class GeneratedReportController extends Controller
 
     public function preview(Request $request, int $number): JsonResponse
     {
-        abort_if($number < 1 || $number > 36 || $number === 24, 404, 'Report not found.');
+        abort_if($number < 1 || $number > 37 || $number === 24, 404, 'Report not found.');
 
         $filters = $request->validate([
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date'],
             'collector' => ['nullable', 'string', 'max:100'],
         ]);
+
+        if ($number === 37) {
+            abort(404, 'Report preview is not available for this download-only report.');
+        }
 
         $filters['date_from'] ??= now()->startOfMonth()->toDateString();
         $filters['date_to'] ??= now()->endOfMonth()->toDateString();
@@ -36,13 +40,18 @@ class GeneratedReportController extends Controller
 
     public function download(Request $request, int $number): JsonResponse|BinaryFileResponse
     {
-        abort_if($number < 1 || $number > 36 || $number === 24, 404, 'Report not found.');
+        abort_if($number < 1 || $number > 37 || $number === 24, 404, 'Report not found.');
 
         $filters = $request->validate([
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date'],
             'collector' => ['nullable', 'string', 'max:100'],
         ]);
+
+        if ($number === 37) {
+            abort_if(empty($filters['date_from']) || empty($filters['date_to']), 422, 'Date From and Date To are required for Official Report Breakdown.');
+            abort_if($filters['date_from'] > $filters['date_to'], 422, 'Date From must not be greater than Date To.');
+        }
 
         $filters['date_from'] ??= now()->startOfMonth()->toDateString();
         $filters['date_to'] ??= now()->endOfMonth()->toDateString();

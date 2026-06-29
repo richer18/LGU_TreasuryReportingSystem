@@ -3109,8 +3109,8 @@ dd {
   align-items: end;
   display: grid;
   gap: 14px;
-  grid-template-columns: minmax(180px, 220px) minmax(300px, 520px) minmax(180px, 220px);
-  max-width: 980px;
+  grid-template-columns: repeat(2, minmax(160px, 220px)) minmax(280px, 520px) minmax(180px, 220px);
+  max-width: 1160px;
 }
 
 .report-select-field {

@@ -14,9 +14,11 @@ const DOWNLOAD_ONLY_REPORT_NUMBERS = new Set([
   34,
   35,
   36,
+  37,
 ])
 const MAIN_REPORT_NUMBERS = new Set([...UI_REPORT_NUMBERS, ...DOWNLOAD_ONLY_REPORT_NUMBERS])
 const COLLECTOR_REPORT_NUMBER = 34
+const DATE_RANGE_REPORT_NUMBER = 37
 const REPORT_COLLECTORS = [
   { value: 'flora', label: 'FLORA MY D. FERRER' },
   { value: 'agnes', label: 'AGNES B. ELLO' },
@@ -884,6 +886,7 @@ const TemplatePreview = ({ report }) => {
 
 export function ReportsPage({ page, variant = 'reports', user }) {
   const [selectedMonth, setSelectedMonth] = useState(currentMonth())
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '' })
   const [selectedReportNumber, setSelectedReportNumber] = useState('')
   const [selectedCollector, setSelectedCollector] = useState('')
   const [generatedReport, setGeneratedReport] = useState(null)
@@ -903,6 +906,7 @@ export function ReportsPage({ page, variant = 'reports', user }) {
   const findReport = (value) => page.reports.find((report) => String(report.number) === value)
   const selectedReport = findReport(selectedReportNumber)
   const requiresCollector = selectedReport?.number === COLLECTOR_REPORT_NUMBER
+  const usesDateRange = selectedReport?.number === DATE_RANGE_REPORT_NUMBER
 
   useEffect(() => {
     if (cashierAssignment && requiresCollector) {
@@ -941,10 +945,25 @@ export function ReportsPage({ page, variant = 'reports', user }) {
     const report = findReport(selectedReportNumber)
     if (!report) return
     const isDownloadOnly = DOWNLOAD_ONLY_REPORT_NUMBERS.has(report.number)
+    const reportPeriod = report.number === DATE_RANGE_REPORT_NUMBER
+      ? { dateFrom: dateRange.dateFrom, dateTo: dateRange.dateTo }
+      : range
 
     if (report.number === COLLECTOR_REPORT_NUMBER && !selectedCollector) {
       setGenerationError('Please select a collector for Generate Collection Receipt Per Collector.')
       return
+    }
+
+    if (report.number === DATE_RANGE_REPORT_NUMBER) {
+      if (!dateRange.dateFrom || !dateRange.dateTo) {
+        setGenerationError('Please select Date From and Date To for Official Report Breakdown.')
+        return
+      }
+
+      if (dateRange.dateFrom > dateRange.dateTo) {
+        setGenerationError('Date From must not be greater than Date To.')
+        return
+      }
     }
 
     setIsGenerating(true)
@@ -952,22 +971,22 @@ export function ReportsPage({ page, variant = 'reports', user }) {
 
     try {
       if (isDownloadOnly) {
-        await downloadReport(report, range)
+        await downloadReport(report, reportPeriod)
         setGeneratedReport(null)
         return
       }
 
       const response = await axiosInstance.get(`/generated-reports/${report.number}/preview`, {
         params: {
-          date_from: range.dateFrom,
-          date_to: range.dateTo,
+          date_from: reportPeriod.dateFrom,
+          date_to: reportPeriod.dateTo,
         },
       })
 
       setGeneratedReport({
         ...report,
         generatedAt: new Date().toLocaleString('en-PH'),
-        period: range,
+        period: reportPeriod,
         previewData: response.data,
         selectedMonth,
       })
@@ -981,7 +1000,7 @@ export function ReportsPage({ page, variant = 'reports', user }) {
         setGeneratedReport({
           ...report,
           generatedAt: new Date().toLocaleString('en-PH'),
-          period: range,
+          period: reportPeriod,
           selectedMonth,
         })
       }
@@ -1051,15 +1070,44 @@ export function ReportsPage({ page, variant = 'reports', user }) {
         )}
 
         <div className="report-generator-controls">
-          <label className="month-filter-field">
-            <span><Calendar size={14} aria-hidden="true" /> Month and Year</span>
-            <input
-              aria-label="Month and year"
-              onChange={(event) => setSelectedMonth(event.target.value)}
-              type="month"
-              value={selectedMonth}
-            />
-          </label>
+          {usesDateRange ? (
+            <>
+              <label className="month-filter-field">
+                <span><Calendar size={14} aria-hidden="true" /> Date From</span>
+                <input
+                  aria-label="Date from"
+                  onChange={(event) => {
+                    setDateRange((current) => ({ ...current, dateFrom: event.target.value }))
+                    setGenerationError('')
+                  }}
+                  type="date"
+                  value={dateRange.dateFrom}
+                />
+              </label>
+              <label className="month-filter-field">
+                <span><Calendar size={14} aria-hidden="true" /> Date To</span>
+                <input
+                  aria-label="Date to"
+                  onChange={(event) => {
+                    setDateRange((current) => ({ ...current, dateTo: event.target.value }))
+                    setGenerationError('')
+                  }}
+                  type="date"
+                  value={dateRange.dateTo}
+                />
+              </label>
+            </>
+          ) : (
+            <label className="month-filter-field">
+              <span><Calendar size={14} aria-hidden="true" /> Month and Year</span>
+              <input
+                aria-label="Month and year"
+                onChange={(event) => setSelectedMonth(event.target.value)}
+                type="month"
+                value={selectedMonth}
+              />
+            </label>
+          )}
 
           <label className="report-select-field">
             <span><BookOpen size={14} aria-hidden="true" /> Generate Report</span>
@@ -1113,7 +1161,7 @@ export function ReportsPage({ page, variant = 'reports', user }) {
           <Info size={18} aria-hidden="true" />
           <div>
             <strong>Report Scope</strong>
-            <p>Choose a month and report template. Reports 1 to 36 are generated from the read-only Firebird bridge, BPLS workbook sources, and uploaded Excel templates.</p>
+            <p>Choose a month and report template. Report 37 uses a direct Date From and Date To range. Reports are generated from the read-only Firebird bridge, BPLS workbook sources, and uploaded Excel templates.</p>
           </div>
         </div>
 

@@ -380,11 +380,13 @@ export function DashboardPage() {
     return [
       { label: 'Municipal GF', value: Number(ytdRow.municipal_general_fund || 0), color: dashboardColors[0] },
       { label: 'Municipal SEF', value: Number(ytdRow.municipal_sef || 0), color: dashboardColors[1] },
-      { label: 'Provincial', value: Number(ytdRow.provincial_total || 0), color: dashboardColors[2] },
+      { label: 'Municipal TF', value: Number(ytdRow.municipal_trust_fund || 0), color: dashboardColors[2] },
+      { label: 'Provincial', value: Number(ytdRow.provincial_total || 0), color: dashboardColors[3] },
+      { label: 'National', value: Number(ytdRow.national || 0), color: dashboardColors[4] },
       {
         label: 'Barangay/Fisheries',
         value: Number(ytdRow.barangay_share || 0) + Number(ytdRow.fisheries || 0),
-        color: dashboardColors[3],
+        color: dashboardColors[5],
       },
     ]
   }, [collectionModel.ytdRow])
@@ -519,12 +521,6 @@ export function DashboardPage() {
         <Paper className="dashboard-chart-card" elevation={0} variant="outlined">
           <ChartHeader title="Collector Collection" subtitle="Overall total collection grouped by collector/cashier." />
           <HorizontalBarChart rows={collectorChartRows} />
-          {collectorReconciliation.overall_total_collection !== undefined && (
-            <p className="dashboard-note">
-              Total: {formatMoney(collectorReconciliation.collector_summary_total || 0)} - {' '}
-              {collectorReconciliation.is_matched ? 'Matched with Overall Total Collection' : `Difference ${formatMoney(collectorReconciliation.difference || 0)}`}
-            </p>
-          )}
         </Paper>
 
         <Paper className="dashboard-chart-card" elevation={0} variant="outlined">

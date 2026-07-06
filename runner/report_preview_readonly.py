@@ -18,7 +18,7 @@ for user_site in USER_SITE_CANDIDATES:
     if user_site and user_site.exists() and str(user_site) not in sys.path:
         sys.path.append(str(user_site))
 
-BUSINESS_PERMIT_DIR = Path(__file__).resolve().parents[2] / "BUSINESS_PERMIT_REPORT"
+BUSINESS_PERMIT_DIR = Path(__file__).resolve().parents[1] / "BUSINESS_PERMIT_REPORT"
 
 
 SUMMARY_COLUMNS = [
@@ -83,6 +83,15 @@ PAID_PAYMENT_SQL = """
           AND COALESCE(p.VOID_BV, 0) = 0
           AND COALESCE(TRIM(p.STATUS_CT), '') NOT IN ('CNL', 'CAN', 'CNC', 'CANCEL', 'CANCELLED', 'VOID', 'VOI')
 """
+
+BPLS_TAX_ON_BUSINESS_SOURCES = {
+    "Manufacturing",
+    "Distributor",
+    "Retailing",
+    "Banks & Other Financial Int.",
+    "Other Business Tax",
+    "Fines & Penalties",
+}
 
 
 def scalar(value):
@@ -277,6 +286,11 @@ def fetch_no_rpt_summary(date_from, date_to):
     finally:
         connection.close()
 
+    for row in fetch_tax_on_business_summary(date_from, date_to):
+        category = row.get("category")
+        if category in BPLS_TAX_ON_BUSINESS_SOURCES:
+            amounts[category] = row.get("total", Decimal("0")) or Decimal("0")
+
     return [split_summary_amount(name, amounts.get(name, Decimal("0"))) for name in NO_RPT_ORDER]
 
 
@@ -315,13 +329,17 @@ def fetch_rpt_buckets(date_from, date_to):
     finally:
         connection.close()
 
-    current_taxyear = max((entry["taxyear"] for entry in entries if entry["taxyear"] is not None), default=None)
+    report_year = datetime.strptime(date_from, "%Y-%m-%d").year
     buckets = {}
 
     for entry in entries:
+        taxyear = entry["taxyear"]
+        if taxyear and taxyear > report_year:
+            continue
+
         if entry["case_type"] == "PEN":
             line = "Penalties"
-        elif entry["taxyear"] == current_taxyear:
+        elif taxyear == report_year:
             line = "Current Year"
         else:
             line = "Previous Years"
@@ -417,7 +435,7 @@ def fetch_rpt_sharing_summary(date_from, date_to):
     finally:
         connection.close()
 
-    current_taxyear = max((entry["taxyear"] for entry in entries if entry["taxyear"] is not None), default=None)
+    report_year = datetime.strptime(date_from, "%Y-%m-%d").year
     buckets = {
         "Land": {"Current": Decimal("0"), "Prior": Decimal("0"), "Penalties": Decimal("0")},
         "Building": {"Current": Decimal("0"), "Prior": Decimal("0"), "Penalties": Decimal("0")},
@@ -426,12 +444,19 @@ def fetch_rpt_sharing_summary(date_from, date_to):
     for entry in entries:
         group = entry["property_group"]
         amount = entry["amount"]
+        taxyear = entry["taxyear"]
+
+        if taxyear and taxyear > report_year:
+            continue
 
         if entry["case_type"] == "PEN":
             buckets[group]["Penalties"] += amount
         elif entry["case_type"] == "DED":
-            buckets[group]["Current"] -= abs(amount)
-        elif entry["taxyear"] == current_taxyear:
+            if taxyear == report_year:
+                buckets[group]["Current"] -= abs(amount)
+            else:
+                buckets[group]["Prior"] -= abs(amount)
+        elif taxyear == report_year:
             buckets[group]["Current"] += amount
         else:
             buckets[group]["Prior"] += amount
@@ -521,18 +546,18 @@ def fetch_summary_sharing_template_cells(date_from, date_to):
                  pcd.ITAXTYPE_CT, pcd.CASETYPE_CT, pcd.TAXYEAR
     """
     values = {}
-    current_taxyear = None
+    report_year = datetime.strptime(date_from, "%Y-%m-%d").year
 
     connection = connect()
     try:
         cursor = connection.cursor()
         cursor.execute(sql, (date_from, date_to))
         fetched_rows = cursor.fetchall()
-        current_taxyear = max((row[4] for row in fetched_rows if row[4] is not None), default=None)
-        if current_taxyear is None:
-            current_taxyear = datetime.strptime(date_from, "%Y-%m-%d").year
 
         for property_kind, class_code, tax_type, case_type, taxyear, amount in fetched_rows:
+            if taxyear and taxyear > report_year:
+                continue
+
             row_index = sharing_row_for_classification(property_kind, class_code)
             tax_type = (tax_type or "").strip()
             case_type = (case_type or "").strip()
@@ -547,10 +572,10 @@ def fetch_summary_sharing_template_cells(date_from, date_to):
                 col_index = discount_col
                 value = abs(amount or Decimal("0"))
             elif case_type == "PEN":
-                col_index = pen_current_col if taxyear == current_taxyear else pen_prior_col
+                col_index = pen_current_col if taxyear == report_year else pen_prior_col
                 value = amount or Decimal("0")
             else:
-                col_index = current_col if taxyear == current_taxyear else prior_col
+                col_index = current_col if taxyear == report_year else prior_col
                 value = amount or Decimal("0")
             values[(row_index, col_index)] = values.get((row_index, col_index), Decimal("0")) + value
         connection.rollback()

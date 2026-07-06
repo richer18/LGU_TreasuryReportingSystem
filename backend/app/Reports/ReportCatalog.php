@@ -45,6 +45,7 @@ class ReportCatalog
             ['number' => 35, 'name' => 'Canceled / Void Receipts Report', 'group' => 'receipt_exceptions', 'status' => 'implemented_script'],
             ['number' => 36, 'name' => 'Receipts Not Remitted Report', 'group' => 'receipt_exceptions', 'status' => 'implemented_script'],
             ['number' => 37, 'name' => 'Official Report Breakdown', 'group' => 'category_breakdown', 'status' => 'implemented_script'],
+            ['number' => 38, 'name' => 'ESRE Quarterly Report', 'group' => 'esre', 'status' => 'implemented_script'],
         ]);
     }
 

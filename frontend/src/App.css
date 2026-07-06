@@ -2834,7 +2834,8 @@ dd {
   text-transform: uppercase;
 }
 
-.month-filter-field input {
+.month-filter-field input,
+.month-filter-field select {
   border: 1px solid #cfd8e3;
   border-radius: 6px;
   color: #132238;

@@ -15,10 +15,12 @@ const DOWNLOAD_ONLY_REPORT_NUMBERS = new Set([
   35,
   36,
   37,
+  38,
 ])
 const MAIN_REPORT_NUMBERS = new Set([...UI_REPORT_NUMBERS, ...DOWNLOAD_ONLY_REPORT_NUMBERS])
 const COLLECTOR_REPORT_NUMBER = 34
 const DATE_RANGE_REPORT_NUMBER = 37
+const QUARTER_REPORT_NUMBER = 38
 const REPORT_COLLECTORS = [
   { value: 'flora', label: 'FLORA MY D. FERRER' },
   { value: 'agnes', label: 'AGNES B. ELLO' },
@@ -33,6 +35,10 @@ const currentMonth = () => {
   const month = String(today.getMonth() + 1).padStart(2, '0')
   return `${year}-${month}`
 }
+
+const currentYear = () => String(new Date().getFullYear())
+
+const currentQuarter = () => String(Math.floor(new Date().getMonth() / 3) + 1)
 
 const toDateValue = (date) => {
   const year = date.getFullYear()
@@ -53,6 +59,58 @@ const getMonthRange = (monthValue) => {
     monthName: firstDay.toLocaleDateString('en-PH', { month: 'long' }),
     year,
   }
+}
+
+const getQuarterRange = (yearValue, quarterValue) => {
+  const year = Number(yearValue) || new Date().getFullYear()
+  const quarter = [1, 2, 3, 4].includes(Number(quarterValue)) ? Number(quarterValue) : 1
+  const firstMonth = (quarter - 1) * 3
+  const firstDay = new Date(year, firstMonth, 1)
+  const lastDay = new Date(year, firstMonth + 3, 0)
+  const quarterLabels = {
+    1: '1st Quarter',
+    2: '2nd Quarter',
+    3: '3rd Quarter',
+    4: '4th Quarter',
+  }
+
+  return {
+    dateFrom: toDateValue(firstDay),
+    dateTo: toDateValue(lastDay),
+    label: `${quarterLabels[quarter]} ${year}`,
+    monthName: quarterLabels[quarter],
+    quarter,
+    year,
+  }
+}
+
+const timestampForFilename = (date = new Date()) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  const seconds = String(date.getSeconds()).padStart(2, '0')
+  return `${year}${month}${day}-${hours}${minutes}${seconds}`
+}
+
+const quarterToken = (quarter) => {
+  const quarterNumber = Number(quarter) || 1
+  const suffixes = {
+    1: 'ST',
+    2: 'ND',
+    3: 'RD',
+    4: 'TH',
+  }
+  return `${quarterNumber}${suffixes[quarterNumber] || 'TH'}`
+}
+
+const fallbackDownloadName = (report, period, selectedMonth) => {
+  if (report.number === QUARTER_REPORT_NUMBER) {
+    return `ESRE-REPORT-${quarterToken(period.quarter)}-QTR-${timestampForFilename()}.xlsx`
+  }
+
+  return `report-${report.number}-${selectedMonth}.xlsx`
 }
 
 const sourceRows = [
@@ -887,6 +945,8 @@ const TemplatePreview = ({ report }) => {
 export function ReportsPage({ page, variant = 'reports', user }) {
   const [selectedMonth, setSelectedMonth] = useState(currentMonth())
   const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '' })
+  const [selectedQuarter, setSelectedQuarter] = useState(currentQuarter())
+  const [selectedQuarterYear, setSelectedQuarterYear] = useState(currentYear())
   const [selectedReportNumber, setSelectedReportNumber] = useState('')
   const [selectedCollector, setSelectedCollector] = useState('')
   const [generatedReport, setGeneratedReport] = useState(null)
@@ -894,6 +954,10 @@ export function ReportsPage({ page, variant = 'reports', user }) {
   const [isDownloading, setIsDownloading] = useState(false)
   const [generationError, setGenerationError] = useState('')
   const range = useMemo(() => getMonthRange(selectedMonth), [selectedMonth])
+  const quarterRange = useMemo(
+    () => getQuarterRange(selectedQuarterYear, selectedQuarter),
+    [selectedQuarterYear, selectedQuarter],
+  )
   const cashierAssignment = getCashierCollectorAssignment(user)
   const collectorOptions = cashierAssignment ? [cashierAssignment] : REPORT_COLLECTORS
   const isCollectionMonitor = variant === 'collectionMonitor'
@@ -907,6 +971,7 @@ export function ReportsPage({ page, variant = 'reports', user }) {
   const selectedReport = findReport(selectedReportNumber)
   const requiresCollector = selectedReport?.number === COLLECTOR_REPORT_NUMBER
   const usesDateRange = selectedReport?.number === DATE_RANGE_REPORT_NUMBER
+  const usesQuarterRange = selectedReport?.number === QUARTER_REPORT_NUMBER
 
   useEffect(() => {
     if (cashierAssignment && requiresCollector) {
@@ -929,7 +994,7 @@ export function ReportsPage({ page, variant = 'reports', user }) {
     })
     const disposition = response.headers['content-disposition'] || ''
     const filenameMatch = disposition.match(/filename="?([^"]+)"?/i)
-    const fallbackName = `report-${report.number}-${selectedMonth}.xlsx`
+    const fallbackName = fallbackDownloadName(report, period, selectedMonth)
     const url = URL.createObjectURL(response.data)
     const link = document.createElement('a')
 
@@ -947,7 +1012,9 @@ export function ReportsPage({ page, variant = 'reports', user }) {
     const isDownloadOnly = DOWNLOAD_ONLY_REPORT_NUMBERS.has(report.number)
     const reportPeriod = report.number === DATE_RANGE_REPORT_NUMBER
       ? { dateFrom: dateRange.dateFrom, dateTo: dateRange.dateTo }
-      : range
+      : report.number === QUARTER_REPORT_NUMBER
+        ? quarterRange
+        : range
 
     if (report.number === COLLECTOR_REPORT_NUMBER && !selectedCollector) {
       setGenerationError('Please select a collector for Generate Collection Receipt Per Collector.')
@@ -1097,6 +1164,39 @@ export function ReportsPage({ page, variant = 'reports', user }) {
                 />
               </label>
             </>
+          ) : usesQuarterRange ? (
+            <>
+              <label className="month-filter-field">
+                <span><Calendar size={14} aria-hidden="true" /> Quarter</span>
+                <select
+                  aria-label="Quarter"
+                  onChange={(event) => {
+                    setSelectedQuarter(event.target.value)
+                    setGenerationError('')
+                  }}
+                  value={selectedQuarter}
+                >
+                  <option value="1">1st Quarter (Jan-Mar)</option>
+                  <option value="2">2nd Quarter (Apr-Jun)</option>
+                  <option value="3">3rd Quarter (Jul-Sep)</option>
+                  <option value="4">4th Quarter (Oct-Dec)</option>
+                </select>
+              </label>
+              <label className="month-filter-field">
+                <span><Calendar size={14} aria-hidden="true" /> Year</span>
+                <input
+                  aria-label="Quarter year"
+                  max="2100"
+                  min="2000"
+                  onChange={(event) => {
+                    setSelectedQuarterYear(event.target.value)
+                    setGenerationError('')
+                  }}
+                  type="number"
+                  value={selectedQuarterYear}
+                />
+              </label>
+            </>
           ) : (
             <label className="month-filter-field">
               <span><Calendar size={14} aria-hidden="true" /> Month and Year</span>
@@ -1161,7 +1261,7 @@ export function ReportsPage({ page, variant = 'reports', user }) {
           <Info size={18} aria-hidden="true" />
           <div>
             <strong>Report Scope</strong>
-            <p>Choose a month and report template. Report 37 uses a direct Date From and Date To range. Reports are generated from the read-only Firebird bridge, BPLS workbook sources, and uploaded Excel templates.</p>
+            <p>Choose a month and report template. Report 37 uses Date From and Date To, while Report 38 uses Quarter and Year. Reports are generated from the read-only Firebird bridge, BPLS workbook sources, and uploaded Excel templates.</p>
           </div>
         </div>
 

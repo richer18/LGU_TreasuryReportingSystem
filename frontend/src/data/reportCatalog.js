@@ -40,6 +40,7 @@ export const fundPages = {
       { number: 35, name: 'Canceled / Void Receipts Report', group: 'Receipt Exceptions', status: 'Ready' },
       { number: 36, name: 'Receipts Not Remitted Report', group: 'Receipt Exceptions', status: 'Ready' },
       { number: 37, name: 'Official Report Breakdown', group: 'Category Breakdown', status: 'Ready' },
+      { number: 38, name: 'ESRE Quarterly Report', group: 'ESRE', status: 'Ready' },
     ],
   },
   generalFund: {

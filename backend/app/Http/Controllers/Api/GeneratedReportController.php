@@ -17,7 +17,7 @@ class GeneratedReportController extends Controller
 
     public function preview(Request $request, int $number): JsonResponse
     {
-        abort_if($number < 1 || $number > 37 || $number === 24, 404, 'Report not found.');
+        abort_if($number < 1 || $number > 38 || $number === 24, 404, 'Report not found.');
 
         $filters = $request->validate([
             'date_from' => ['nullable', 'date'],
@@ -25,7 +25,7 @@ class GeneratedReportController extends Controller
             'collector' => ['nullable', 'string', 'max:100'],
         ]);
 
-        if ($number === 37) {
+        if (in_array($number, [37, 38], true)) {
             abort(404, 'Report preview is not available for this download-only report.');
         }
 
@@ -40,7 +40,7 @@ class GeneratedReportController extends Controller
 
     public function download(Request $request, int $number): JsonResponse|BinaryFileResponse
     {
-        abort_if($number < 1 || $number > 37 || $number === 24, 404, 'Report not found.');
+        abort_if($number < 1 || $number > 38 || $number === 24, 404, 'Report not found.');
 
         $filters = $request->validate([
             'date_from' => ['nullable', 'date'],
@@ -48,8 +48,8 @@ class GeneratedReportController extends Controller
             'collector' => ['nullable', 'string', 'max:100'],
         ]);
 
-        if ($number === 37) {
-            abort_if(empty($filters['date_from']) || empty($filters['date_to']), 422, 'Date From and Date To are required for Official Report Breakdown.');
+        if (in_array($number, [37, 38], true)) {
+            abort_if(empty($filters['date_from']) || empty($filters['date_to']), 422, 'Date From and Date To are required for this report.');
             abort_if($filters['date_from'] > $filters['date_to'], 422, 'Date From must not be greater than Date To.');
         }
 
@@ -74,6 +74,7 @@ class GeneratedReportController extends Controller
         return response()
             ->download($path, $result['filename'] ?? basename($path), [
                 'Content-Type' => $contentType,
+                'Access-Control-Expose-Headers' => 'Content-Disposition',
             ])
             ->deleteFileAfterSend(true);
     }

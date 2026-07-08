@@ -3,43 +3,21 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\RcdAccessStoreService;
+use App\Services\RcdMysqlStoreService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\File;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class RcdAccessController extends Controller
 {
-    public function __construct(private readonly RcdAccessStoreService $store)
+    public function __construct(private readonly RcdMysqlStoreService $store)
     {
     }
 
     public function status(): JsonResponse
     {
-        $directory = database_path('rcd');
-        $databaseFile = $directory . DIRECTORY_SEPARATOR . 'rcd_remittance.accdb';
-
-        if (! File::exists($directory)) {
-            File::makeDirectory($directory, 0755, true);
-        }
-
         return response()->json([
-            'data' => [
-                'driver' => 'Microsoft Access Database (.accdb)',
-                'database_file' => $databaseFile,
-                'exists' => File::exists($databaseFile),
-                'purpose' => 'Stores RCD batches, remittance workflow, bank deposit references, and audit trail. Firebird remains the official OR source.',
-                'planned_tables' => [
-                    'rcd_batches',
-                    'rcd_collection_lines',
-                    'rcd_entries',
-                    'rcd_accountable_form_releases',
-                    'rcd_accountability_snapshots',
-                    'rcd_remittance_events',
-                    'rcd_access_audit_logs',
-                ],
-            ],
+            'data' => $this->store->status(),
         ]);
     }
 

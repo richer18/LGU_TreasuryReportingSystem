@@ -516,7 +516,7 @@ export function AcoDashboardPage({ user }) {
           <Box sx={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between', p: 2.5 }}>
             <Box>
               <Typography variant="h6" sx={{ color: colors.navy, fontWeight: 900 }}>Accountable Forms Tracking</Typography>
-              <Typography sx={{ color: colors.steel }}>OR booklets/ranges released to collectors from the AccessDB custodian log.</Typography>
+              <Typography sx={{ color: colors.steel }}>OR booklets/ranges released to collectors from the MySQL custodian log.</Typography>
             </Box>
             <Chip label={`${filteredAccountableForms.length} releases`} sx={{ bgcolor: 'var(--color-primary-soft)', color: colors.teal, fontWeight: 900 }} />
           </Box>
@@ -564,7 +564,7 @@ export function AcoDashboardPage({ user }) {
           <Box sx={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between', p: 2.5 }}>
             <Box>
               <Typography variant="h6" sx={{ color: colors.navy, fontWeight: 900 }}>Audit Trail</Typography>
-              <Typography sx={{ color: colors.steel }}>Recent RCD actions from AccessDB audit logs.</Typography>
+              <Typography sx={{ color: colors.steel }}>Recent RCD actions from MySQL audit logs.</Typography>
             </Box>
             <Chip label={`${filteredAuditTrailRows.length} logs`} sx={{ bgcolor: 'var(--color-secondary-soft)', color: colors.teal, fontWeight: 900 }} />
           </Box>

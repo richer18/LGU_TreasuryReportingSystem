@@ -1815,3 +1815,329 @@ After the seed/import runner is built, verify:
 - The next task is to create a data import/seed runner.
 - No import runner has been created yet in this handoff update.
 ```
+
+## 2026-07-07 MySQL Login, Cash Tickets, and RCD Workspace Implementation
+
+This section records the implementation work completed on July 7, 2026.
+
+### Database switch
+
+Laravel was switched from SQLite to the local XAMPP MySQL database.
+
+Active `.env` database settings:
+
+```text
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3307
+DB_DATABASE=lgu_treasury_reporting
+DB_USERNAME=root
+DB_PASSWORD=
+```
+
+Verified runtime connection:
+
+```text
+driver: mysql
+database: lgu_treasury_reporting
+```
+
+Important rule remains unchanged:
+
+```text
+Firebird is still the official source for receipt/payment validation.
+MySQL stores app-owned workflow data only.
+Do not import all Firebird payments into MySQL.
+Do not modify Firebird data.
+```
+
+### Database login accounts
+
+The Laravel login now uses database users from MySQL.
+
+Seeded login accounts:
+
+```text
+Admin:     admin@zamboanguita.local     / admin123
+Treasurer: treasurer@zamboanguita.local / treasurer123
+Cashier:   cashier@zamboanguita.local   / cashier123
+Collector: collector@zamboanguita.local / collector123
+Viewer:    viewer@zamboanguita.local    / viewer123
+```
+
+Implementation notes:
+
+```text
+- AuthController normalizes email by trimming and lowercasing before lookup.
+- DatabaseSeeder creates one active account per role.
+- Existing user passwords are preserved when accounts already exist.
+- Login form no longer pre-fills the admin email.
+```
+
+Verification:
+
+```text
+- All five users exist in MySQL.
+- All five default passwords validated with Laravel Hash::check().
+- Cashier login through POST /api/login returned HTTP 200 with token and role cashier.
+```
+
+Recommended operational step:
+
+```text
+Change default passwords through User's Accounts after first real deployment.
+```
+
+### Cash Tickets module
+
+Cash Tickets is now implemented as an app-owned MySQL module.
+
+Main backend pieces:
+
+```text
+backend/app/Http/Controllers/Api/CashTicketController.php
+backend/app/Models/CashTicketType.php
+backend/app/Models/CashTicketBook.php
+backend/app/Models/CashTicketCollection.php
+backend/app/Models/CashTicketReportRow.php
+backend/app/Models/CashTicketAuditLog.php
+backend/database/migrations/2026_07_07_000001_create_cash_ticket_tables.php
+backend/database/migrations/2026_07_07_000002_add_release_tracking_to_cash_ticket_books.php
+backend/database/mysql/cash_ticket_schema.sql
+```
+
+Main frontend piece:
+
+```text
+frontend/src/pages/CashTickets/CashTicketsPage.jsx
+```
+
+Cash Ticket API routes:
+
+```text
+GET  /api/cash-tickets
+GET  /api/cash-tickets/template
+POST /api/cash-tickets/import
+GET  /api/cash-tickets/types
+POST /api/cash-tickets/types
+PUT  /api/cash-tickets/types/{type}
+GET  /api/cash-tickets/books
+POST /api/cash-tickets/books
+PUT  /api/cash-tickets/books/{book}
+GET  /api/cash-tickets/collections
+POST /api/cash-tickets/collections
+PUT  /api/cash-tickets/collections/{collection}
+POST /api/cash-tickets/report-rows
+```
+
+Cash Ticket tables:
+
+```text
+cash_ticket_types
+cash_ticket_books
+cash_ticket_collections
+cash_ticket_report_rows
+cash_ticket_audit_logs
+```
+
+Implemented workflow:
+
+```text
+1. Record cash ticket given/released to collector.
+2. Track serial number as one field.
+3. Track amount released, collector signature, date issued, assigned collector.
+4. Record cash ticket collections/remittances.
+5. Monitor amount released, amount remitted, balance, last remittance date, and last RD number.
+6. Import from Excel template.
+7. Download blank import template.
+```
+
+Import template:
+
+```text
+template/CASH_TICKET_IMPORT_TEMPLATE.xlsx
+```
+
+The template includes:
+
+```text
+Sheet 1: Cash Ticket Import
+Sheet 2: Given to Collector
+```
+
+### RCD Workspace MySQL storage
+
+RCD Workspace was switched from AccessDB runner storage to Laravel/MySQL storage while keeping the same frontend/API route contract.
+
+Main backend pieces:
+
+```text
+backend/app/Http/Controllers/Api/RcdAccessController.php
+backend/app/Services/RcdMysqlStoreService.php
+backend/database/migrations/2026_07_07_000003_prepare_rcd_mysql_workspace.php
+runner/rcd_mysql_export.py
+```
+
+RCD API routes remain unchanged:
+
+```text
+GET    /api/rcd/access/status
+GET    /api/rcd/batches
+POST   /api/rcd/batches
+GET    /api/rcd/batches/{reportNo}
+PATCH  /api/rcd/batches/{reportNo}
+DELETE /api/rcd/batches/{reportNo}
+GET    /api/rcd/batches/{reportNo}/download
+POST   /api/rcd/batches/{reportNo}/remit
+POST   /api/rcd/batches/{reportNo}/receive
+GET    /api/rcd/batches/{reportNo}/audit
+GET    /api/rcd/audit-trail
+GET    /api/rcd/accountable-forms
+POST   /api/rcd/accountable-forms
+GET    /api/rcd/generate-or
+POST   /api/rcd/generate-or
+```
+
+RCD MySQL tables used:
+
+```text
+rcd_batches
+rcd_collection_lines
+rcd_entries
+rcd_remittance_events
+rcd_access_audit_logs
+rcd_accountable_form_releases
+rcd_accountability_snapshots
+```
+
+RCD process:
+
+```text
+1. Accountable Form Release
+2. New RCD Entry
+3. Validate OR lines against Firebird
+4. Save RCD workflow data to MySQL
+5. Remit to ACO
+6. ACO Receive
+7. Print/Download RCD Excel
+```
+
+Important RCD source-of-truth split:
+
+```text
+Firebird = official receipt/payment validation source
+MySQL    = RCD workflow, remittance, accountable forms, snapshots, audit trail
+```
+
+RCD status endpoint now reports:
+
+```text
+driver: MySQL
+database: lgu_treasury_reporting
+exists: true
+```
+
+### Verification completed on 2026-07-07
+
+Commands/checks run:
+
+```text
+php artisan config:clear
+php artisan migrate --force
+php artisan db:seed --force
+php artisan migrate:status
+php artisan route:list --path=api
+php artisan test
+npm.cmd run build
+python -m py_compile runner/rcd_mysql_export.py
+```
+
+Verified results:
+
+```text
+- Laravel active database is MySQL.
+- Database is lgu_treasury_reporting.
+- Login users exist and can authenticate.
+- Cash Ticket MySQL tables exist.
+- RCD MySQL tables exist.
+- RCD save/list/show/remit/receive smoke test passed.
+- RCD export generated a valid .xlsx.
+- Backend tests passed.
+- Frontend production build passed.
+```
+
+Smoke test note:
+
+```text
+RCD service smoke tests were wrapped in DB transactions and rolled back, so no test RCD data remained.
+```
+
+### Review findings / follow-up risks from 2026-07-08 review
+
+These were found after the MySQL/RCD implementation and should be handled next.
+
+1. RCD export status risk
+
+```text
+RcdMysqlStoreService export currently updates exported batches to Saved.
+If a batch is already Remitted to ACO, Received by ACO, or With Variance,
+downloading/printing may downgrade the workflow status.
+
+Recommended fix:
+Only change Draft/Printed-style statuses when exporting, or do not change status at all on download.
+```
+
+2. Receipt Exceptions and Calendar still reference old AccessDB RCD range matching
+
+```text
+ReceiptExceptionsReportService and CalendarService still pass RCD_ACCESS_DB to Python runners.
+The runners still read old AccessDB RCD range data.
+
+Recommended fix:
+Move RCD range lookup for Receipt Exceptions and Calendar markers to MySQL,
+or add a MySQL-aware runner path.
+```
+
+3. Fresh install risk for RCD MySQL tables
+
+```text
+The current RCD MySQL migration prepares/extends existing rcd_batches and rcd_collection_lines.
+It does not create the base RCD tables if they are missing.
+
+This is okay on the current machine because the tables already exist,
+but a new clean database may need a full base RCD migration.
+```
+
+4. RCD variance field meaning
+
+```text
+variance_amount is currently used for both Firebird-vs-collector difference
+and later remittance/ACO receive variance.
+
+Recommended fix:
+Use separate fields or labels for validation difference and remittance variance.
+```
+
+5. Automated test gap
+
+```text
+phpunit.xml still uses SQLite for automated tests.
+Existing tests do not fully exercise Cash Ticket or RCD MySQL workflows.
+
+Recommended fix:
+Add focused feature tests for login, Cash Tickets, and RCD MySQL service behavior.
+```
+
+### Recommended next work order
+
+```text
+1. Fix RCD export so download/print does not downgrade remittance status.
+2. Update Receipt Exceptions RCD range matching to use MySQL.
+3. Update Calendar RCD markers to use MySQL.
+4. Add a full base migration for RCD MySQL tables for clean installs.
+5. Clarify RCD variance fields.
+6. Add feature tests for Cash Tickets and RCD workflow.
+7. Browser-test real workflow: login -> cash ticket -> RCD -> remit -> receive -> export.
+8. Commit and push once browser workflow is confirmed.
+```
+

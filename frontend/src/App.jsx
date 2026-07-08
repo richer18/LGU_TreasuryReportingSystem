@@ -26,6 +26,7 @@ import { useAuth } from './auth/useAuth'
 import { fundPages } from './data/reportCatalog'
 import { AcoDashboardPage } from './pages/AcoDashboard/AcoDashboardPage'
 import { CalendarPage } from './pages/Calendar/CalendarPage'
+import { CashTicketsPage } from './pages/CashTickets/CashTicketsPage'
 import { DashboardPage } from './pages/Dashboard/DashboardPage'
 import { GeneralFundPage } from './pages/GeneralFund/GeneralFundPage'
 import { IncomeTargetPage } from './pages/IncomeTarget/IncomeTargetPage'
@@ -67,6 +68,7 @@ const collectionMonitorPages = {
 const hiddenTopbarPages = new Set([
   'generalFund',
   'calendar',
+  'cashtickets',
   'trustFund',
   'communityTax',
   'realPropertyTax',
@@ -83,7 +85,7 @@ function App() {
   const [activePage, setActivePage] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loginForm, setLoginForm] = useState({
-    email: 'admin@zamboanguita.local',
+    email: '',
     password: '',
   })
   const [loginError, setLoginError] = useState('')
@@ -276,6 +278,8 @@ function App() {
 
         {activePage === 'calendar' && <CalendarPage user={user} />}
 
+        {activePage === 'cashtickets' && <CashTicketsPage user={user} />}
+
         {collectionMonitorPages[activePage] && (
           <GeneralFundPage
             fundScope={collectionMonitorPages[activePage].fundScope}
@@ -294,7 +298,7 @@ function App() {
 
         {activePage === 'acoDashboard' && <AcoDashboardPage user={user} />}
 
-        {activePage !== 'generalFund' && activePage !== 'calendar' && !collectionMonitorPages[activePage] && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'userAccounts' && activePage !== 'rcd' && activePage !== 'acoDashboard' && fundPages[activePage] && (
+        {activePage !== 'generalFund' && activePage !== 'calendar' && activePage !== 'cashtickets' && !collectionMonitorPages[activePage] && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'userAccounts' && activePage !== 'rcd' && activePage !== 'acoDashboard' && fundPages[activePage] && (
           <ReportsPage page={fundPages[activePage]} user={user} />
         )}
 

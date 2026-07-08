@@ -18,8 +18,10 @@ class AuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
+        $email = strtolower(trim($credentials['email']));
+
         $user = User::query()
-            ->where('email', $credentials['email'])
+            ->whereRaw('LOWER(email) = ?', [$email])
             ->first();
 
         if (! $user || ! Hash::check($credentials['password'], $user->password)) {

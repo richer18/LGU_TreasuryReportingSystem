@@ -192,15 +192,15 @@ ESRE_RPT_GROUPS = [
     (
         "Real Property Tax - LAND = Agriculture",
         [
-            ("GF", "A", "BSC"),
-            ("SEF", "A", "SEF"),
+            ("GF", "Real Property Tax - Basic/Land"),
+            ("SEF", "Real Property Tax - SEF/Land"),
         ],
     ),
     (
         "Real Property Tax - BLDG = Residential",
         [
-            ("GF", "R", "BSC"),
-            ("SEF", "R", "SEF"),
+            ("GF", "Real Property Tax - Basic/Bldg."),
+            ("SEF", "Real Property Tax - SEF/Bldg."),
         ],
     ),
 ]
@@ -472,6 +472,23 @@ def rpt_line_amount(by_section_source, section_name, line_name, amount_column):
     return decimal_amount(row.get(amount_column)), f"{section_name} / {line_name} / {amount_column}"
 
 
+def esre_rpt_summary_basis_rows(report_rows):
+    _, by_section_source = summary_row_lookup(report_rows)
+    headers = ["ESRE Group", "Fund", "Summary of Collection Section", "Line", "Amount"]
+    rows = []
+    for group_name, fund_groups in ESRE_RPT_GROUPS:
+        for fund_name, summary_section in fund_groups:
+            for display_line, summary_line in (("Current", "Current Year"), ("Prior", "Previous Years"), ("Penalties", "Penalties")):
+                amount, _basis = rpt_line_amount(
+                    by_section_source,
+                    summary_section,
+                    summary_line,
+                    "total_collections",
+                )
+                rows.append([group_name, fund_name, summary_section, display_line, amount])
+    return headers, rows
+
+
 def rpt_cell_lookup(cells):
     return {
         (int(cell["row"]), int(cell["column"])): decimal_amount(cell.get("value"))
@@ -717,19 +734,19 @@ def build_esre_quarterly_rows(report_rows, bpls_tax_rows, rpt_collection_buckets
         })
         rows.extend(line_rows)
 
-    for rpt_group in esre_rpt_grouped_buckets(rpt_collection_buckets):
+    rpt_line_names = (("Current", "Current Year"), ("Prior", "Previous Years"), ("Penalties", "Penalties"))
+    for group_name, fund_groups in ESRE_RPT_GROUPS:
         group_rows = []
         group_total = Decimal("0")
-        group_name = f"Real Property Tax - {esre_rpt_property_label(rpt_group)} = {esre_rpt_classification_label(rpt_group)}"
-        for fund_name, tax_type in (("GF", "BSC"), ("SEF", "SEF")):
-            bucket = rpt_group["funds"].get(tax_type, {})
+        for fund_name, summary_section in fund_groups:
             fund_rows = []
             fund_total = Decimal("0")
-            for display_line, bucket_name in (("Current", "current"), ("Prior", "prior"), ("Penalties", "penalties")):
-                amount = bucket.get(bucket_name, Decimal("0"))
-                basis = (
-                    f"RPT collection property kind {rpt_group.get('property_kind')}; "
-                    f"classification {rpt_group.get('class_code')}; {tax_type}; report-year basis"
+            for display_line, summary_line in rpt_line_names:
+                amount, basis = rpt_line_amount(
+                    by_section_source,
+                    summary_section,
+                    summary_line,
+                    "total_collections",
                 )
                 fund_total += amount
                 fund_rows.append({
@@ -745,7 +762,7 @@ def build_esre_quarterly_rows(report_rows, bpls_tax_rows, rpt_collection_buckets
                 "category": "",
                 "particular": fund_name,
                 "amount": fund_total,
-                "basis": "Subtotal of RPT collection property kind and classification; advance years excluded",
+                "basis": f"Subtotal of Summary of Collection section: {summary_section}",
                 "level": 1,
             })
             group_rows.extend(fund_rows)
@@ -1084,8 +1101,7 @@ def write_esre_quarterly_workbook(date_from, date_to, output_dir):
     payload = build_report(21, date_from, date_to)
     report_rows = payload["rows"]
     bpls_tax_rows = fetch_tax_on_business_summary(date_from, date_to)
-    rpt_collection_buckets = fetch_esre_rpt_collection_buckets(date_from, date_to)
-    esre_rows, grand_total = build_esre_quarterly_rows(report_rows, bpls_tax_rows, rpt_collection_buckets)
+    esre_rows, grand_total = build_esre_quarterly_rows(report_rows, bpls_tax_rows, {})
 
     workbook = Workbook()
     sheet = workbook.active
@@ -1175,8 +1191,8 @@ def write_esre_quarterly_workbook(date_from, date_to, output_dir):
             if column_index > 1:
                 bpls_basis_sheet.cell(row_index, column_index).number_format = "#,##0.00"
 
-    rpt_collection_sheet = workbook.create_sheet("RPT Collection Basis")
-    rpt_headers, rpt_rows = esre_rpt_collection_basis_rows(rpt_collection_buckets)
+    rpt_collection_sheet = workbook.create_sheet("RPT Summary Basis")
+    rpt_headers, rpt_rows = esre_rpt_summary_basis_rows(report_rows)
     for column_index, header in enumerate(rpt_headers, start=1):
         cell = rpt_collection_sheet.cell(1, column_index)
         cell.value = header
@@ -1186,7 +1202,7 @@ def write_esre_quarterly_workbook(date_from, date_to, output_dir):
     for row_index, row_values in enumerate(rpt_rows, start=2):
         for column_index, value in enumerate(row_values, start=1):
             rpt_collection_sheet.cell(row_index, column_index).value = excel_value(value)
-            if column_index > 3:
+            if column_index > 4:
                 rpt_collection_sheet.cell(row_index, column_index).number_format = "#,##0.00"
 
     sheet.delete_cols(4)

@@ -28,6 +28,7 @@ return [
             'general_fund.view',
             'trust_fund.view',
             'community_tax.view',
+            'cash_tickets.view',
             'rcd.view',
             'aco_dashboard.view',
             'income_target.view',
@@ -40,6 +41,7 @@ return [
         'cashier' => [
             'dashboard.view',
             'calendar.view',
+            'cash_tickets.view',
             'rcd.view',
             'search_receipts.view',
             'reports.view',
@@ -47,6 +49,7 @@ return [
         ],
         'collector' => [
             'calendar.view',
+            'cash_tickets.view',
             'rcd.view',
             'settings.view',
         ],

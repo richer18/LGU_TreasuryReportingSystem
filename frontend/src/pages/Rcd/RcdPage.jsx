@@ -526,7 +526,7 @@ export function RcdPage({ user }) {
       setEntryDialogOpen(false)
       resetEntryForm()
     } catch (error) {
-      setGenerateMessage(error.response?.data?.error || error.response?.data?.message || error.message || 'Unable to save RCD to AccessDB.')
+      setGenerateMessage(error.response?.data?.error || error.response?.data?.message || error.message || 'Unable to save RCD to MySQL.')
       setSavingAction('')
     } finally {
       savingRef.current = false
@@ -646,7 +646,7 @@ export function RcdPage({ user }) {
       return
     }
     const label = row.id && row.id !== '-' ? row.id : `draft RCD #${row.db_id}`
-    if (!window.confirm(`Delete ${label}? This will remove the saved RCD batch from AccessDB.`)) {
+    if (!window.confirm(`Delete ${label}? This will remove the saved RCD batch from MySQL.`)) {
       return
     }
 
@@ -822,7 +822,7 @@ export function RcdPage({ user }) {
       const response = await axiosInstance.get('/rcd/access/status')
       setAccessStatus(response.data?.data || response.data)
     } catch (error) {
-      setAccessError(error.response?.data?.message || error.message || 'Unable to check AccessDB status.')
+      setAccessError(error.response?.data?.message || error.message || 'Unable to check MySQL status.')
       setAccessStatus(null)
     } finally {
       setLoadingAccess(false)
@@ -1263,11 +1263,11 @@ export function RcdPage({ user }) {
           <Box>
             <Typography variant="overline" sx={{ color: uiColors.teal, fontWeight: 900 }}>Report of Collections and Deposit</Typography>
             <Typography variant="h4" sx={{ color: uiColors.navy, fontWeight: 950, lineHeight: 1.1 }}>RCD Workspace</Typography>
-            <Typography sx={{ color: uiColors.steel, fontWeight: 700, mt: 0.5 }}>Old ETMS-style workflow rebuilt for Firebird OR validation and AccessDB RCD storage.</Typography>
+            <Typography sx={{ color: uiColors.steel, fontWeight: 700, mt: 0.5 }}>Old ETMS-style workflow rebuilt for Firebird OR validation and MySQL RCD storage.</Typography>
           </Box>
           <Box sx={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
-            <Chip color={accessStatus?.exists ? 'success' : 'default'} label={accessStatus?.exists ? 'AccessDB Ready' : 'AccessDB Path Ready'} sx={{ fontWeight: 900 }} />
-            <Button onClick={loadAccessStatus} sx={secondaryToolbarButtonSx(uiColors.sky)} variant="outlined">{loadingAccess ? 'Checking...' : 'Check AccessDB'}</Button>
+            <Chip color={accessStatus?.exists ? 'success' : 'default'} label={accessStatus?.exists ? 'MySQL Ready' : 'MySQL Not Ready'} sx={{ fontWeight: 900 }} />
+            <Button onClick={loadAccessStatus} sx={secondaryToolbarButtonSx(uiColors.sky)} variant="outlined">{loadingAccess ? 'Checking...' : 'Check MySQL'}</Button>
           </Box>
         </Box>
         {accessError && <Alert severity="error" sx={{ mt: 2 }}>{accessError}</Alert>}

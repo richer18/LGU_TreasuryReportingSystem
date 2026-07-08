@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CalendarController;
+use App\Http\Controllers\Api\CashTicketController;
 use App\Http\Controllers\Api\DashboardSummaryController;
 use App\Http\Controllers\Api\FirebirdStatusController;
 use App\Http\Controllers\Api\GeneralFundController;
@@ -69,6 +70,24 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/income-target', [IncomeTargetController::class, 'show']);
 
+    Route::prefix('cash-tickets')
+        ->middleware('permission:cash_tickets.view')
+        ->group(function () {
+            Route::get('/', [CashTicketController::class, 'overview']);
+            Route::get('/template', [CashTicketController::class, 'template']);
+            Route::post('/import', [CashTicketController::class, 'import']);
+            Route::get('/types', [CashTicketController::class, 'types']);
+            Route::post('/types', [CashTicketController::class, 'storeType']);
+            Route::put('/types/{type}', [CashTicketController::class, 'updateType']);
+            Route::get('/books', [CashTicketController::class, 'books']);
+            Route::post('/books', [CashTicketController::class, 'storeBook']);
+            Route::put('/books/{book}', [CashTicketController::class, 'updateBook']);
+            Route::get('/collections', [CashTicketController::class, 'collections']);
+            Route::post('/collections', [CashTicketController::class, 'storeCollection']);
+            Route::put('/collections/{collection}', [CashTicketController::class, 'updateCollection']);
+            Route::post('/report-rows', [CashTicketController::class, 'storeReportRow']);
+        });
+
     Route::get('/rcd/access/status', [RcdAccessController::class, 'status']);
     Route::get('/rcd/batches', [RcdAccessController::class, 'index']);
     Route::post('/rcd/batches', [RcdAccessController::class, 'store']);
@@ -85,5 +104,3 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rcd/generate-or', RcdGenerateOrController::class);
     Route::post('/rcd/generate-or', RcdGenerateOrController::class);
 });
-
-

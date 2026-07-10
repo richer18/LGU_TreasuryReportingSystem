@@ -94,17 +94,13 @@ const emptyBookForm = {
 
 const emptyCollectionForm = {
   amount: '',
-  cash_ticket_type_id: '',
   collection_date: todayValue(),
   collector_name: '',
-  quantity: '',
-  rd_no: '',
   remarks: '',
-  remittance_date: '',
+  remittance_date: todayValue(),
+  selected_book_id: '',
   serial_no: '',
   status: 'posted',
-  ticket_type_name: '',
-  unit_value: '',
 }
 
 const countSerialRange = (from, to) => {
@@ -120,9 +116,21 @@ const displaySerial = (row) => {
   return `${row.serial_from} to ${row.serial_to}`
 }
 
+const normalizeCashTicketCollector = (collector) => String(collector || '')
+  .trim()
+  .replace(/\s*-\s*CASH\s*TICKET$/i, '')
+  .replace(/\s+/g, ' ')
+  .toUpperCase()
+
+const cashTicketMonitorKey = (serial, collector) => {
+  const serialKey = String(serial || '').trim().toUpperCase()
+  const collectorKey = normalizeCashTicketCollector(collector)
+  return `${serialKey}|${collectorKey}`
+}
+
 const cashTicketRcdName = (collector) => {
-  const clean = String(collector || '').trim().replace(/\s*-\s*CASH\s*TICKET$/i, '')
-  return clean ? `${clean.toUpperCase()} - CASH TICKET` : 'CASH TICKET'
+  const clean = normalizeCashTicketCollector(collector)
+  return clean ? `${clean} - CASH TICKET` : 'CASH TICKET'
 }
 
 const statusColor = (status) => {
@@ -236,15 +244,64 @@ export function CashTicketsPage({ user }) {
     }
   }, [dateFrom, dateTo])
 
+  const monitoring = overview?.monitoring || { rows: [], summary: {} }
   const typeOptions = useMemo(() => types.filter((type) => type.status !== 'inactive'), [types])
 
+  const cashTicketIssueOptions = useMemo(() => {
+    const remittedByKey = new Map()
+    collections.forEach((row) => {
+      if (row.status && row.status !== 'posted') return
+      const serial = row.serial_from || row.serial_to || row.serial_no
+      const key = cashTicketMonitorKey(serial, row.collector_name)
+      remittedByKey.set(key, Number(remittedByKey.get(key) || 0) + Number(row.amount || 0))
+    })
+
+    const monitoringByKey = new Map(
+      (monitoring.rows || []).map((row) => [cashTicketMonitorKey(row.serial_no, row.collector), row]),
+    )
+
+    return books
+      .filter((book) => !['voided', 'inactive', 'returned'].includes(String(book.status || '').toLowerCase()))
+      .map((book) => {
+        const collector = String(book.assigned_to_name || '').trim()
+        const serial = book.serial_from || book.serial_to || book.serial_no || `BOOK-${book.id}`
+        const key = cashTicketMonitorKey(serial, collector)
+        const monitoringRow = monitoringByKey.get(key)
+        const issued = Number(book.amount_released || 0)
+        const remitted = Number(monitoringRow?.amount_remitted ?? remittedByKey.get(key) ?? 0)
+        const balance = Number((issued - remitted).toFixed(2))
+
+        return {
+          balance,
+          collector,
+          date_issued: book.date_issued,
+          id: String(book.id),
+          issued,
+          label: `${collector || 'Unassigned'} - ${formatMoney(Math.max(balance, 0))} available`,
+          remitted,
+          serial_no: serial,
+        }
+      })
+      .filter((option) => option.collector && option.issued > 0)
+  }, [books, collections, monitoring.rows])
+
+  const cashTicketBalanceByKey = useMemo(() => new Map(
+    cashTicketIssueOptions.map((option) => [cashTicketMonitorKey(option.serial_no, option.collector), option.balance]),
+  ), [cashTicketIssueOptions])
+
   const collectionPreview = useMemo(() => {
-    const selectedType = typeOptions.find((type) => String(type.id) === String(collectionForm.cash_ticket_type_id))
-    const quantity = Number(collectionForm.quantity || (collectionForm.serial_no ? 1 : 0))
-    const unitValue = Number(collectionForm.unit_value || selectedType?.unit_value || 0)
-    const amount = Number(collectionForm.amount || quantity * unitValue)
-    return { amount, quantity, selectedType, unitValue }
-  }, [collectionForm, typeOptions])
+    const selectedIssue = cashTicketIssueOptions.find((option) => option.id === String(collectionForm.selected_book_id))
+    const amount = Number(collectionForm.amount || 0)
+    const balanceBefore = Number(selectedIssue?.balance || 0)
+    const availableBalance = Number((balanceBefore - amount).toFixed(2))
+    return { amount, availableBalance, balanceBefore, selectedIssue }
+  }, [cashTicketIssueOptions, collectionForm])
+
+  const remittanceBalance = (row) => {
+    const serial = row.serial_from || row.serial_to || row.serial_no
+    const key = cashTicketMonitorKey(serial, row.collector_name)
+    return cashTicketBalanceByKey.get(key) ?? 0
+  }
 
   const saveBook = async () => {
     setSaving('book')
@@ -252,11 +309,26 @@ export function CashTicketsPage({ user }) {
     setMessage('')
 
     try {
+      const collector = String(bookForm.assigned_to_name || '').trim()
+      const amountReleased = Number(bookForm.amount_released || 0)
+      const dateIssued = bookForm.date_issued || todayValue()
+
+      if (!collector || amountReleased <= 0 || !dateIssued) {
+        setError('Collector, Issued Tickets Amount, and Date Issued are required.')
+        return
+      }
+
+      const generatedSerial = bookForm.serial_no || `CT-${dateIssued}-${collector.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toUpperCase()}-${Date.now()}`
+
       await axiosInstance.post('/cash-tickets/books', {
         ...bookForm,
-        cash_ticket_type_id: bookForm.cash_ticket_type_id || null,
-        amount_released: Number(bookForm.amount_released || 0),
-        quantity: Number(bookForm.quantity || (bookForm.serial_no ? 1 : 0)),
+        amount_released: amountReleased,
+        assigned_to_name: collector,
+        cash_ticket_type_id: null,
+        date_issued: dateIssued,
+        quantity: 1,
+        serial_no: generatedSerial,
+        status: 'issued',
       })
       setMessage('Cash ticket given to collector saved.')
       setBookDialogOpen(false)
@@ -337,15 +409,39 @@ export function CashTicketsPage({ user }) {
     setMessage('')
 
     try {
+      const selectedIssue = collectionPreview.selectedIssue
+      const amountRemitted = Number(collectionForm.amount || 0)
+      const dateRemitted = collectionForm.remittance_date || collectionForm.collection_date || todayValue()
+
+      if (!selectedIssue) {
+        setError('Please select a collector from Cash Ticket Given to Collector.')
+        return
+      }
+
+      if (amountRemitted <= 0) {
+        setError('Amount Remitted must be greater than zero.')
+        return
+      }
+
+      if (amountRemitted - Number(selectedIssue.balance || 0) > 0.01) {
+        setError('Amount Remitted cannot be greater than the available balance.')
+        return
+      }
+
       await axiosInstance.post('/cash-tickets/collections', {
         ...collectionForm,
-        cash_ticket_type_id: collectionForm.cash_ticket_type_id || null,
-        quantity: collectionPreview.quantity,
-        unit_value: collectionPreview.unitValue,
-        amount: collectionPreview.amount,
-        ticket_type_name: collectionPreview.selectedType?.name || collectionForm.ticket_type_name,
+        amount: amountRemitted,
+        cash_ticket_type_id: null,
+        collection_date: dateRemitted,
+        collector_name: selectedIssue.collector,
+        quantity: 1,
+        remittance_date: dateRemitted,
+        serial_no: selectedIssue.serial_no,
+        status: 'posted',
+        ticket_type_name: 'Cash Ticket Remittance',
+        unit_value: amountRemitted,
       })
-      setMessage('Cash ticket collection saved.')
+      setMessage('Cash ticket remittance saved.')
       setCollectionDialogOpen(false)
       setCollectionForm(emptyCollectionForm)
       await loadCashTickets()
@@ -357,16 +453,12 @@ export function CashTicketsPage({ user }) {
   }
 
   const openCollectionDialog = () => {
-    setCollectionForm({
-      ...emptyCollectionForm,
-      collector_name: user?.name || '',
-    })
+    setCollectionForm(emptyCollectionForm)
     setCollectionDialogOpen(true)
   }
 
   const summary = overview?.summary || {}
   const reconciliation = overview?.reconciliation || {}
-  const monitoring = overview?.monitoring || { rows: [], summary: {} }
 
   return (
     <Box sx={{ display: 'grid', gap: 3 }}>
@@ -407,7 +499,7 @@ export function CashTicketsPage({ user }) {
               Refresh
             </Button>
             <Button onClick={openCollectionDialog} startIcon={<Plus size={16} />} sx={buttonSx} variant="contained">
-              New Collection
+              New Remittance
             </Button>
           </Box>
         </Box>
@@ -469,45 +561,39 @@ export function CashTicketsPage({ user }) {
           <Box sx={{ p: 2.5 }}>
             <Box sx={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between', mb: 2 }}>
               <Typography sx={{ color: 'var(--color-text-strong)', fontWeight: 900 }}>
-                Cash Ticket Collections
+                Cash Ticket Collections / Remitted
               </Typography>
               <Button onClick={openCollectionDialog} startIcon={<Plus size={16} />} sx={buttonSx} variant="contained">
-                Add Collection
+                Add Remittance
               </Button>
             </Box>
             <TableContainer>
               <Table size="small" sx={{ minWidth: 980 }}>
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={headerSx}>Date</TableCell>
-                    <TableCell sx={headerSx}>RD No.</TableCell>
+                    <TableCell sx={headerSx}>Date Remitted</TableCell>
                     <TableCell sx={headerSx}>Collector</TableCell>
-                    <TableCell sx={headerSx}>RCD Name</TableCell>
-                    <TableCell sx={headerSx}>Ticket Type</TableCell>
-                    <TableCell sx={headerSx}>Serial No.</TableCell>
-                    <TableCell align="right" sx={headerSx}>Qty</TableCell>
-                    <TableCell align="right" sx={headerSx}>Amount</TableCell>
+                    <TableCell align="right" sx={headerSx}>Amount Remitted</TableCell>
+                    <TableCell align="right" sx={headerSx}>Balance</TableCell>
+                    <TableCell sx={headerSx}>Remarks</TableCell>
                     <TableCell sx={headerSx}>Status</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {collections.map((row) => (
                     <TableRow hover key={row.id}>
-                      <TableCell sx={cellSx}>{row.collection_date || '-'}</TableCell>
-                      <TableCell sx={{ ...cellSx, fontWeight: 800 }}>{row.rd_no || '-'}</TableCell>
+                      <TableCell sx={cellSx}>{row.remittance_date || row.collection_date || '-'}</TableCell>
                       <TableCell sx={cellSx}>{row.collector_name || '-'}</TableCell>
-                      <TableCell sx={{ ...cellSx, fontWeight: 800 }}>{cashTicketRcdName(row.collector_name)}</TableCell>
-                      <TableCell sx={cellSx}>{row.type?.name || row.ticket_type_name || '-'}</TableCell>
-                      <TableCell sx={cellSx}>{displaySerial(row)}</TableCell>
-                      <TableCell align="right" sx={cellSx}>{row.quantity || 0}</TableCell>
                       <TableCell sx={moneySx}>{formatMoney(row.amount || 0)}</TableCell>
+                      <TableCell sx={moneySx}>{formatMoney(remittanceBalance(row))}</TableCell>
+                      <TableCell sx={cellSx}>{row.remarks || '-'}</TableCell>
                       <TableCell sx={cellSx}><StatusChip value={row.status} /></TableCell>
                     </TableRow>
                   ))}
                   {!collections.length && (
                     <TableRow>
-                      <TableCell align="center" colSpan={9} sx={{ color: 'var(--color-muted)', py: 4 }}>
-                        No cash ticket collections found for this date range.
+                      <TableCell align="center" colSpan={6} sx={{ color: 'var(--color-muted)', py: 4 }}>
+                        No cash ticket remittances found for this date range.
                       </TableCell>
                     </TableRow>
                   )}
@@ -526,16 +612,12 @@ export function CashTicketsPage({ user }) {
               </Button>
             </Box>
             <TableContainer>
-              <Table size="small" sx={{ minWidth: 980 }}>
+              <Table size="small" sx={{ minWidth: 760 }}>
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={headerSx}>Date Given</TableCell>
-                    <TableCell sx={headerSx}>Serial No.</TableCell>
-                    <TableCell align="right" sx={headerSx}>Qty</TableCell>
-                    <TableCell align="right" sx={headerSx}>Amount Released</TableCell>
+                    <TableCell sx={headerSx}>Date Issued</TableCell>
                     <TableCell sx={headerSx}>Collector</TableCell>
-                    <TableCell sx={headerSx}>Signature</TableCell>
-                    <TableCell sx={headerSx}>Status</TableCell>
+                    <TableCell align="right" sx={headerSx}>Issued Tickets Amount</TableCell>
                     <TableCell sx={headerSx}>Remarks</TableCell>
                   </TableRow>
                 </TableHead>
@@ -543,18 +625,14 @@ export function CashTicketsPage({ user }) {
                   {books.map((row) => (
                     <TableRow hover key={row.id}>
                       <TableCell sx={cellSx}>{row.date_issued || '-'}</TableCell>
-                      <TableCell sx={cellSx}>{displaySerial(row)}</TableCell>
-                      <TableCell align="right" sx={cellSx}>{row.quantity || 0}</TableCell>
-                      <TableCell sx={moneySx}>{formatMoney(row.amount_released || 0)}</TableCell>
                       <TableCell sx={cellSx}>{row.assigned_to_name || '-'}</TableCell>
-                      <TableCell sx={cellSx}>{row.collector_signature || '-'}</TableCell>
-                      <TableCell sx={cellSx}><StatusChip value={row.status} /></TableCell>
+                      <TableCell sx={moneySx}>{formatMoney(row.amount_released || 0)}</TableCell>
                       <TableCell sx={cellSx}>{row.remarks || '-'}</TableCell>
                     </TableRow>
                   ))}
                   {!books.length && (
                     <TableRow>
-                      <TableCell align="center" colSpan={8} sx={{ color: 'var(--color-muted)', py: 4 }}>
+                      <TableCell align="center" colSpan={4} sx={{ color: 'var(--color-muted)', py: 4 }}>
                         No cash tickets given to collectors yet.
                       </TableCell>
                     </TableRow>
@@ -660,69 +738,64 @@ export function CashTicketsPage({ user }) {
         )}
       </Paper>
 
-      <Dialog fullWidth maxWidth="md" onClose={() => !saving && setCollectionDialogOpen(false)} open={collectionDialogOpen}>
+      <Dialog fullWidth maxWidth="sm" onClose={() => !saving && setCollectionDialogOpen(false)} open={collectionDialogOpen}>
         <DialogTitle sx={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between' }}>
           <Box>
-            <Typography variant="h6" sx={{ fontWeight: 900 }}>New Cash Ticket Collection</Typography>
-            <Typography variant="body2" sx={{ color: 'var(--color-muted)' }}>Save daily cash ticket collection from ticket sales.</Typography>
+            <Typography variant="h6" sx={{ fontWeight: 900 }}>New Cash Ticket Collection / Remitted</Typography>
+            <Typography variant="body2" sx={{ color: 'var(--color-muted)' }}>Record cash ticket remittance against an issued collector balance.</Typography>
           </Box>
           <Tooltip title="Close">
             <IconButton disabled={Boolean(saving)} onClick={() => setCollectionDialogOpen(false)}><X size={18} /></IconButton>
           </Tooltip>
         </DialogTitle>
         <DialogContent dividers>
-          <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, pt: 1 }}>
-            <TextField InputLabelProps={{ shrink: true }} label="Collection Date" onChange={(event) => setCollectionForm((current) => ({ ...current, collection_date: event.target.value }))} required type="date" value={collectionForm.collection_date} />
-            <TextField label="RD No." onChange={(event) => setCollectionForm((current) => ({ ...current, rd_no: event.target.value }))} value={collectionForm.rd_no} />
-            <TextField label="Collector" onChange={(event) => setCollectionForm((current) => ({ ...current, collector_name: event.target.value }))} value={collectionForm.collector_name} />
-            <TextField label="Ticket Type" onChange={(event) => setCollectionForm((current) => ({ ...current, cash_ticket_type_id: event.target.value }))} select value={collectionForm.cash_ticket_type_id}>
-              <MenuItem value="">Manual / uncategorized</MenuItem>
-              {typeOptions.map((type) => (
-                <MenuItem key={type.id} value={type.id}>{type.name}</MenuItem>
+          <Box sx={{ display: 'grid', gap: 2, pt: 1 }}>
+            <TextField InputLabelProps={{ shrink: true }} label="Date Remitted" onChange={(event) => setCollectionForm((current) => ({ ...current, collection_date: event.target.value, remittance_date: event.target.value }))} required type="date" value={collectionForm.remittance_date || collectionForm.collection_date} />
+            <TextField
+              label="Collector"
+              onChange={(event) => {
+                const selectedIssue = cashTicketIssueOptions.find((option) => option.id === String(event.target.value))
+                setCollectionForm((current) => ({
+                  ...current,
+                  collector_name: selectedIssue?.collector || '',
+                  selected_book_id: event.target.value,
+                  serial_no: selectedIssue?.serial_no || '',
+                }))
+              }}
+              required
+              select
+              value={collectionForm.selected_book_id}
+            >
+              <MenuItem value="">Select collector</MenuItem>
+              {cashTicketIssueOptions.map((option) => (
+                <MenuItem disabled={option.balance <= 0} key={option.id} value={option.id}>
+                  {option.label}
+                </MenuItem>
               ))}
             </TextField>
-            <TextField label="Manual Type Name" onChange={(event) => setCollectionForm((current) => ({ ...current, ticket_type_name: event.target.value }))} value={collectionForm.ticket_type_name} />
-            <TextField InputLabelProps={{ shrink: true }} label="Remittance Date" onChange={(event) => setCollectionForm((current) => ({ ...current, remittance_date: event.target.value }))} slotProps={{ inputLabel: { shrink: true } }} type="date" value={collectionForm.remittance_date} />
-            <TextField label="Serial No." onChange={(event) => setCollectionForm((current) => ({ ...current, serial_no: event.target.value }))} value={collectionForm.serial_no} />
-            <TextField label="Quantity" onChange={(event) => setCollectionForm((current) => ({ ...current, quantity: event.target.value }))} type="number" value={collectionForm.quantity || collectionPreview.quantity || ''} />
-            <TextField label="Unit Value" onChange={(event) => setCollectionForm((current) => ({ ...current, unit_value: event.target.value }))} type="number" value={collectionForm.unit_value || collectionPreview.unitValue || ''} />
-            <TextField label="Amount" onChange={(event) => setCollectionForm((current) => ({ ...current, amount: event.target.value }))} type="number" value={collectionForm.amount || collectionPreview.amount || ''} />
-            <TextField label="Status" onChange={(event) => setCollectionForm((current) => ({ ...current, status: event.target.value }))} select value={collectionForm.status}>
-              <MenuItem value="posted">Posted</MenuItem>
-              <MenuItem value="voided">Voided</MenuItem>
-              <MenuItem value="cancelled">Cancelled</MenuItem>
-            </TextField>
-            <TextField label="Remarks" multiline onChange={(event) => setCollectionForm((current) => ({ ...current, remarks: event.target.value }))} sx={{ gridColumn: { xs: 'span 1', md: 'span 3' } }} value={collectionForm.remarks} />
+            <TextField label="Amount Remitted" onChange={(event) => setCollectionForm((current) => ({ ...current, amount: event.target.value }))} required type="number" value={collectionForm.amount} />
+            <TextField InputProps={{ readOnly: true }} label="Available Balance" value={collectionForm.selected_book_id ? formatMoney(collectionPreview.availableBalance) : formatMoney(0)} />
+            <TextField label="Remarks" multiline onChange={(event) => setCollectionForm((current) => ({ ...current, remarks: event.target.value }))} minRows={3} value={collectionForm.remarks} />
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>
           <Button disabled={Boolean(saving)} onClick={() => setCollectionDialogOpen(false)}>Cancel</Button>
           <Button disabled={Boolean(saving)} onClick={saveCollection} startIcon={saving === 'collection' ? <CircularProgress color="inherit" size={16} /> : <Save size={16} />} sx={buttonSx} variant="contained">
-            Save Collection
+            Save Remittance
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog fullWidth maxWidth="md" onClose={() => !saving && setBookDialogOpen(false)} open={bookDialogOpen}>
+      <Dialog fullWidth maxWidth="sm" onClose={() => !saving && setBookDialogOpen(false)} open={bookDialogOpen}>
         <DialogTitle sx={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between' }}>
           <Typography variant="h6" sx={{ fontWeight: 900 }}>Cash Ticket Given to Collector</Typography>
           <IconButton disabled={Boolean(saving)} onClick={() => setBookDialogOpen(false)}><X size={18} /></IconButton>
         </DialogTitle>
         <DialogContent dividers>
-          <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, pt: 1 }}>
-            <TextField label="Collector" onChange={(event) => setBookForm((current) => ({ ...current, assigned_to_name: event.target.value }))} value={bookForm.assigned_to_name} />
-            <TextField label="Serial No." onChange={(event) => setBookForm((current) => ({ ...current, serial_no: event.target.value }))} required value={bookForm.serial_no} />
-            <TextField label="Quantity" onChange={(event) => setBookForm((current) => ({ ...current, quantity: event.target.value }))} type="number" value={bookForm.quantity || (bookForm.serial_no ? 1 : '')} />
-            <TextField label="Amount Released" onChange={(event) => setBookForm((current) => ({ ...current, amount_released: event.target.value }))} type="number" value={bookForm.amount_released} />
-            <TextField label="Signature" onChange={(event) => setBookForm((current) => ({ ...current, collector_signature: event.target.value }))} value={bookForm.collector_signature} />
-            <TextField InputLabelProps={{ shrink: true }} label="Date Given" onChange={(event) => setBookForm((current) => ({ ...current, date_issued: event.target.value }))} type="date" value={bookForm.date_issued} />
-            <TextField InputLabelProps={{ shrink: true }} label="Date Returned" onChange={(event) => setBookForm((current) => ({ ...current, date_returned: event.target.value }))} type="date" value={bookForm.date_returned} />
-            <TextField label="Status" onChange={(event) => setBookForm((current) => ({ ...current, status: event.target.value }))} select value={bookForm.status}>
-              {['available', 'issued', 'partially_used', 'used', 'returned', 'voided', 'inactive'].map((status) => (
-                <MenuItem key={status} value={status}>{status}</MenuItem>
-              ))}
-            </TextField>
-            <TextField label="Remarks" multiline onChange={(event) => setBookForm((current) => ({ ...current, remarks: event.target.value }))} sx={{ gridColumn: { xs: 'span 1', md: 'span 3' } }} value={bookForm.remarks} />
+          <Box sx={{ display: 'grid', gap: 2, pt: 1 }}>
+            <TextField label="Collector" onChange={(event) => setBookForm((current) => ({ ...current, assigned_to_name: event.target.value }))} required value={bookForm.assigned_to_name} />
+            <TextField label="Issued Tickets Amount" onChange={(event) => setBookForm((current) => ({ ...current, amount_released: event.target.value }))} required type="number" value={bookForm.amount_released} />
+            <TextField InputLabelProps={{ shrink: true }} label="Date Issued" onChange={(event) => setBookForm((current) => ({ ...current, date_issued: event.target.value }))} required type="date" value={bookForm.date_issued} />
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>

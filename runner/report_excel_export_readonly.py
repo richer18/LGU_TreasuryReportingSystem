@@ -281,13 +281,14 @@ RECEIPT_EXCEPTION_DEFINITIONS = {
     },
 }
 
-PARENT_DELEGATED_REPORTS = set(range(1, 21)) | {25, 26, 27, 28, 29, 30, 31, 32, 33, 34}
+COLLECTOR_RECEIPT_REPORT = 34
+PARENT_DELEGATED_REPORTS = set(range(1, 21)) | {25, 26, 27, 28, 29, 30, 31, 32, 33}
 
 
 def parent_runner_candidates():
     this_file = Path(__file__).resolve()
-    lgu_root = this_file.parents[1]
-    desktop_root = this_file.parents[2]
+    lgu_root = this_file.parents[1] if len(this_file.parents) > 1 else this_file.parent
+    desktop_root = this_file.parents[2] if len(this_file.parents) > 2 else lgu_root.parent
     user_home = Path(USER_PROFILE)
     configured = os.environ.get("ESRE_PARENT_RUNNER")
 
@@ -1341,6 +1342,104 @@ def write_receipt_exception_workbook(report_number, date_from, date_to, output_d
     return output_path, len(rows)
 
 
+def collector_receipt_args(date_from, date_to, collector):
+    class Args:
+        pass
+
+    args = Args()
+    args.date_from = date_from
+    args.date_to = date_to
+    args.collector = collector or ""
+    args.receipt_from = ""
+    args.receipt_to = ""
+    args.fund_scope = "all"
+    args.limit = 100000
+    return args
+
+
+def collector_receipt_rows(date_from, date_to, collector):
+    from general_fund_readonly import receipt_report
+
+    connection = connect()
+    try:
+        cursor = connection.cursor()
+        return receipt_report(cursor, collector_receipt_args(date_from, date_to, collector))
+    finally:
+        connection.close()
+
+
+def write_collector_receipt_workbook(date_from, date_to, output_dir, collector=None):
+    rows = collector_receipt_rows(date_from, date_to, collector)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Collector Receipts"
+
+    title = "Generate Collection Receipt Per Collector"
+    sheet.merge_cells("A1:I1")
+    sheet["A1"] = title
+    sheet["A1"].font = Font(bold=True, color="FFFFFF", size=14)
+    sheet["A1"].fill = PatternFill("solid", fgColor="0554F2")
+    sheet["A1"].alignment = Alignment(horizontal="center")
+
+    sheet.merge_cells("A2:I2")
+    sheet["A2"] = f"Period: {date_from} to {date_to}"
+    sheet["A2"].alignment = Alignment(horizontal="center")
+
+    if collector:
+        sheet.merge_cells("A3:I3")
+        sheet["A3"] = f"Collector: {collector}"
+        sheet["A3"].alignment = Alignment(horizontal="center")
+
+    headers = ["Date", "Collector", "Receipt Type", "OR No.", "Taxpayer", "Lines", "Status", "RCD No.", "Total"]
+    header_row = 5
+    header_fill = PatternFill("solid", fgColor="EAF2FF")
+    for column_index, header in enumerate(headers, start=1):
+        cell = sheet.cell(header_row, column_index)
+        cell.value = header
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    total_amount = Decimal("0")
+    for row_index, row in enumerate(rows, start=header_row + 1):
+        amount = Decimal(str(row.get("total_amount") or 0))
+        total_amount += amount
+        values = [
+            row.get("collection_date"),
+            row.get("collector"),
+            row.get("receipt_type"),
+            row.get("receipt_no"),
+            row.get("taxpayer"),
+            row.get("line_count"),
+            row.get("collection_status"),
+            row.get("rcd_number"),
+            amount,
+        ]
+        for column_index, value in enumerate(values, start=1):
+            sheet.cell(row_index, column_index).value = excel_value(value)
+        sheet.cell(row_index, 9).number_format = "#,##0.00"
+
+    total_row = header_row + len(rows) + 1
+    sheet.cell(total_row, 8).value = "Total"
+    sheet.cell(total_row, 8).font = Font(bold=True)
+    sheet.cell(total_row, 9).value = float(total_amount)
+    sheet.cell(total_row, 9).font = Font(bold=True)
+    sheet.cell(total_row, 9).number_format = "#,##0.00"
+
+    for column_index, column in enumerate(sheet.columns, start=1):
+        max_length = max(len(str(cell.value or "")) for cell in column)
+        sheet.column_dimensions[get_column_letter(column_index)].width = min(max(max_length + 2, 12), 52)
+
+    sheet.freeze_panes = "A6"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    collector_token = safe_filename(collector or "all_collectors")
+    output_name = safe_filename(f"report_34_collector_receipts_{collector_token}_{date_from}_to_{date_to}.xlsx")
+    output_path = output_dir / output_name
+    workbook.save(output_path)
+
+    return output_path, len(rows), total_amount
+
+
 def delegated_parent_export(report_number, date_from, date_to, output_dir, collector=None):
     if not PARENT_COLLECTION_RUNNER.exists():
         searched = "; ".join(str(path) for path in parent_runner_candidates())
@@ -1460,6 +1559,26 @@ def main():
                 "date_from": args.date_from,
                 "date_to": args.date_to,
                 "row_count": row_count,
+                "path": str(output_path),
+                "filename": output_path.name,
+            }, default=scalar))
+            return 0
+
+        if args.report_number == COLLECTOR_RECEIPT_REPORT:
+            output_path, row_count, grand_total = write_collector_receipt_workbook(
+                args.date_from,
+                args.date_to,
+                Path(args.output_dir),
+                args.collector,
+            )
+            print(json.dumps({
+                "ok": True,
+                "mode": "read_only_excel_export",
+                "report_number": args.report_number,
+                "date_from": args.date_from,
+                "date_to": args.date_to,
+                "row_count": row_count,
+                "grand_total": grand_total,
                 "path": str(output_path),
                 "filename": output_path.name,
             }, default=scalar))

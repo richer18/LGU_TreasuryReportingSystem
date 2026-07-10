@@ -8,6 +8,8 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font
 
+from rcd_access_store import fill_rcd_sheet, is_sef_line
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_PATH = PROJECT_ROOT / "template" / "RCD_UPDATED.xlsx"
@@ -129,35 +131,13 @@ def fill_template(path, batch):
     workbook = load_workbook(path)
     if "E_GOV_ONLINE_PAYMENT" in workbook.sheetnames:
         workbook.remove(workbook["E_GOV_ONLINE_PAYMENT"])
-    sheet = workbook["100_GF"] if "100_GF" in workbook.sheetnames else workbook.active
 
-    sheet["A1"] = "REPORT OF COLLECTIONS AND DEPOSIT"
-    sheet["A3"] = f"RCD No.: {batch.get('id') or '-'}"
-    sheet["A4"] = f"Date: {batch.get('date') or ''}"
-    sheet["A5"] = f"Collector: {collector_name(batch.get('collector'))}"
+    if "100_GF" not in workbook.sheetnames or "200_SEF" not in workbook.sheetnames:
+        raise RuntimeError("RCD template must contain 100_GF and 200_SEF sheets.")
 
-    start_row = 10
-    sheet.cell(start_row, 1, "Type / Form No.")
-    sheet.cell(start_row, 2, "OR From")
-    sheet.cell(start_row, 3, "OR To")
-    sheet.cell(start_row, 4, "Amount")
-    for col in range(1, 5):
-        sheet.cell(start_row, col).font = Font(bold=True)
-
-    row = start_row + 1
-    for line in batch.get("lines") or []:
-        sheet.cell(row, 1, line.get("formType") or "")
-        sheet.cell(row, 2, line.get("receiptFrom") or "")
-        sheet.cell(row, 3, line.get("receiptTo") or "")
-        sheet.cell(row, 4, money(line.get("collectorAmount")))
-        sheet.cell(row, 4).number_format = '#,##0.00'
-        row += 1
-
-    sheet.cell(row, 3, "TOTAL")
-    sheet.cell(row, 4, money(batch.get("total")))
-    sheet.cell(row, 3).font = Font(bold=True)
-    sheet.cell(row, 4).font = Font(bold=True)
-    sheet.cell(row, 4).number_format = '#,##0.00'
+    lines = batch.get("lines") or []
+    fill_rcd_sheet(workbook["100_GF"], batch, lines, "100_GF")
+    fill_rcd_sheet(workbook["200_SEF"], batch, [line for line in lines if is_sef_line(line)], "200_SEF")
     workbook.save(path)
 
 
@@ -166,7 +146,7 @@ def main():
     parser.add_argument("--payload-file", required=True)
     args = parser.parse_args()
 
-    with open(args.payload_file, "r", encoding="utf-8") as handle:
+    with open(args.payload_file, "r", encoding="utf-8-sig") as handle:
         batch = json.load(handle)
 
     out_dir = Path(tempfile.gettempdir()) / "lgu_treasury_rcd_mysql"
@@ -176,10 +156,7 @@ def main():
 
     if TEMPLATE_PATH.exists():
         shutil.copy2(TEMPLATE_PATH, path)
-        try:
-            fill_template(path, batch)
-        except Exception:
-            write_basic_workbook(path, batch)
+        fill_template(path, batch)
     else:
         write_basic_workbook(path, batch)
 

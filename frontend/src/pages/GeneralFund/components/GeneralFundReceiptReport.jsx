@@ -41,6 +41,7 @@ const collectorDefaults = [
   { label: 'IRIS', value: 'angelique' },
   { label: 'AGNES', value: 'agnes' },
   { label: 'RICARDO', value: 'ricardo' },
+  { label: 'EMILY E. CREDO', value: 'EMILY E. CREDO' },
   { label: 'AMABELLA', value: 'amabella' },
 ]
 
@@ -96,7 +97,7 @@ const statusColor = (status) => {
   return 'default'
 }
 
-export function GeneralFundReceiptReport({ collectors = [], forcedCollector = null }) {
+export function GeneralFundReceiptReport({ collectors = [], forcedCollector = null, fundScope = 'general' }) {
   const today = useMemo(() => new Date(), [])
   const [dateType, setDateType] = useState('dateRange')
   const [dateFrom, setDateFrom] = useState(toDateInputValue(today))
@@ -168,6 +169,7 @@ export function GeneralFundReceiptReport({ collectors = [], forcedCollector = nu
     return {
       ...params,
       collector,
+      fund_scope: fundScope,
       limit: 500,
       receipt_from: receiptFrom || undefined,
       receipt_to: receiptTo || undefined,

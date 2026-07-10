@@ -9,11 +9,11 @@ export function SettingsPage({ firebirdStatus, onRefresh }) {
           <dl>
             <div>
               <dt>Backend API</dt>
-              <dd>http://127.0.0.1:8000/api</dd>
+              <dd>{import.meta.env.VITE_API_BASE_URL || 'http://192.168.101.20:70/api'}</dd>
             </div>
             <div>
               <dt>Frontend</dt>
-              <dd>http://127.0.0.1:5173</dd>
+              <dd>http://192.168.101.20:5173</dd>
             </div>
             <div>
               <dt>Firebird status</dt>

@@ -6,7 +6,6 @@ use App\Models\User;
 use App\Support\CashierCollectorAssignment;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Process;
 
 class CalendarService
 {
@@ -45,7 +44,7 @@ class CalendarService
             $command[] = '--limited';
         }
 
-        $process = Process::env([
+        $process = PythonRunnerService::run($command, [
             'SystemRoot' => getenv('SystemRoot') ?: 'C:\\Windows',
             'WINDIR' => getenv('WINDIR') ?: 'C:\\Windows',
             'PATH' => getenv('PATH') ?: 'C:\\Windows\\System32;C:\\Windows;C:\\Python314;C:\\Python314\\Scripts;C:\\Python312;C:\\Python312\\Scripts',
@@ -60,7 +59,7 @@ class CalendarService
             'FIREBIRD_CHARSET' => config('firebird.charset'),
             'FIREBIRD_CLIENT_LIBRARY' => config('firebird.client_library'),
             'RCD_ACCESS_DB' => database_path('rcd\\rcd_remittance.accdb'),
-        ])->timeout(90)->run($command);
+        ], 90);
 
         $payload = json_decode($process->output(), true);
 

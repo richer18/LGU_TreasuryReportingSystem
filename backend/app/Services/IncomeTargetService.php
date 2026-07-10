@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Process;
 
 class IncomeTargetService
 {
@@ -28,7 +27,7 @@ class IncomeTargetService
             $path,
         ];
 
-        $process = Process::timeout(60)->run($command);
+        $process = PythonRunnerService::run($command, [], 60);
         $payload = json_decode($process->output(), true);
 
         if (is_array($payload)) {

@@ -35,10 +35,10 @@ server_menu.bat     Menu for server runner actions
 setup_backend_auth_db.bat
                     Creates backend .env, portable SQLite auth DB, runs migrations,
                     and seeds the default admin login
-start_backend.bat   Starts Laravel API on http://127.0.0.1:8000
-start_frontend.bat  Starts React/Vite on http://127.0.0.1:5173 with a fresh Vite cache
+start_backend.bat   Starts local Laravel dev API on http://127.0.0.1:8000
+start_frontend.bat  Starts React/Vite on http://192.168.101.20:5173 for LAN access
 start_all.bat       Starts backend and frontend
-check_ports.bat     Checks whether ports 8000 and 5173 are running
+check_ports.bat     Checks whether Laravel port 70 and frontend port 5173 are running
 test_firebird_connection.bat
                     Shows Firebird .env settings and runs php artisan firebird:status
 ```
@@ -69,8 +69,8 @@ Password: admin123
 ## Default Local URLs
 
 ```text
-Laravel API: http://127.0.0.1:8000
-React frontend: http://127.0.0.1:5173
+Laravel API: http://192.168.101.20:70
+React frontend: http://192.168.101.20:5173
 ```
 
 ## New PC Firebird Connection

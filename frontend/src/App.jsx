@@ -32,7 +32,7 @@ import { GeneralFundPage } from './pages/GeneralFund/GeneralFundPage'
 import { IncomeTargetPage } from './pages/IncomeTarget/IncomeTargetPage'
 import { LoginPage } from './pages/Login/LoginPage'
 import { ReportsPage } from './pages/Reports/ReportsPage'
-import { RcdPage } from './pages/Rcd/RcdPage'
+import RcdPage from './pages/Rcd/RcdPage'
 import { SearchReceiptPage } from './pages/SearchReceipt/SearchReceiptPage'
 import { SettingsPage } from './pages/Settings/SettingsPage'
 import { UserAccountsPage } from './pages/UserAccounts/UserAccountsPage'
@@ -65,6 +65,34 @@ const collectionMonitorPages = {
   realPropertyTax: { fundScope: 'rpt', title: 'Real Property Tax' },
 }
 
+const pagePaths = {
+  dashboard: '/',
+  calendar: '/calendar',
+  generalFund: '/general-fund',
+  trustFund: '/trust-fund',
+  communityTax: '/community-tax',
+  realPropertyTax: '/real-property-tax',
+  cashtickets: '/cash-tickets',
+  businesspermit: '/business-permits',
+  motorcylefranchise: '/mto-permits',
+  rcd: '/rcd',
+  acoDashboard: '/aco-dashboard',
+  incometarget: '/income-target',
+  searchreceipt: '/search-receipt',
+  userAccounts: '/user-accounts',
+  reports: '/reports',
+  settings: '/settings',
+}
+
+const pageFromPath = () => {
+  if (typeof window === 'undefined') return 'dashboard'
+
+  const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/'
+  const match = Object.entries(pagePaths).find(([, path]) => path === normalizedPath)
+
+  return match?.[0] || 'dashboard'
+}
+
 const hiddenTopbarPages = new Set([
   'generalFund',
   'calendar',
@@ -82,7 +110,7 @@ const hiddenTopbarPages = new Set([
 
 function App() {
   const { isAuthenticated, isCheckingAuth, login, logout, user } = useAuth()
-  const [activePage, setActivePage] = useState('dashboard')
+  const [activePage, setActivePage] = useState(pageFromPath)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loginForm, setLoginForm] = useState({
     email: '',
@@ -150,9 +178,29 @@ function App() {
     [user],
   )
 
+  const navigateToPage = (pageId, replace = false) => {
+    const path = pagePaths[pageId] || pagePaths.dashboard
+    setActivePage(pageId)
+
+    if (typeof window !== 'undefined' && window.location.pathname !== path) {
+      const method = replace ? 'replaceState' : 'pushState'
+      window.history[method]({}, '', path)
+    }
+  }
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setActivePage(pageFromPath())
+    }
+
+    window.addEventListener('popstate', handlePopState)
+
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
   useEffect(() => {
     if (!visibleNavItems.some((item) => item.id === activePage)) {
-      setActivePage(visibleNavItems[0]?.id || 'settings')
+      navigateToPage(visibleNavItems[0]?.id || 'settings', true)
     }
   }, [activePage, visibleNavItems])
 
@@ -174,7 +222,7 @@ function App() {
 
     try {
       await login(loginForm)
-      setActivePage('dashboard')
+      navigateToPage(pageFromPath(), true)
     } catch (error) {
       setLoginError(getLoginError(error))
     } finally {
@@ -223,7 +271,7 @@ function App() {
                 className={activePage === item.id ? 'active' : ''}
                 key={item.id}
                 onClick={() => {
-                  setActivePage(item.id)
+                  navigateToPage(item.id)
                   setSidebarOpen(false)
                 }}
                 type="button"

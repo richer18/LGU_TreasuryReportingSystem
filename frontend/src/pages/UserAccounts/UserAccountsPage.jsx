@@ -298,7 +298,7 @@ export function UserAccountsPage({ user }) {
           <span><Search size={14} aria-hidden="true" /> Search</span>
           <input
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Name or email"
+            placeholder="Name or username"
             type="search"
             value={query}
           />
@@ -443,7 +443,7 @@ export function UserAccountsPage({ user }) {
               )}
               <label className="treasury-field">
                 <span>Email / Username</span>
-                <input required type="email" value={userForm.email} onChange={(event) => updateUserForm('email', event.target.value)} />
+                <input required type="text" placeholder="emily or full email" value={userForm.email} onChange={(event) => updateUserForm('email', event.target.value)} />
               </label>
               <label className="treasury-field">
                 <span>Role</span>

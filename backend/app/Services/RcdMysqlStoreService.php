@@ -4,7 +4,6 @@ namespace App\Services;
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -74,7 +73,7 @@ class RcdMysqlStoreService
             return ['ok' => false, 'error' => 'No RCD collection lines were provided.'];
         }
 
-        $reportNo = trim((string) ($payload['report_no'] ?? $form['reportNo'] ?? ''));
+        $reportNo = $this->cleanReportNo($payload['report_no'] ?? $form['reportNo'] ?? '');
         $lookupKey = trim((string) ($payload['lookup_key'] ?? ''));
         $collector = trim((string) ($form['collector'] ?? $payload['collector'] ?? ''));
         $reportDate = $this->dateOnly($form['collectionDate'] ?? $payload['collection_date'] ?? now()->toDateString());
@@ -89,6 +88,9 @@ class RcdMysqlStoreService
 
         return DB::transaction(function () use ($payload, $lookupKey, $reportNo, $collector, $reportDate, $fund, $status, $savedTotal, $fdbTotal, $difference, $receiptFrom, $receiptTo, $lines) {
             $batchId = $this->findBatchId($lookupKey ?: $reportNo);
+            if ($lookupKey !== '' && ! $batchId) {
+                return ['ok' => false, 'error' => 'RCD draft was not found. Please refresh the RCD list and open the draft again.'];
+            }
             $wasUpdate = (bool) $batchId;
             $now = now();
 
@@ -163,6 +165,10 @@ class RcdMysqlStoreService
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
+
+                if (Str::lower($status) !== 'draft') {
+                    $this->updateAccountableReleaseEndingBalance($formType, $collector, $lineFrom, $lineTo, $line, $now);
+                }
             }
 
             $this->logAudit($batchId, $wasUpdate ? 'RCD_UPDATED' : 'RCD_CREATED', [
@@ -390,6 +396,45 @@ class RcdMysqlStoreService
             ->all();
     }
 
+    private function updateAccountableReleaseEndingBalance(string $formType, string $collector, string $lineFrom, string $lineTo, array $line, mixed $now): void
+    {
+        $collectorKey = Str::upper(trim($collector));
+        $from = (int) $this->digits($lineFrom);
+        $to = (int) $this->digits($lineTo ?: $lineFrom);
+
+        if ($formType === '' || $collectorKey === '' || $from <= 0 || $to < $from) {
+            return;
+        }
+
+        $release = DB::table('rcd_accountable_form_releases')
+            ->where('form_type', $formType)
+            ->where('status', '<>', 'Returned')
+            ->whereRaw('UPPER(TRIM(collector)) = ?', [$collectorKey])
+            ->whereRaw('CAST(receipt_no_from AS UNSIGNED) <= ?', [$from])
+            ->whereRaw('CAST(receipt_no_to AS UNSIGNED) >= ?', [$to])
+            ->orderByDesc('released_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $release) {
+            return;
+        }
+
+        $endingFrom = trim((string) ($line['endingFrom'] ?? ''));
+        $endingTo = trim((string) ($line['endingTo'] ?? ''));
+        $endingQty = (int) ($line['endingQty'] ?? 0);
+
+        DB::table('rcd_accountable_form_releases')
+            ->where('id', $release->id)
+            ->update([
+                'ending_balance_from' => $endingQty > 0 ? ($endingFrom ?: null) : null,
+                'ending_balance_to' => $endingQty > 0 ? ($endingTo ?: null) : null,
+                'status' => $endingQty > 0 ? ($release->status ?? 'Released') : 'Returned',
+                'updated_at' => $now,
+                'updated_by' => auth()->user()?->name,
+            ]);
+    }
+
     private function saveAccountableForm(array $payload): array
     {
         $formType = $this->formTypeLabel($payload['form_type'] ?? $payload['formType'] ?? '');
@@ -435,10 +480,10 @@ class RcdMysqlStoreService
             'released_at' => $this->dateOnly($payload['released_at'] ?? $payload['releasedAt'] ?? now()->toDateString()),
             'released_by' => $payload['released_by'] ?? $payload['releasedBy'] ?? null,
             'collector_signed_by' => $payload['collector_signed_by'] ?? $payload['collectorSignedBy'] ?? $collector,
-            'beginning_balance_from' => $payload['beginning_balance_from'] ?? $payload['beginningFrom'] ?? $receiptFrom,
-            'beginning_balance_to' => $payload['beginning_balance_to'] ?? $payload['beginningTo'] ?? $receiptTo,
-            'ending_balance_from' => $payload['ending_balance_from'] ?? $payload['endingFrom'] ?? $receiptFrom,
-            'ending_balance_to' => $payload['ending_balance_to'] ?? $payload['endingTo'] ?? $receiptTo,
+            'beginning_balance_from' => $payload['beginning_balance_from'] ?? $payload['beginningFrom'] ?? null,
+            'beginning_balance_to' => $payload['beginning_balance_to'] ?? $payload['beginningTo'] ?? null,
+            'ending_balance_from' => $payload['ending_balance_from'] ?? $payload['endingFrom'] ?? null,
+            'ending_balance_to' => $payload['ending_balance_to'] ?? $payload['endingTo'] ?? null,
             'status' => $payload['status'] ?? 'Released',
             'remarks' => $payload['remarks'] ?? null,
             'created_by' => $payload['created_by'] ?? $payload['createdBy'] ?? auth()->user()?->name,
@@ -465,9 +510,9 @@ class RcdMysqlStoreService
         $payloadPath = tempnam(sys_get_temp_dir(), 'rcd_mysql_payload_') . '.json';
         file_put_contents($payloadPath, json_encode($batch, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
 
-        $process = Process::timeout(90)->run([config('firebird.python'), $script, '--payload-file', $payloadPath]);
+        $process = PythonRunnerService::run([config('firebird.python'), $script, '--payload-file', $payloadPath], [], 90);
         @unlink($payloadPath);
-        $result = json_decode($process->output(), true);
+        $result = $this->decodeProcessJson($process->output());
 
         if (is_array($result) && ($result['ok'] ?? false)) {
             DB::table('rcd_batches')->where('id', $batch['db_id'])->update([
@@ -484,11 +529,46 @@ class RcdMysqlStoreService
             return $result;
         }
 
+        $rawOutput = trim($process->output());
+        $rawError = trim($process->errorOutput());
+        $error = is_array($result)
+            ? (string) ($result['error'] ?? $result['message'] ?? 'RCD export failed.')
+            : ($rawError ?: $rawOutput ?: 'RCD export failed.');
+
         return [
             'ok' => false,
             'exit_code' => $process->exitCode(),
-            'error' => trim($process->errorOutput() ?: $process->output()),
+            'error' => $error,
+            'details' => $rawError && $rawError !== $error ? $rawError : null,
         ];
+    }
+
+    private function decodeProcessJson(string $output): ?array
+    {
+        $output = trim($output);
+        if ($output === '') {
+            return null;
+        }
+
+        $decoded = json_decode($output, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+
+        $lines = preg_split('/\R/', $output) ?: [];
+        foreach (array_reverse($lines) as $line) {
+            $line = trim($line);
+            if ($line === '' || ! str_starts_with($line, '{')) {
+                continue;
+            }
+
+            $decoded = json_decode($line, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return null;
     }
 
     private function getBatch(string $key): ?array
@@ -508,6 +588,10 @@ class RcdMysqlStoreService
             ->map(fn ($line) => $this->lineRecord($line))
             ->all();
 
+        $baseTotal = $this->money($row->total_collection);
+        $sefTotal = $this->sefTotalForCombinedFund((string) ($row->fund_type ?? ''), $lines);
+        $displayTotal = $this->money($baseTotal + $sefTotal);
+
         return [
             'db_id' => $row->id,
             'action_key' => $row->rcd_no ?: "__dbid:{$row->id}",
@@ -517,7 +601,9 @@ class RcdMysqlStoreService
             'fund' => $row->fund_type,
             'status' => $row->status,
             'stage' => $row->status,
-            'total' => $this->money($row->total_collection),
+            'base_total' => $baseTotal,
+            'sef_total' => $sefTotal,
+            'total' => $displayTotal,
             'fdb_total' => $this->money($row->fdb_total ?? 0),
             'difference' => $this->money($row->difference ?? 0),
             'remittance_status' => $row->remittance_status ?? '',
@@ -540,7 +626,7 @@ class RcdMysqlStoreService
             'receipt_no_from' => $row->receipt_no_from ?? '',
             'receipt_no_to' => $row->receipt_no_to ?? '',
             'form' => [
-                'reportNo' => $row->rcd_no ?? '',
+                'reportNo' => $this->cleanReportNo($row->rcd_no ?? ''),
                 'collectionDate' => $this->dateString($row->report_date),
                 'collector' => $row->collector_name ?? '',
                 'template' => $row->fund_type ?? '100_GF',
@@ -556,6 +642,10 @@ class RcdMysqlStoreService
         $lines = DB::table('rcd_collection_lines')->where('rcd_batch_id', $row->id)->get();
         $forms = $lines->pluck('form_type')->filter()->unique()->implode(' / ');
 
+        $baseTotal = $this->money($row->total_collection);
+        $sefTotal = $this->sefTotalForCombinedFund((string) ($row->fund_type ?? ''), $lines);
+        $displayTotal = $this->money($baseTotal + $sefTotal);
+
         return [
             'db_id' => $row->id,
             'action_key' => $row->rcd_no ?: "__dbid:{$row->id}",
@@ -568,7 +658,9 @@ class RcdMysqlStoreService
             'receipt_count' => (int) $lines->sum('receipt_count'),
             'receipt_no_from' => $row->receipt_no_from ?? '',
             'receipt_no_to' => $row->receipt_no_to ?? '',
-            'total' => $this->money($row->total_collection),
+            'base_total' => $baseTotal,
+            'sef_total' => $sefTotal,
+            'total' => $displayTotal,
             'amount_remitted' => $this->money($row->total_remitted ?? 0),
             'amount_received' => $this->money($row->total_received ?? 0),
             'variance_amount' => $this->money($row->variance_amount ?? 0),
@@ -598,6 +690,7 @@ class RcdMysqlStoreService
             'collectorAmount' => $this->money($raw['collectorAmount'] ?? $line->saved_total ?? $line->amount ?? 0),
             'fdbAmount' => $this->money($raw['fdbAmount'] ?? $line->fdb_total ?? 0),
             'validationStatus' => $raw['validationStatus'] ?? $line->validation_status ?? '',
+            'validationMessage' => $raw['validationMessage'] ?? $raw['validation_message'] ?? $line->validation_message ?? '',
             'validated' => (bool) ($raw['validated'] ?? true),
         ]);
     }
@@ -650,6 +743,8 @@ class RcdMysqlStoreService
             'collector_signed_by' => $row->collector_signed_by ?? '',
             'returned_at' => $this->dateString($row->returned_at ?? null),
             'returned_to' => $row->returned_to ?? '',
+            'beginning_balance_from' => $row->beginning_balance_from ?? '',
+            'beginning_balance_to' => $row->beginning_balance_to ?? '',
             'ending_balance_from' => $row->ending_balance_from ?? '',
             'ending_balance_to' => $row->ending_balance_to ?? '',
             'status' => $row->status ?? 'Released',
@@ -659,14 +754,62 @@ class RcdMysqlStoreService
         ];
     }
 
+    private function sefTotalForCombinedFund(string $fund, iterable $lines): float
+    {
+        if (! $this->isCombinedFund($fund)) {
+            return 0.0;
+        }
+
+        $total = 0.0;
+        foreach ($lines as $line) {
+            $formType = is_array($line)
+                ? ($line['formType'] ?? $line['form_type'] ?? '')
+                : ($line->form_type ?? '');
+
+            if (! $this->isSefForm($formType)) {
+                continue;
+            }
+
+            $amount = is_array($line)
+                ? ($line['collectorAmount'] ?? $line['collector_amount'] ?? $line['saved_total'] ?? $line['amount'] ?? 0)
+                : ($line->saved_total ?? $line->amount ?? 0);
+            $total += $this->money($amount);
+        }
+
+        return $this->money($total);
+    }
+
+    private function isCombinedFund(string $fund): bool
+    {
+        $normalized = Str::upper($fund);
+
+        return Str::contains($normalized, '100_GF') && Str::contains($normalized, '200_SEF');
+    }
+
+    private function isSefForm(?string $formType): bool
+    {
+        $normalized = Str::upper($this->formTypeLabel($formType));
+
+        return Str::contains($normalized, ['AF 56', 'RPT', 'SEF']);
+    }
+
+    private function cleanReportNo(mixed $value): string
+    {
+        $reportNo = trim((string) $value);
+
+        return $reportNo === '-' ? '' : $reportNo;
+    }
+
     private function findBatchId(string $key): ?int
     {
         $key = trim($key);
-        if ($key === '') {
+        if ($key === '' || $key === '-') {
             return null;
         }
         if (Str::startsWith($key, '__dbid:')) {
-            return (int) Str::after($key, '__dbid:') ?: null;
+            $id = (int) Str::after($key, '__dbid:');
+
+            return $id > 0 && DB::table('rcd_batches')->where('id', $id)->exists() ? $id : null;
         }
 
         return DB::table('rcd_batches')->where('rcd_no', $key)->value('id');
@@ -728,7 +871,7 @@ class RcdMysqlStoreService
 
     private function fundForForm(string $formType, string $fallback): string
     {
-        return Str::contains(Str::lower($formType), 'sef') ? '200_SEF' : ($fallback ?: '100_GF');
+        return $this->isSefForm($formType) ? '200_SEF' : ($fallback ?: '100_GF');
     }
 
     private function collectorFullName(?string $value): string

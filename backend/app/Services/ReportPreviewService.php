@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Process;
 
 class ReportPreviewService
 {
@@ -32,7 +31,7 @@ class ReportPreviewService
             $command[] = $filters['collector'];
         }
 
-        $process = Process::env([
+        $process = PythonRunnerService::run($command, [
             'SystemRoot' => getenv('SystemRoot') ?: 'C:\\Windows',
             'WINDIR' => getenv('WINDIR') ?: 'C:\\Windows',
             'PATH' => getenv('PATH') ?: 'C:\\Windows\\System32;C:\\Windows;C:\\Python313;C:\\Python313\\Scripts',
@@ -50,7 +49,7 @@ class ReportPreviewService
                 env('PYTHONPATH'),
                 env('APPDATA') ? env('APPDATA').'\Python\Python314\site-packages' : null,
             ])),
-        ])->timeout(90)->run($command);
+        ], 90);
 
         $payload = json_decode($process->output(), true);
 
@@ -99,7 +98,7 @@ class ReportPreviewService
             $command[] = $filters['collector'];
         }
 
-        $process = Process::env([
+        $process = PythonRunnerService::run($command, [
             'SystemRoot' => getenv('SystemRoot') ?: 'C:\\Windows',
             'WINDIR' => getenv('WINDIR') ?: 'C:\\Windows',
             'PATH' => getenv('PATH') ?: 'C:\\Windows\\System32;C:\\Windows;C:\\Python313;C:\\Python313\\Scripts',
@@ -117,7 +116,7 @@ class ReportPreviewService
                 env('PYTHONPATH'),
                 env('APPDATA') ? env('APPDATA').'\Python\Python314\site-packages' : null,
             ])),
-        ])->timeout(240)->run($command);
+        ], 240);
 
         $payload = json_decode($process->output(), true);
 

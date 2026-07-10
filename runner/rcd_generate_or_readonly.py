@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+from collections import Counter
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -12,6 +13,10 @@ COLLECTOR_ALIASES = {
     "angelique iris": "angelique",
     "flora my": "flora",
     "f lora my": "flora",
+    "emily": "emily",
+    "emily credo": "emily",
+    "emily e credo": "emily",
+    "emily e. credo": "emily",
 }
 CANCEL_STATUS_CODES = {"CNL", "CAN", "CNC", "CANCEL", "CANCELLED", "VOID", "VOI"}
 
@@ -74,6 +79,73 @@ def as_receipt_number(value):
     text = str(value or "").strip()
     digits = "".join(ch for ch in text if ch.isdigit())
     return int(digits) if digits else None
+
+
+def expected_receipt_numbers(receipt_from, receipt_to):
+    start = as_receipt_number(receipt_from)
+    end = as_receipt_number(receipt_to or receipt_from)
+    if start is None or end is None or end < start:
+        return []
+    width = max(len(str(receipt_from or "")), len(str(receipt_to or receipt_from or "")))
+    return [str(number).zfill(width) for number in range(start, end + 1)]
+
+
+def receipt_label(row):
+    receipt = str(row.get("receipt_no") or "").strip()
+    numeric = row.get("receipt_numeric")
+    if numeric is None:
+        return receipt
+    width = len(receipt) if receipt else len(str(numeric))
+    return str(numeric).zfill(width)
+
+
+def compact_receipt_list(values, limit=8):
+    cleaned = [str(value) for value in values if str(value or "").strip()]
+    if not cleaned:
+        return ""
+    visible = cleaned[:limit]
+    suffix = f" (+{len(cleaned) - limit} more)" if len(cleaned) > limit else ""
+    return ", ".join(visible) + suffix
+
+
+def validation_message(status, expected_count, fdb_count, collector_amount, fdb_amount, difference, receipt_from, receipt_to, matches, coverage_matches=None):
+    details = []
+    expected = expected_receipt_numbers(receipt_from, receipt_to)
+    coverage_matches = coverage_matches if coverage_matches is not None else matches
+    matched_labels = [receipt_label(row) for row in matches]
+    covered_labels = [receipt_label(row) for row in coverage_matches]
+    matched_numbers = [as_receipt_number(label) for label in matched_labels]
+    covered_numbers = [as_receipt_number(label) for label in covered_labels]
+    expected_numbers = [as_receipt_number(label) for label in expected]
+
+    if status == "Not found":
+        details.append(f"No .FDB receipt found for OR {receipt_from} to {receipt_to}.")
+    elif expected_count and fdb_count != expected_count:
+        covered_number_set = set(covered_numbers)
+        missing = [label for label, number in zip(expected, expected_numbers) if number not in covered_number_set]
+        duplicate_counts = Counter(number for number in matched_numbers if number is not None)
+        duplicates = []
+        for number, count in duplicate_counts.items():
+            if count > 1:
+                sample = next((label for label in matched_labels if as_receipt_number(label) == number), str(number))
+                duplicates.append(f"{sample} x{count}")
+
+        if missing:
+            details.append(f"Missing in .FDB: {compact_receipt_list(missing)}")
+        if duplicates:
+            details.append(f"Duplicate/extra in .FDB: {compact_receipt_list(duplicates)}")
+        if not missing and not duplicates:
+            details.append(f"Receipts encoded {expected_count}, .FDB {fdb_count}.")
+
+    if abs(difference) >= 0.01:
+        direction = "over" if difference > 0 else "short"
+        details.append(f"Amount {direction} by PHP {abs(difference):,.2f} (encoded PHP {collector_amount:,.2f}, .FDB PHP {fdb_amount:,.2f}).")
+
+    if status == "Mixed":
+        statuses = sorted(set(row.get("collection_status") or "Paid" for row in matches))
+        details.append("Mixed receipt statuses: " + ", ".join(statuses))
+
+    return " | ".join(details) if details else "Matched"
 
 
 def form_type(row, fund):
@@ -250,25 +322,35 @@ def validate_lines(input_lines, payments):
         collector_amount = float(line.get("collector_amount") or 0)
         expected_count = max(as_receipt_number(receipt_to) - as_receipt_number(receipt_from) + 1, 0) if as_receipt_number(receipt_from) and as_receipt_number(receipt_to) else 0
 
-        matches = [
+        coverage_matches = [
             row for row in payments
             if normalize_form(row.get("form_type")) == form and receipt_in_range(row, receipt_from, receipt_to)
         ]
+        matches = [row for row in coverage_matches if (row.get("collection_status") or "Paid") == "Paid"]
         fdb_amount = round(sum(float(row.get("amount_for_rcd") or 0) for row in matches), 2)
-        fdb_count = len(matches)
+
+        covered_numbers = {as_receipt_number(receipt_label(row)) for row in coverage_matches}
+        expected_numbers = [as_receipt_number(label) for label in expected_receipt_numbers(receipt_from, receipt_to)]
+        covered_expected_count = sum(1 for number in expected_numbers if number in covered_numbers)
+        fdb_count = covered_expected_count or len(matches)
+
+        paid_numbers = [as_receipt_number(receipt_label(row)) for row in matches]
+        duplicate_counts = Counter(number for number in paid_numbers if number is not None)
+        has_paid_duplicates = any(count > 1 for count in duplicate_counts.values())
+        has_uncovered_missing = bool(expected_count and covered_expected_count != expected_count)
         statuses = sorted(set(row.get("collection_status") or "Paid" for row in matches))
         difference = round(collector_amount - fdb_amount, 2)
 
-        if not matches:
+        if not coverage_matches:
             status = "Not found"
-        elif expected_count and fdb_count != expected_count:
+        elif has_uncovered_missing or has_paid_duplicates:
             status = "Receipt mismatch"
         elif abs(difference) >= 0.01:
             status = "Amount mismatch"
         elif len(statuses) > 1:
             status = "Mixed"
         else:
-            status = statuses[0]
+            status = statuses[0] if statuses else "Paid"
 
         output.append({
             "id": line.get("id") or f"manual-line-{index}",
@@ -281,6 +363,8 @@ def validate_lines(input_lines, payments):
             "fdb_amount": fdb_amount,
             "difference": difference,
             "payment_ids": [row.get("payment_id") for row in matches],
+            "receipt_numbers": [receipt_label(row) for row in matches],
+            "validation_message": validation_message(status, expected_count, fdb_count, collector_amount, fdb_amount, difference, receipt_from, receipt_to, matches, coverage_matches),
             "validation_status": status,
         })
     return output
@@ -312,10 +396,12 @@ def main():
         connection = connect()
         cursor = connection.cursor()
         payments = fetch_payments(cursor, args.fund, args.collection_date, args.collector)
-        lines = validate_lines(input_lines, payments) if input_lines else group_or_lines(payments)
+        paid_payments = [row for row in payments if (row.get('collection_status') or 'Paid') == 'Paid']
+        lines = validate_lines(input_lines, payments) if input_lines else group_or_lines(paid_payments)
         payload.update({
             "ok": True,
-            "payment_count": len(payments),
+            "payment_count": len(paid_payments),
+            "all_payment_count": len(payments),
             "rows": lines,
             "summary": {
                 "receipt_count": sum(int(line.get("receipt_count") or 0) for line in lines),

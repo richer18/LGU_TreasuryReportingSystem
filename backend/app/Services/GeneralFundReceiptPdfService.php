@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Str;
 
 class GeneralFundReceiptPdfService
@@ -53,7 +52,7 @@ class GeneralFundReceiptPdfService
             $outputPath,
         ];
 
-        $process = Process::timeout(60)->run($command);
+        $process = PythonRunnerService::run($command, [], 60);
         @unlink($inputPath);
 
         $payload = json_decode($process->output(), true);

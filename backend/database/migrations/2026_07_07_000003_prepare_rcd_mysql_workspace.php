@@ -78,6 +78,9 @@ return new class extends Migration
                 if (! Schema::hasColumn('rcd_collection_lines', 'difference')) {
                     $table->decimal('difference', 18, 2)->default(0)->after('saved_total');
                 }
+                if (! Schema::hasColumn('rcd_collection_lines', 'validation_message')) {
+                    $table->text('validation_message')->nullable()->after('validation_status');
+                }
                 if (! Schema::hasColumn('rcd_collection_lines', 'raw_json')) {
                     $table->json('raw_json')->nullable()->after('validation_message');
                 }

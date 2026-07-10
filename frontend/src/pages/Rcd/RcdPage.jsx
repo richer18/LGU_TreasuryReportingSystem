@@ -56,6 +56,12 @@ const uiColors = {
 }
 
 const todayValue = () => new Date().toISOString().slice(0, 10)
+const dateValue = (value) => String(value || '').slice(0, 10)
+const isAfterDate = (left, right) => {
+  const leftDate = dateValue(left)
+  const rightDate = dateValue(right)
+  return Boolean(leftDate && rightDate && leftDate > rightDate)
+}
 
 const formatPeso = (value) => Number(value || 0).toLocaleString('en-PH', {
   currency: 'PHP',
@@ -107,8 +113,15 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => 
   "'": '&#039;',
 }[char]))
 
+const makeClientId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return `client-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
 const emptyLine = () => ({
-  id: crypto.randomUUID(),
+  id: makeClientId(),
   formType: 'AF 51',
   receiptFrom: '',
   receiptTo: '',
@@ -122,6 +135,7 @@ const emptyLine = () => ({
   receiptAccountTo: '',
   validated: false,
   validationStatus: 'Not validated',
+  validationMessage: '',
 })
 
 const months = [
@@ -156,6 +170,28 @@ const templateOptions = [
 const collectorFullName = (value) => collectorOptions.find((collector) => collector.value === value)?.label || value || 'RCD'
 
 const safeFileName = (value) => String(value || 'RCD').trim().replace(/[^A-Za-z0-9-]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '')
+const cleanReportNo = (value) => {
+  const reportNo = String(value || '').trim()
+  return reportNo === '-' ? '' : reportNo
+}
+
+const responseErrorMessage = async (error, fallback) => {
+  const data = error?.response?.data
+  if (typeof Blob !== 'undefined' && data instanceof Blob) {
+    const text = await data.text()
+    if (text) {
+      try {
+        const parsed = JSON.parse(text)
+        return parsed.error || parsed.message || fallback
+      } catch {
+        return text
+      }
+    }
+  }
+
+  if (typeof data === 'string' && data.trim()) return data
+  return data?.error || data?.message || error?.message || fallback
+}
 
 const formTypeLabel = (value) => value === 'Community Tax Certificate' ? 'Comm Tax.' : value
 
@@ -233,7 +269,7 @@ function StatusChip({ value }) {
   return <Chip label={value || '-'} size="small" sx={{ bgcolor: meta.bg, color: meta.color, fontWeight: 800 }} />
 }
 
-export function RcdPage({ user }) {
+function RcdPage({ user }) {
   const [activeSection, setActiveSection] = useState('overview')
   const [accessStatus, setAccessStatus] = useState(null)
   const [accessError, setAccessError] = useState('')
@@ -365,7 +401,7 @@ export function RcdPage({ user }) {
       }
 
       const rows = (payload.rows || []).map((row) => ({
-        id: row.id || crypto.randomUUID(),
+        id: row.id || makeClientId(),
         formType: formTypeLabel(row.form_type || 'UNSPECIFIED'),
         receiptFrom: row.receipt_from || '',
         receiptTo: row.receipt_to || '',
@@ -375,6 +411,7 @@ export function RcdPage({ user }) {
         paymentIds: row.payment_ids || [],
         validated: true,
         validationStatus: row.validation_status || 'Validated',
+        validationMessage: row.validation_message || '',
       }))
 
       setCollectionLines(rows.length ? rows : [emptyLine()])
@@ -396,19 +433,98 @@ export function RcdPage({ user }) {
   const removeCollectionLine = (id) => setCollectionLines((current) => current.filter((line) => line.id !== id))
   const updateForm = (field, value) => setForm((current) => ({ ...current, [field]: value }))
 
+  const normalizeAccountabilityValue = (value) => String(value || '').trim().replace(/\s+/g, ' ').toUpperCase()
+
+  const serialNumber = (value) => Number(String(value || '').replace(/\D/g, ''))
+
+  const matchingReleaseForLine = (line) => {
+    const lineForm = normalizeAccountabilityValue(formTypeLabel(line.formType))
+    const collectorName = normalizeAccountabilityValue(collectorFullName(form.collector))
+    const issuedFrom = serialNumber(line.receiptFrom)
+    const issuedTo = serialNumber(line.receiptTo || line.receiptFrom)
+
+    if (!lineForm || !collectorName || !issuedFrom || !issuedTo) return null
+
+    return accountabilityRows.find((row) => {
+      const releaseForm = normalizeAccountabilityValue(formTypeLabel(row.form_type))
+      const releaseCollector = normalizeAccountabilityValue(row.collector_full_name || row.collector)
+      const releaseFrom = serialNumber(row.receipt_no_from || row.beginning_balance_from || row.ending_balance_from)
+      const releaseTo = serialNumber(row.receipt_no_to || row.beginning_balance_to || row.ending_balance_to)
+
+      return releaseForm === lineForm
+        && releaseCollector === collectorName
+        && releaseFrom
+        && releaseTo
+        && issuedFrom >= releaseFrom
+        && issuedTo <= releaseTo
+    }) || null
+  }
+
+  const accountabilityForLine = (line) => {
+    const release = matchingReleaseForLine(line)
+    const releasedFrom = release?.receipt_no_from || release?.beginning_balance_from || ''
+    const releasedTo = release?.receipt_no_to || release?.beginning_balance_to || ''
+    const endingFrom = release?.ending_balance_from || ''
+    const endingTo = release?.ending_balance_to || ''
+    const untouchedRelease = Boolean(
+      release
+      && endingFrom
+      && endingTo
+      && serialNumber(endingFrom) === serialNumber(releasedFrom)
+      && serialNumber(endingTo) === serialNumber(releasedTo)
+    )
+    const releaseIsBeforeCollection = isAfterDate(form.collectionDate, release?.released_at)
+    const hasCarryForwardBalance = Boolean(release && endingFrom && endingTo && !untouchedRelease && releaseIsBeforeCollection)
+
+    const beginningFrom = release ? (hasCarryForwardBalance ? endingFrom : '') : (line.beginningFrom || '')
+    const beginningTo = release ? (hasCarryForwardBalance ? endingTo : '') : (line.beginningTo || '')
+    const beginningQty = beginningFrom && beginningTo ? countReceiptRange(beginningFrom, beginningTo) : (release ? '' : (line.beginningQty || ''))
+    const receiptAccountFrom = release && !hasCarryForwardBalance ? releasedFrom : (release ? '' : (line.receiptAccountFrom || ''))
+    const receiptAccountTo = release && !hasCarryForwardBalance ? releasedTo : (release ? '' : (line.receiptAccountTo || ''))
+    const receiptAccountQty = receiptAccountFrom && receiptAccountTo ? countReceiptRange(receiptAccountFrom, receiptAccountTo) : (line.receiptAccountQty || '')
+    const ending = calculateEndingBalance({
+      ...line,
+      beginningFrom,
+      beginningQty,
+      beginningTo,
+      receiptAccountFrom,
+      receiptAccountQty,
+      receiptAccountTo,
+    })
+
+    return {
+      beginningFrom,
+      beginningQty,
+      beginningTo,
+      ending,
+      receiptAccountFrom,
+      receiptAccountQty,
+      receiptAccountTo,
+      release,
+    }
+  }
+
   const linePayload = (line) => {
-    const ending = calculateEndingBalance(line)
+    const accountability = accountabilityForLine(line)
+    const ending = accountability.ending
     return {
       ...line,
+      beginningFrom: accountability.beginningFrom,
+      beginningQty: accountability.beginningQty ? String(accountability.beginningQty) : '',
+      beginningTo: accountability.beginningTo,
       endingFrom: ending.from === '-' ? '' : ending.from,
       endingQty: ending.qty === '-' ? '' : String(ending.qty),
       endingTo: ending.to === '-' ? '' : ending.to,
+      receiptAccountFrom: accountability.receiptAccountFrom,
+      receiptAccountQty: accountability.receiptAccountQty,
+      receiptAccountTo: accountability.receiptAccountTo,
     }
   }
 
   const rcdPayload = (status) => ({
-    form: { ...form, template: '100_GF + 200_SEF' },
-    report_no: (form.reportNo || '').trim(),
+    form: { ...form, reportNo: cleanReportNo(form.reportNo), template: '100_GF + 200_SEF' },
+    lookup_key: editingReportNo || '',
+    report_no: cleanReportNo(form.reportNo),
     status,
     lines: collectionLines.filter((line) => line.formType && line.receiptFrom).map(linePayload),
   })
@@ -520,13 +636,17 @@ export function RcdPage({ user }) {
       const saved = response.data?.data
       await loadRcdBatches()
       if (status === 'Printed') {
-        await downloadRcd(saved)
+        const downloaded = await downloadRcd(saved)
+        if (!downloaded) {
+          setSavingAction('')
+          return
+        }
       }
       setSavingAction('')
       setEntryDialogOpen(false)
       resetEntryForm()
     } catch (error) {
-      setGenerateMessage(error.response?.data?.error || error.response?.data?.message || error.message || 'Unable to save RCD to MySQL.')
+      setGenerateMessage(await responseErrorMessage(error, 'Unable to save RCD to MySQL.'))
       setSavingAction('')
     } finally {
       savingRef.current = false
@@ -609,9 +729,9 @@ export function RcdPage({ user }) {
       setForm((current) => ({
         ...current,
         ...(rcd.form || {}),
-        reportNo: rcd.id,
+        reportNo: cleanReportNo(rcd.form?.reportNo || rcd.id),
       }))
-      setCollectionLines((rcd.lines || []).map((line) => ({ ...emptyLine(), ...line, id: crypto.randomUUID() })))
+      setCollectionLines((rcd.lines || []).map((line) => ({ ...emptyLine(), ...line, id: makeClientId() })))
       setGenerateMessage('')
       setEntryDialogOpen(true)
     } catch (error) {
@@ -626,18 +746,27 @@ export function RcdPage({ user }) {
   }
 
   const downloadRcd = async (row) => {
-    const actionKey = row.action_key || row.id
-    const fileLabel = `${collectorFullName(row.collector)}_${row.date || form.collectionDate}`
-    const response = await axiosInstance.get(`/rcd/batches/${encodeURIComponent(actionKey)}/download`, { responseType: 'blob' })
-    const url = window.URL.createObjectURL(new Blob([response.data]))
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `${safeFileName(fileLabel)}.xlsx`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.URL.revokeObjectURL(url)
-    await loadRcdBatches()
+    const actionKey = row?.action_key || row?.id
+    const fileLabel = `${collectorFullName(row?.collector)}_${row?.date || form.collectionDate}`
+    setAccessError('')
+    try {
+      const response = await axiosInstance.get(`/rcd/batches/${encodeURIComponent(actionKey)}/download`, { responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${safeFileName(fileLabel)}.xlsx`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+      await loadRcdBatches()
+      return true
+    } catch (error) {
+      const message = await responseErrorMessage(error, 'Unable to download RCD Excel file.')
+      setAccessError(message)
+      setGenerateMessage(message)
+      return false
+    }
   }
 
   const deleteRcd = async (row) => {
@@ -844,11 +973,36 @@ export function RcdPage({ user }) {
     { key: 'accountability', label: 'Accountable Forms', icon: <Inventory2Icon /> },
   ]
 
+  const mismatchDetail = (line, receiptCount, difference) => {
+    if (!line.validated) return '-'
+
+    const validationMessage = String(line.validationMessage || '').trim()
+    if (validationMessage) return validationMessage
+
+    const details = []
+    const fdbReceiptCount = Number(line.fdbReceiptCount ?? receiptCount ?? 0)
+
+    if (receiptCount && fdbReceiptCount !== receiptCount) {
+      details.push(`Receipts: encoded ${receiptCount}, .FDB ${fdbReceiptCount}`)
+    }
+
+    if (Math.abs(difference) >= 0.005) {
+      const direction = difference > 0 ? 'over by' : 'short by'
+      details.push(`Amount: ${direction} ${formatPeso(Math.abs(difference))}`)
+    }
+
+    if (!details.length && !['Paid', 'Void', 'Cancelled'].includes(line.validationStatus)) {
+      details.push(line.validationStatus || 'Review needed')
+    }
+
+    return details.length ? details.join(' | ') : 'Matched'
+  }
+
   const renderCollectionRows = () => {
     if (collectionLines.length === 0) {
       return (
         <TableRow>
-          <TableCell align="center" colSpan={9} sx={{ color: uiColors.steel, fontWeight: 800, py: 4 }}>
+          <TableCell align="center" colSpan={10} sx={{ color: uiColors.steel, fontWeight: 800, py: 4 }}>
             Enter OR lines, then validate against Firebird .FDB.
           </TableCell>
         </TableRow>
@@ -858,6 +1012,7 @@ export function RcdPage({ user }) {
     return collectionLines.map((line) => {
       const receiptCount = countReceiptRange(line.receiptFrom, line.receiptTo)
       const difference = Number(line.collectorAmount || 0) - Number(line.fdbAmount || 0)
+      const mismatch = mismatchDetail(line, receiptCount, difference)
       return (
         <TableRow hover key={line.id}>
           <TableCell sx={{ minWidth: 210 }}>
@@ -868,9 +1023,10 @@ export function RcdPage({ user }) {
           <TableCell><TextField onChange={(event) => updateLine(line.id, 'receiptFrom', event.target.value.replace(/\D/g, ''))} size="small" sx={{ minWidth: 120 }} value={line.receiptFrom} /></TableCell>
           <TableCell><TextField onChange={(event) => updateLine(line.id, 'receiptTo', event.target.value.replace(/\D/g, ''))} size="small" sx={{ minWidth: 120 }} value={line.receiptTo} /></TableCell>
           <TableCell align="center" sx={{ fontWeight: 800 }}>{receiptCount || '-'}</TableCell>
-          <TableCell><TextField onChange={(event) => updateLine(line.id, 'collectorAmount', Number(event.target.value.replace(/[^0-9.]/g, '') || 0))} size="small" value={line.collectorAmount || ''} /></TableCell>
+          <TableCell><TextField slotProps={{ htmlInput: { inputMode: 'decimal' } }} onChange={(event) => updateLine(line.id, 'collectorAmount', event.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))} size="small" value={line.collectorAmount ?? ''} /></TableCell>
           <TableCell align="right" sx={{ fontWeight: 800 }}>{line.validated ? formatPeso(line.fdbAmount) : 'Validate'}</TableCell>
-          <TableCell align="right" sx={{ color: difference === 0 ? 'var(--color-success-dark)' : 'var(--color-danger-dark)', fontWeight: 900 }}>{line.validated ? formatPeso(difference) : '-'}</TableCell>
+          <TableCell align="right" sx={{ color: Math.abs(difference) < 0.005 ? 'var(--color-success-dark)' : 'var(--color-danger-dark)', fontWeight: 900 }}>{line.validated ? formatPeso(difference) : '-'}</TableCell>
+          <TableCell sx={{ color: mismatch === 'Matched' ? 'var(--color-success-dark)' : uiColors.steel, fontSize: 12, fontWeight: 800, minWidth: 220 }}>{mismatch}</TableCell>
           <TableCell align="center"><StatusChip value={line.validationStatus} /></TableCell>
           <TableCell align="center"><Button color="error" onClick={() => removeCollectionLine(line.id)} size="small">Remove</Button></TableCell>
         </TableRow>
@@ -886,7 +1042,7 @@ export function RcdPage({ user }) {
         <Box sx={{ borderBottom: `1px solid ${uiColors.cardBorder}`, p: 2.5 }}>
           <Typography variant="h6" sx={{ color: uiColors.navy, fontWeight: 900 }}>C. Accountability of Accountable Forms</Typography>
           <Typography variant="body2" sx={{ color: uiColors.steel }}>
-            First RCD entry has no previous OR balance yet. Encode beginning balance and receipt manually; issued OR is pulled from A. Collections.
+            Beginning and ending balances are auto-computed from Accountable Forms releases for the selected collector and OR range. Manual fields may still override when needed.
           </Typography>
         </Box>
         <TableContainer>
@@ -914,16 +1070,20 @@ export function RcdPage({ user }) {
                 </TableRow>
               ) : accountableRows.map((line) => {
                 const issuedQty = countReceiptRange(line.receiptFrom, line.receiptTo)
-                const endingBalance = calculateEndingBalance(line)
+                const accountability = accountabilityForLine(line)
+                const endingBalance = accountability.ending
                 return (
                   <TableRow hover key={`accountable-${line.id}`}>
-                    <TableCell sx={{ fontWeight: 900 }}>{formTypeLabel(line.formType)}</TableCell>
-                    <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'beginningQty', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 82 }} value={line.beginningQty || ''} /></TableCell>
-                    <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'beginningFrom', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 118 }} value={line.beginningFrom || ''} /></TableCell>
-                    <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'beginningTo', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 118 }} value={line.beginningTo || ''} /></TableCell>
-                    <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'receiptAccountQty', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 82 }} value={line.receiptAccountQty || ''} /></TableCell>
-                    <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'receiptAccountFrom', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 118 }} value={line.receiptAccountFrom || ''} /></TableCell>
-                    <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'receiptAccountTo', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 118 }} value={line.receiptAccountTo || ''} /></TableCell>
+                    <TableCell sx={{ fontWeight: 900 }}>
+                      {formTypeLabel(line.formType)}
+                      {!accountability.release && <Typography sx={{ color: 'var(--color-danger-dark)', fontSize: 11, fontWeight: 800 }}>No release match</Typography>}
+                    </TableCell>
+                    <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'beginningQty', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 82 }} value={accountability.beginningQty || ''} /></TableCell>
+                    <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'beginningFrom', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 118 }} value={accountability.beginningFrom || ''} /></TableCell>
+                    <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'beginningTo', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 118 }} value={accountability.beginningTo || ''} /></TableCell>
+                    <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'receiptAccountQty', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 82 }} value={accountability.receiptAccountQty || ''} /></TableCell>
+                    <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'receiptAccountFrom', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 118 }} value={accountability.receiptAccountFrom || ''} /></TableCell>
+                    <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'receiptAccountTo', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 118 }} value={accountability.receiptAccountTo || ''} /></TableCell>
                     <TableCell align="center" sx={{ fontWeight: 900 }}>{issuedQty || '-'}</TableCell>
                     <TableCell align="center">{line.receiptFrom || '-'}</TableCell>
                     <TableCell align="center">{line.receiptTo || line.receiptFrom || '-'}</TableCell>
@@ -954,7 +1114,7 @@ export function RcdPage({ user }) {
         <Box sx={{ display: 'grid', gap: 2.5, p: 3 }}>
           <Box sx={{ alignItems: 'center', display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr auto' } }}>
             <TextField fullWidth label="Report No." onChange={(event) => updateForm('reportNo', event.target.value)} placeholder="Manual RCD no." value={form.reportNo} />
-            <TextField fullWidth InputLabelProps={{ shrink: true }} label="Collection Date" onChange={(event) => updateForm('collectionDate', event.target.value)} type="date" value={form.collectionDate} />
+            <TextField fullWidth slotProps={{ inputLabel: { shrink: true } }} label="Collection Date" onChange={(event) => updateForm('collectionDate', event.target.value)} type="date" value={form.collectionDate} />
             <TextField fullWidth label="Collector" onChange={(event) => updateForm('collector', event.target.value)} select value={form.collector}>
               {collectorOptions.map((collector) => <MenuItem key={collector.value} value={collector.value}>{collector.label}</MenuItem>)}
             </TextField>
@@ -967,7 +1127,7 @@ export function RcdPage({ user }) {
           {generateMessage && <Alert severity={generateMessage.startsWith('Validated') ? 'success' : generateMessage.startsWith('Validation completed') || generateMessage.startsWith('No matching') || generateMessage.startsWith('Please enter') ? 'warning' : 'error'} sx={{ borderRadius: 3 }}>{generateMessage}</Alert>}
 
           <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3 }}>
-            <Table size="small" sx={{ minWidth: 980 }}>
+            <Table size="small" sx={{ minWidth: 1200 }}>
               <TableHead>
                 <TableRow sx={{ '& th': { bgcolor: '#f7f9fc', color: uiColors.navy, fontWeight: 900, textAlign: 'center', textTransform: 'uppercase' } }}>
                   <TableCell>Type / Form No.</TableCell>
@@ -977,6 +1137,7 @@ export function RcdPage({ user }) {
                   <TableCell>Collector Amount</TableCell>
                   <TableCell>.FDB Amount</TableCell>
                   <TableCell>Difference</TableCell>
+                  <TableCell>Mismatch</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Action</TableCell>
 
@@ -990,7 +1151,7 @@ export function RcdPage({ user }) {
                   <TableCell align="right">{formatPeso(totals.collectorTotal)}</TableCell>
                   <TableCell align="right">{formatPeso(totals.fdbTotal)}</TableCell>
                   <TableCell align="right" sx={{ color: totals.difference === 0 ? 'var(--color-success-dark)' : 'var(--color-danger-dark)' }}>{formatPeso(totals.difference)}</TableCell>
-                  <TableCell colSpan={2} />
+                  <TableCell colSpan={3} />
                 </TableRow>
               </TableBody>
             </Table>
@@ -1077,7 +1238,7 @@ export function RcdPage({ user }) {
 
     if ((status === 'For Remittance' || status === 'Saved' || status === 'Ready for Remittance') && acoView) {
       items.push({ label: 'Print', onClick: () => printRcd(row) })
-      items.push({ label: 'Download PDF', onClick: () => downloadRcd(row) })
+      items.push({ label: 'Download Excel', onClick: () => downloadRcd(row) })
       items.push({ label: 'Audit Trail', onClick: () => openAuditTrail(row) })
       return items
     }
@@ -1085,14 +1246,14 @@ export function RcdPage({ user }) {
     if (status === 'Remitted to ACO') {
       if (acoView) items.push({ label: 'Receive Remittance', onClick: () => openReceiveDialog(row), accent: true })
       items.push({ label: 'Print', onClick: () => printRcd(row) })
-      items.push({ label: 'Download PDF', onClick: () => downloadRcd(row) })
+      items.push({ label: 'Download Excel', onClick: () => downloadRcd(row) })
       items.push({ label: 'Audit Trail', onClick: () => openAuditTrail(row) })
       return items
     }
 
     if (status === 'Received by ACO' || status === 'Printed' || status === 'Remitted') {
       items.push({ label: status === 'Printed' ? 'Reprint' : 'Print', onClick: () => printRcd(row) })
-      items.push({ label: 'Download PDF', onClick: () => downloadRcd(row) })
+      items.push({ label: 'Download Excel', onClick: () => downloadRcd(row) })
       items.push({ label: 'Audit Trail', onClick: () => openAuditTrail(row) })
       if (acoView) items.push({ label: 'Void / Cancel with reason', onClick: () => setAccessError('Void / Cancel with reason is prepared for the next control step.'), danger: true })
       return items
@@ -1176,7 +1337,7 @@ export function RcdPage({ user }) {
           >
             {collectorOptions.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
           </TextField>
-          <TextField InputLabelProps={{ shrink: true }} label="Date Released" onChange={(event) => updateAccountabilityForm('releasedAt', event.target.value)} type="date" value={accountabilityForm.releasedAt} />
+          <TextField slotProps={{ inputLabel: { shrink: true } }} label="Date Released" onChange={(event) => updateAccountabilityForm('releasedAt', event.target.value)} type="date" value={accountabilityForm.releasedAt} />
           <TextField label="Released By" onChange={(event) => updateAccountabilityForm('releasedBy', event.target.value)} value={accountabilityForm.releasedBy} />
           <TextField label="Collector Signed By" onChange={(event) => updateAccountabilityForm('collectorSignedBy', event.target.value)} value={accountabilityForm.collectorSignedBy} />
         </Box>
@@ -1305,7 +1466,7 @@ export function RcdPage({ user }) {
         <Box sx={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 2 }}>
           <Autocomplete onChange={(_, value) => setSelectedMonth(value)} options={months} renderInput={(params) => <TextField {...params} label="Select Month" size="small" />} sx={{ minWidth: 190 }} value={selectedMonth} />
           <Autocomplete onChange={(_, value) => setSelectedYear(value)} options={years} renderInput={(params) => <TextField {...params} label="Select Year" size="small" />} sx={{ minWidth: 160 }} value={selectedYear} />
-          <TextField InputProps={{ startAdornment: <SearchIcon sx={{ color: uiColors.steel, mr: 1 }} /> }} label="Search collector / report" onChange={(event) => setSearch(event.target.value)} size="small" sx={{ minWidth: { xs: '100%', md: 300 } }} value={search} />
+          <TextField slotProps={{ input: { startAdornment: <SearchIcon sx={{ color: uiColors.steel, mr: 1 }} /> } }} label="Search collector / report" onChange={(event) => setSearch(event.target.value)} size="small" sx={{ minWidth: { xs: '100%', md: 300 } }} value={search} />
           <Box sx={{ flex: 1 }} />
           <Typography variant="body2" sx={{ color: uiColors.steel, fontWeight: 800 }}>{selectedMonth?.label || 'Month'} {selectedYear?.value || 'Year'}</Typography>
         </Box>
@@ -1358,18 +1519,18 @@ export function RcdPage({ user }) {
           {remitMessage && <Alert severity="error" sx={{ mb: 2 }}>{remitMessage}</Alert>}
           <Box sx={{ display: 'grid', gap: 2 }}>
             <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' } }}>
-              <TextField InputProps={{ readOnly: true }} label="RCD No." value={remitBatch?.id || '-'} />
-              <TextField InputProps={{ readOnly: true }} label="Collector name" value={remitBatch?.collector || '-'} />
-              <TextField InputProps={{ readOnly: true }} label="Collection date" value={remitBatch?.date || '-'} />
-              <TextField InputProps={{ readOnly: true }} label="OR range" value={`${remitBatch?.lines?.[0]?.receiptFrom || '-'} to ${remitBatch?.lines?.[remitBatch?.lines?.length - 1]?.receiptTo || '-'}`} />
-              <TextField InputProps={{ readOnly: true }} label="OR count" value={remitBatch?.lines?.reduce((sum, line) => sum + countReceiptRange(line.receiptFrom, line.receiptTo), 0) || remitBatch?.receipt_count || 0} />
-              <TextField InputProps={{ readOnly: true }} label="Total collection amount" value={formatPeso(remitBatch?.total)} />
+              <TextField slotProps={{ input: { readOnly: true } }} label="RCD No." value={remitBatch?.id || '-'} />
+              <TextField slotProps={{ input: { readOnly: true } }} label="Collector name" value={remitBatch?.collector || '-'} />
+              <TextField slotProps={{ input: { readOnly: true } }} label="Collection date" value={remitBatch?.date || '-'} />
+              <TextField slotProps={{ input: { readOnly: true } }} label="OR range" value={`${remitBatch?.lines?.[0]?.receiptFrom || '-'} to ${remitBatch?.lines?.[remitBatch?.lines?.length - 1]?.receiptTo || '-'}`} />
+              <TextField slotProps={{ input: { readOnly: true } }} label="OR count" value={remitBatch?.lines?.reduce((sum, line) => sum + countReceiptRange(line.receiptFrom, line.receiptTo), 0) || remitBatch?.receipt_count || 0} />
+              <TextField slotProps={{ input: { readOnly: true } }} label="Total collection amount" value={formatPeso(remitBatch?.total)} />
             </Box>
 
             <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' } }}>
               <TextField label="Amount remitted" onChange={(event) => setRemitForm((current) => ({ ...current, amountRemitted: Number(event.target.value || 0) }))} type="number" value={remitForm.amountRemitted} />
               <TextField label="Remitted by" onChange={(event) => setRemitForm((current) => ({ ...current, remittedBy: event.target.value }))} value={remitForm.remittedBy || ''} />
-              <TextField InputLabelProps={{ shrink: true }} label="Remitted date/time" onChange={(event) => setRemitForm((current) => ({ ...current, remittanceDate: event.target.value }))} type="datetime-local" value={remitForm.remittanceDate} />
+              <TextField slotProps={{ inputLabel: { shrink: true } }} label="Remitted date/time" onChange={(event) => setRemitForm((current) => ({ ...current, remittanceDate: event.target.value }))} type="datetime-local" value={remitForm.remittanceDate} />
               <TextField label="Cash amount" onChange={(event) => setRemitForm((current) => ({ ...current, cashAmount: Number(event.target.value || 0) }))} type="number" value={remitForm.cashAmount} />
               <TextField label="Check amount" onChange={(event) => setRemitForm((current) => ({ ...current, checkAmount: Number(event.target.value || 0) }))} type="number" value={remitForm.checkAmount} />
               <TextField label="Reference no." onChange={(event) => setRemitForm((current) => ({ ...current, referenceNo: event.target.value }))} value={remitForm.referenceNo} />
@@ -1398,15 +1559,15 @@ export function RcdPage({ user }) {
         <DialogContent dividers>
           {receiveMessage && <Alert severity="error" sx={{ mb: 2 }}>{receiveMessage}</Alert>}
           <Box sx={{ display: 'grid', gap: 2 }}>
-            <TextField InputProps={{ readOnly: true }} label="RCD No." value={receiveBatch?.id || '-'} />
-            <TextField InputProps={{ readOnly: true }} label="Collector name" value={receiveBatch?.collector || '-'} />
-            <TextField InputProps={{ readOnly: true }} label="Total collection amount" value={formatPeso(receiveBatch?.total)} />
+            <TextField slotProps={{ input: { readOnly: true } }} label="RCD No." value={receiveBatch?.id || '-'} />
+            <TextField slotProps={{ input: { readOnly: true } }} label="Collector name" value={receiveBatch?.collector || '-'} />
+            <TextField slotProps={{ input: { readOnly: true } }} label="Total collection amount" value={formatPeso(receiveBatch?.total)} />
             <TextField label="Amount received" onChange={(event) => setReceiveForm((current) => ({ ...current, amountReceived: Number(event.target.value || 0) }))} type="number" value={receiveForm.amountReceived} />
             <Alert severity={Math.round(receiveVariance * 100) === 0 ? 'success' : 'warning'} sx={{ borderRadius: 3 }}>
               Variance amount: <strong>{formatPeso(receiveVariance)}</strong>{Math.round(receiveVariance * 100) !== 0 ? ' - remarks are required.' : ''}
             </Alert>
             <TextField label="Received by ACO" onChange={(event) => setReceiveForm((current) => ({ ...current, receivedByAco: event.target.value }))} value={receiveForm.receivedByAco} />
-            <TextField InputLabelProps={{ shrink: true }} label="Received date/time" onChange={(event) => setReceiveForm((current) => ({ ...current, receivedAt: event.target.value }))} type="datetime-local" value={receiveForm.receivedAt} />
+            <TextField slotProps={{ inputLabel: { shrink: true } }} label="Received date/time" onChange={(event) => setReceiveForm((current) => ({ ...current, receivedAt: event.target.value }))} type="datetime-local" value={receiveForm.receivedAt} />
             <TextField fullWidth label="Remarks" minRows={3} multiline onChange={(event) => setReceiveForm((current) => ({ ...current, remarks: event.target.value }))} value={receiveForm.remarks} />
             <FormControlLabel control={<Checkbox checked={receiveForm.confirmed} onChange={(event) => setReceiveForm((current) => ({ ...current, confirmed: event.target.checked }))} />} label="I confirm that the amount received was verified against the RCD collection total." />
           </Box>
@@ -1449,3 +1610,6 @@ export function RcdPage({ user }) {
     </Box>
   )
 }
+
+export { RcdPage }
+export default RcdPage

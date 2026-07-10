@@ -14,14 +14,18 @@ class AuthController extends Controller
     public function login(Request $request): JsonResponse
     {
         $credentials = $request->validate([
-            'email' => ['required', 'email'],
+            'email' => ['required', 'string', 'max:255'],
             'password' => ['required', 'string'],
         ]);
 
-        $email = strtolower(trim($credentials['email']));
+        $identifier = strtolower(trim($credentials['email']));
+        $email = str_contains($identifier, '@') ? $identifier : "{$identifier}@zamboanguita.local";
 
         $user = User::query()
             ->whereRaw('LOWER(email) = ?', [$email])
+            ->when(! str_contains($identifier, '@'), function ($query) use ($identifier) {
+                $query->orWhereRaw('LOWER(email) LIKE ?', ["{$identifier}@%"]);
+            })
             ->first();
 
         if (! $user || ! Hash::check($credentials['password'], $user->password)) {

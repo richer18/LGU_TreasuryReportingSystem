@@ -39,11 +39,12 @@ export function LoginPage({
 
         <form className="login-form" onSubmit={onLogin}>
           <label>
-            Email
+            Username
             <input
               autoComplete="username"
               onChange={(event) => onLoginFormChange('email', event.target.value)}
-              type="email"
+              placeholder="admin, cashier, or full email"
+              type="text"
               value={loginForm.email}
             />
           </label>

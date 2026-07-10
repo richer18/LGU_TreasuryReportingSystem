@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Process;
 
 class SearchReceiptService
 {
@@ -47,7 +46,7 @@ class SearchReceiptService
             ...$arguments,
         ];
 
-        $process = Process::env([
+        $process = PythonRunnerService::run($command, [
             'SystemRoot' => getenv('SystemRoot') ?: 'C:\\Windows',
             'WINDIR' => getenv('WINDIR') ?: 'C:\\Windows',
             'PATH' => getenv('PATH') ?: 'C:\\Windows\\System32;C:\\Windows;C:\\Python313;C:\\Python313\\Scripts',
@@ -62,7 +61,7 @@ class SearchReceiptService
             'FIREBIRD_CHARSET' => config('firebird.charset'),
             'FIREBIRD_CLIENT_LIBRARY' => config('firebird.client_library'),
             'FIREBIRD_ALLOW_RECEIPT_UPDATE' => config('firebird.allow_receipt_update') ? '1' : '0',
-        ])->timeout(60)->run($command);
+        ], 60);
 
         $payload = json_decode($process->output(), true);
 

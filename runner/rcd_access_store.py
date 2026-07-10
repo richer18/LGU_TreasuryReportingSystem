@@ -685,6 +685,16 @@ def template_date(value):
         return str(value or "")
 
 
+def set_cell_value(sheet, coordinate, value):
+    cell = sheet[coordinate]
+    if cell.__class__.__name__ == "MergedCell":
+        for merged_range in sheet.merged_cells.ranges:
+            if coordinate in merged_range:
+                sheet.cell(merged_range.min_row, merged_range.min_col).value = value
+                return
+    cell.value = value
+
+
 def is_sef_line(line):
     form_type = form_type_label(line.get("formType") or line.get("form_type")).upper()
     return "AF 56" in form_type or "RPT" in form_type or "SEF" in form_type
@@ -754,10 +764,18 @@ def fill_rcd_sheet(sheet, batch, lines, fund_code):
         sheet[f"L{row}"] = line.get("endingFrom") or ""
         sheet[f"M{row}"] = line.get("endingTo") or ""
 
+        for col in range(1, 14):
+            cell = sheet.cell(row, col)
+            if cell.__class__.__name__ == "MergedCell":
+                continue
+            font = copy(cell.font)
+            font.bold = False
+            cell.font = font
+
     summary_collection_row = 30 + extra_collection_rows + extra_accountability_rows
     sheet[f"J{summary_collection_row}"] = f"=J{collection_total_row}"
     signature_row = 38 + extra_collection_rows + extra_accountability_rows
-    sheet[f"A{signature_row}"] = officer_name
+    set_cell_value(sheet, f"A{signature_row}", officer_name)
 
 
 def export_batch(report_no):

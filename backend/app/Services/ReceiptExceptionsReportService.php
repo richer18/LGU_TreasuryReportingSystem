@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Process;
 
 class ReceiptExceptionsReportService
 {
@@ -40,7 +39,7 @@ class ReceiptExceptionsReportService
             }
         }
 
-        $process = Process::env([
+        $process = PythonRunnerService::run($command, [
             'SystemRoot' => getenv('SystemRoot') ?: 'C:\\Windows',
             'WINDIR' => getenv('WINDIR') ?: 'C:\\Windows',
             'PATH' => getenv('PATH') ?: 'C:\\Windows\\System32;C:\\Windows;C:\\Python313;C:\\Python313\\Scripts',
@@ -55,7 +54,7 @@ class ReceiptExceptionsReportService
             'FIREBIRD_CHARSET' => config('firebird.charset'),
             'FIREBIRD_CLIENT_LIBRARY' => config('firebird.client_library'),
             'RCD_ACCESS_DB' => database_path('rcd\\rcd_remittance.accdb'),
-        ])->timeout(90)->run($command);
+        ], 90);
 
         $payload = json_decode($process->output(), true);
 

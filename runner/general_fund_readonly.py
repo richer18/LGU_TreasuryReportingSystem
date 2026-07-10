@@ -17,6 +17,21 @@ TRUST_ABSTRACT_NAMES = {
 PAID_STATUS_CODES = {"CNL", "CAN", "CNC", "CANCEL", "CANCELLED", "VOID", "VOI"}
 
 COLLECTOR_ALIASES = {
+    "flora my ferrer": "flora",
+    "flora my d ferrer": "flora",
+    "flora my d. ferrer": "flora",
+    "agnes ello": "agnes",
+    "agnes b ello": "agnes",
+    "agnes b. ello": "agnes",
+    "ricardo enopia": "ricardo",
+    "ricardo t enopia": "ricardo",
+    "ricardo t. enopia": "ricardo",
+    "emily credo": "emily",
+    "emily e credo": "emily",
+    "emily e. credo": "emily",
+    "angelique iris rafales": "angelique",
+    "angelique iris a rafales": "angelique",
+    "angelique iris a. rafales": "angelique",
     "iris": "angelique",
     "iris arbolado": "angelique",
     "angelique iris": "angelique",
@@ -260,6 +275,8 @@ def fetch_general_details(cursor, args, include_void=False):
         elif fund_scope == "community_tax":
             if source_name != "Community Tax":
                 continue
+        elif fund_scope == "all":
+            pass
         else:
             if source_name == "Community Tax" or source_name in TRUST_ABSTRACT_NAMES:
                 continue
@@ -321,8 +338,11 @@ def fetch_rpt_details(cursor, args):
 
 
 def fetch_details(cursor, args, include_void=False):
-    if getattr(args, "fund_scope", "general") == "rpt":
+    fund_scope = getattr(args, "fund_scope", "general")
+    if fund_scope == "rpt":
         return fetch_rpt_details(cursor, args)
+    if fund_scope == "all":
+        return fetch_general_details(cursor, args, include_void=include_void) + fetch_rpt_details(cursor, args)
     return fetch_general_details(cursor, args, include_void=include_void)
 
 
@@ -443,6 +463,8 @@ def payment_details(cursor, args):
         elif fund_scope == "community_tax":
             if source_name != "Community Tax":
                 continue
+        elif fund_scope == "all":
+            pass
         else:
             if source_name == "Community Tax" or source_name in TRUST_ABSTRACT_NAMES:
                 continue
@@ -834,7 +856,7 @@ def main():
     parser.add_argument("--receipt-no")
     parser.add_argument("--taxpayer")
     parser.add_argument("--payment-id")
-    parser.add_argument("--fund-scope", choices=["general", "trust", "community_tax", "rpt", "report21"], default="general")
+    parser.add_argument("--fund-scope", choices=["general", "trust", "community_tax", "rpt", "report21", "all"], default="general")
     parser.add_argument("--limit", type=int, default=200)
     args = parser.parse_args()
 

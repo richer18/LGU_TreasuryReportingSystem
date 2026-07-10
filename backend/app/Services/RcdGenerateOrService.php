@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Process;
 
 class RcdGenerateOrService
 {
@@ -34,7 +33,7 @@ class RcdGenerateOrService
             $command[] = json_encode($filters['lines'], JSON_THROW_ON_ERROR);
         }
 
-        $process = Process::env([
+        $process = PythonRunnerService::run($command, [
             'SystemRoot' => getenv('SystemRoot') ?: 'C:\\Windows',
             'WINDIR' => getenv('WINDIR') ?: 'C:\\Windows',
             'PATH' => getenv('PATH') ?: 'C:\\Windows\\System32;C:\\Windows;C:\\Python314;C:\\Python314\\Scripts;C:\\Python312;C:\\Python312\\Scripts',
@@ -48,7 +47,7 @@ class RcdGenerateOrService
             'FIREBIRD_PASSWORD' => config('firebird.password'),
             'FIREBIRD_CHARSET' => config('firebird.charset'),
             'FIREBIRD_CLIENT_LIBRARY' => config('firebird.client_library'),
-        ])->timeout(90)->run($command);
+        ], 90);
 
         $payload = json_decode($process->output(), true);
 

@@ -3,15 +3,14 @@ setlocal
 
 set "SCRIPT_DIR=%~dp0"
 
-call "%SCRIPT_DIR%start_backend.bat" /no-pause
 call "%SCRIPT_DIR%start_frontend.bat" /no-pause
 
 echo.
-echo Requested both development servers.
+echo Requested frontend server. Laravel API is served by Apache/Laravel on port 70.
 echo.
 echo Backend API:
-echo http://127.0.0.1:8000
+echo http://192.168.101.20:70
 echo.
 echo Frontend:
-echo http://127.0.0.1:5173
+echo http://192.168.101.20:5173
 pause

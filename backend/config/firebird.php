@@ -11,7 +11,7 @@ return [
     'client_library' => env('FIREBIRD_CLIENT_LIBRARY', 'C:\Program Files\Firebird\Firebird_2_5\bin\fbclient.dll'),
     'python' => is_file('C:\Python314\python.exe')
         ? 'C:\Python314\python.exe'
-        : env('PYTHON_BINARY', 'python'),
+        : (is_file('C:\Python313\python.exe') ? 'C:\Python313\python.exe' : env('PYTHON_BINARY', 'python')),
     'probe_script' => base_path('../runner/firebird_probe.py'),
     'general_fund_script' => base_path('../runner/general_fund_readonly.py'),
     'general_fund_receipt_pdf_script' => base_path('../runner/general_fund_receipt_pdf.py'),

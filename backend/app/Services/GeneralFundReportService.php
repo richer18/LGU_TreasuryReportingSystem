@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Process;
 
 class GeneralFundReportService
 {
@@ -37,7 +36,7 @@ class GeneralFundReportService
             }
         }
 
-        $process = Process::env([
+        $process = PythonRunnerService::run($command, [
             'SystemRoot' => getenv('SystemRoot') ?: 'C:\\Windows',
             'WINDIR' => getenv('WINDIR') ?: 'C:\\Windows',
             'PATH' => getenv('PATH') ?: 'C:\\Windows\\System32;C:\\Windows;C:\\Python313;C:\\Python313\\Scripts',
@@ -51,7 +50,7 @@ class GeneralFundReportService
             'FIREBIRD_PASSWORD' => config('firebird.password'),
             'FIREBIRD_CHARSET' => config('firebird.charset'),
             'FIREBIRD_CLIENT_LIBRARY' => config('firebird.client_library'),
-        ])->timeout(60)->run($command);
+        ], 60);
 
         $payload = json_decode($process->output(), true);
 

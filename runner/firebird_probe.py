@@ -53,7 +53,7 @@ def open_odbc_connection(readonly: bool = True):
     try:
         import pyodbc
     except ImportError as exc:
-        raise RuntimeError("pyodbc is required for FIREBIRD_CONNECTION=odbc. Install it with: python -m pip install pyodbc==5.3.0") from exc
+        raise RuntimeError(f"pyodbc is required for FIREBIRD_CONNECTION=odbc. Python executable: {sys.executable}. Install it with: python -m pip install pyodbc==5.3.0") from exc
 
     dsn = resolve_odbc_dsn()
     if not dsn:

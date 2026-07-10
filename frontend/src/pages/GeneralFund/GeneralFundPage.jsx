@@ -35,12 +35,10 @@ export function GeneralFundPage({ fundScope = 'general', title = 'General Fund',
           <p className="eyebrow">Collection Monitor</p>
           <h2>{title}</h2>
         </div>
-        {fundScope === 'general' && (
-          <button className="general-fund-generate-button" onClick={() => openDialog('generateReceipt')} type="button">
-            <ReceiptText size={17} aria-hidden="true" />
-            Generate Receipt
-          </button>
-        )}
+        <button className="general-fund-generate-button" onClick={() => openDialog('generateReceipt')} type="button">
+          <ReceiptText size={17} aria-hidden="true" />
+          Generate Receipt
+        </button>
       </section>
 
       <GeneralFundFilters
@@ -83,7 +81,7 @@ export function GeneralFundPage({ fundScope = 'general', title = 'General Fund',
         open={activeDialog === 'generateReceipt'}
         title="Generate Receipt"
       >
-        <GeneralFundReceiptReport collectors={data.collectors} forcedCollector={cashierAssignment} />
+        <GeneralFundReceiptReport collectors={data.collectors} forcedCollector={cashierAssignment} fundScope={fundScope} />
       </GeneralFundDialog>
 
       <GeneralFundDialog

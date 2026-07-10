@@ -63,7 +63,10 @@ class RcdAccessController extends Controller
         $result = $this->store->run('export', ['report_no' => $reportNo]);
 
         if (! ($result['ok'] ?? false)) {
-            return response()->json($result, 500);
+            $message = strtolower((string) ($result['error'] ?? $result['message'] ?? ''));
+            $status = str_contains($message, 'not found') ? 404 : 500;
+
+            return response()->json($result, $status);
         }
 
         $path = $result['path'] ?? null;

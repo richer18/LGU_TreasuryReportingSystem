@@ -57,11 +57,18 @@ class UserAccountController extends Controller
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
+            'email' => ['required', 'string', 'max:255'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
             'role' => ['required', 'string', Rule::in(array_keys($this->roles()))],
             'account_status' => ['required', 'string', Rule::in(self::STATUSES)],
         ]);
+        $data['email'] = $this->normalizeLoginEmail($data['email']);
+        if (! filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+            return response()->json(['message' => 'Please enter a valid username or email address.'], 422);
+        }
+        if (User::query()->whereRaw('LOWER(email) = ?', [strtolower($data['email'])])->exists()) {
+            return response()->json(['message' => 'This username is already taken.'], 422);
+        }
 
         $user = User::query()->create([
             'name' => $data['name'],
@@ -86,10 +93,17 @@ class UserAccountController extends Controller
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'email' => ['required', 'string', 'max:255'],
             'role' => ['required', 'string', Rule::in(array_keys($this->roles()))],
             'account_status' => ['required', 'string', Rule::in(self::STATUSES)],
         ]);
+        $data['email'] = $this->normalizeLoginEmail($data['email']);
+        if (! filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+            return response()->json(['message' => 'Please enter a valid username or email address.'], 422);
+        }
+        if (User::query()->whereRaw('LOWER(email) = ?', [strtolower($data['email'])])->where('id', '!=', $user->id)->exists()) {
+            return response()->json(['message' => 'This username is already taken.'], 422);
+        }
 
         if ($request->user()?->id === $user->id && $data['account_status'] !== 'active') {
             return response()->json([
@@ -160,6 +174,13 @@ class UserAccountController extends Controller
             'message' => 'Password reset successfully.',
             'data' => $this->formatUser($user->fresh()),
         ]);
+    }
+
+    private function normalizeLoginEmail(string $value): string
+    {
+        $identifier = strtolower(trim($value));
+
+        return str_contains($identifier, '@') ? $identifier : "{$identifier}@zamboanguita.local";
     }
 
     private function formatUser(User $user): array

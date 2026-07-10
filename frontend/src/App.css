@@ -3110,13 +3110,15 @@ dd {
   align-items: end;
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(2, minmax(160px, 220px)) minmax(280px, 520px) minmax(180px, 220px);
-  max-width: 1160px;
+  grid-template-columns: minmax(180px, 220px) minmax(260px, 1.2fr) minmax(260px, 1fr) minmax(180px, 220px);
+  max-width: 1180px;
+  width: 100%;
 }
 
 .report-select-field {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
 .report-select-field span {
@@ -3130,7 +3132,9 @@ dd {
   color: #132238;
   font: inherit;
   min-height: 42px;
+  min-width: 0;
   padding: 0 12px;
+  width: 100%;
 }
 
 .generate-selected-report-button {
@@ -3139,7 +3143,17 @@ dd {
   min-height: 42px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1180px) {
+  .report-generator-controls {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+
+  .generate-selected-report-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
   .report-generator-controls {
     grid-template-columns: 1fr;
   }

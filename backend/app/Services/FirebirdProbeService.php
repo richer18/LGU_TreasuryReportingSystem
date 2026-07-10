@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Process;
 
 class FirebirdProbeService
 {
@@ -18,7 +17,14 @@ class FirebirdProbeService
             ];
         }
 
-        $process = Process::env([
+        $command = [
+            config('firebird.python'),
+            $script,
+            '--sample-limit',
+            '8',
+        ];
+
+        $process = PythonRunnerService::run($command, [
             'SystemRoot' => getenv('SystemRoot') ?: 'C:\\Windows',
             'WINDIR' => getenv('WINDIR') ?: 'C:\\Windows',
             'PATH' => getenv('PATH') ?: 'C:\\Windows\\System32;C:\\Windows;C:\\Python313;C:\\Python313\\Scripts',
@@ -32,12 +38,7 @@ class FirebirdProbeService
             'FIREBIRD_PASSWORD' => config('firebird.password'),
             'FIREBIRD_CHARSET' => config('firebird.charset'),
             'FIREBIRD_CLIENT_LIBRARY' => config('firebird.client_library'),
-        ])->timeout(30)->run([
-            config('firebird.python'),
-            $script,
-            '--sample-limit',
-            '8',
-        ]);
+        ], 30);
 
         $payload = json_decode($process->output(), true);
 
@@ -53,3 +54,4 @@ class FirebirdProbeService
         ];
     }
 }
+

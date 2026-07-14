@@ -35,6 +35,7 @@ COLLECTOR_ALIASES = {
     "iris": "angelique",
     "iris arbolado": "angelique",
     "angelique iris": "angelique",
+    "gtz": "gtz",
 }
 
 
@@ -366,6 +367,8 @@ def payment_groups(details):
                 "collector": row["collector"],
                 "receipt_type": row["receipt_type"] or row["paygroup"],
                 "receipt_types": [],
+                "fund_source": row.get("source_name") or row.get("category") or row["paygroup"] or "General Fund",
+                "fund_sources": [],
                 "rcd_number": row["rcd_number"],
                 "collection_status": row.get("collection_status") or "Paid",
                 "collection_statuses": [],
@@ -382,6 +385,10 @@ def payment_groups(details):
         if receipt_type and receipt_type not in payment["receipt_types"]:
             payment["receipt_types"].append(receipt_type)
             payment["receipt_type"] = " / ".join(sorted(payment["receipt_types"]))
+        fund_source = row.get("source_name") or row.get("category") or row["paygroup"] or "General Fund"
+        if fund_source and fund_source not in payment["fund_sources"]:
+            payment["fund_sources"].append(fund_source)
+            payment["fund_source"] = " / ".join(sorted(payment["fund_sources"]))
         status = row.get("collection_status") or "Paid"
         if status not in payment["collection_statuses"]:
             payment["collection_statuses"].append(status)

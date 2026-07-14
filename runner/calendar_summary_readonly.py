@@ -154,6 +154,9 @@ def load_collections(days, args, date_from, date_to, warnings):
 
 
 def load_rcd(days, args, date_from, date_to, warnings):
+    if (os.environ.get("RCD_CALENDAR_SOURCE") or "").strip().lower() == "mysql":
+        return
+
     db_path = Path(os.environ.get("RCD_ACCESS_DB") or DEFAULT_ACCESS_DB).resolve()
     if not db_path.exists():
         warnings.append(f"AccessDB file was not found: {db_path}. RCD calendar markers skipped.")

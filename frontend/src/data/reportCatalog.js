@@ -41,6 +41,7 @@ export const fundPages = {
       { number: 36, name: 'Receipts Not Remitted Report', group: 'Receipt Exceptions', status: 'Ready' },
       { number: 37, name: 'Official Report Breakdown', group: 'Category Breakdown', status: 'Ready' },
       { number: 38, name: 'ESRE Quarterly Report', group: 'ESRE', status: 'Ready' },
+      { number: 'craaf', name: 'CRAAF - Consolidated Report of Accountability for Accountable Forms', group: 'Accountable Forms', status: 'Ready' },
     ],
   },
   generalFund: {

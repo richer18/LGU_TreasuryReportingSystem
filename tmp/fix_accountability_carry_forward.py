@@ -1,0 +1,9 @@
+from pathlib import Path
+path = Path(r"\\MAIN-SERVER\LGU_TreasuryReportingSystem_$\frontend\src\pages\Rcd\RcdPage.jsx")
+text = path.read_text(encoding="utf-8")
+old = """    const untouchedRelease = Boolean(\n      release\n      && endingFrom\n      && endingTo\n      && serialNumber(endingFrom) === serialNumber(releasedFrom)\n      && serialNumber(endingTo) === serialNumber(releasedTo)\n    )\n    const releaseIsBeforeCollection = isAfterDate(form.collectionDate, release?.released_at)\n    const hasCarryForwardBalance = Boolean(release && endingFrom && endingTo && !untouchedRelease && releaseIsBeforeCollection)\n\n    const beginningFrom = release ? (hasCarryForwardBalance ? endingFrom : '') : (line.beginningFrom || '')\n"""
+new = """    const endingStart = serialNumber(endingFrom)\n    const endingEnd = serialNumber(endingTo)\n    const untouchedRelease = Boolean(\n      release\n      && endingFrom\n      && endingTo\n      && endingStart === serialNumber(releasedFrom)\n      && endingEnd === serialNumber(releasedTo)\n    )\n    const issuedFallsWithinEndingBalance = Boolean(\n      release\n      && endingStart\n      && endingEnd\n      && issuedFrom >= endingStart\n      && issuedTo <= endingEnd\n    )\n    const releaseIsBeforeCollection = isAfterDate(form.collectionDate, release?.released_at)\n    const hasCarryForwardBalance = Boolean(release && endingFrom && endingTo && !untouchedRelease && (issuedFallsWithinEndingBalance || releaseIsBeforeCollection))\n\n    const beginningFrom = release ? (hasCarryForwardBalance ? endingFrom : '') : (line.beginningFrom || '')\n"""
+if old not in text:
+    raise SystemExit("accountability carry-forward block not found")
+path.write_text(text.replace(old, new, 1), encoding="utf-8")
+print("updated accountability carry-forward rule")

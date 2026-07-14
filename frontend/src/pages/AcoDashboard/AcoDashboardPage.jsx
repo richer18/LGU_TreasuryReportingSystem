@@ -78,7 +78,13 @@ function StatusChip({ value }) {
   return <Chip label={value || '-'} size="small" sx={{ bgcolor: meta.bg, color: meta.color, fontWeight: 900 }} />
 }
 
+const deriveSefRcdNo = (value) => {
+  const text = String(value || '').trim()
+  return text ? text.replace(/-100-/i, '-200-') : ''
+}
+
 const emptyReceiveForm = (userName = '') => ({
+  rcdNo: '',
   amountReceived: 0,
   cashAmount: 0,
   checkAmount: 0,
@@ -114,6 +120,7 @@ export function AcoDashboardPage({ user }) {
   const [auditRows, setAuditRows] = useState([])
   const [accountableForms, setAccountableForms] = useState([])
   const [auditTrailRows, setAuditTrailRows] = useState([])
+  const [craafRows, setCraafRows] = useState([])
 
   const loadRows = async () => {
     const response = await axiosInstance.get('/rcd/batches')
@@ -130,11 +137,24 @@ export function AcoDashboardPage({ user }) {
     setAuditTrailRows(response.data?.data || [])
   }
 
+  const loadCraafRows = async () => {
+    const response = await axiosInstance.get('/rcd/craaf', {
+      params: {
+        date_from: filters.dateFrom,
+        date_to: filters.dateTo,
+        collector: filters.collector,
+        form: filters.form,
+        search: filters.search,
+      },
+    })
+    setCraafRows(response.data?.data || [])
+  }
+
   const refreshDashboard = async () => {
     setLoading(true)
     setError('')
     try {
-      await Promise.all([loadRows(), loadAccountableForms(), loadAuditTrailRows()])
+      await Promise.all([loadRows(), loadAccountableForms(), loadAuditTrailRows(), loadCraafRows()])
     } catch (err) {
       setError(err.response?.data?.error || err.response?.data?.message || err.message || 'Unable to load ACO dashboard data.')
     } finally {
@@ -201,6 +221,176 @@ export function AcoDashboardPage({ user }) {
       return acc
     }, { pending: 0, receivedToday: 0, totalReceived: 0, withVariance: 0, voided: 0, orCount: 0 })
   }, [filteredRows])
+
+  const filteredCraafRows = useMemo(() => {
+    const search = filters.search.trim().toLowerCase()
+    return craafRows.filter((row) => {
+      const rowDate = String(row.date || '').slice(0, 10)
+      if (filters.dateFrom && rowDate && rowDate < filters.dateFrom) return false
+      if (filters.dateTo && rowDate && rowDate > filters.dateTo) return false
+      if (filters.collector && !String(row.collector || '').toLowerCase().includes(filters.collector.toLowerCase())) return false
+      if (filters.form && !String(row.form_type || '').toLowerCase().includes(filters.form.toLowerCase())) return false
+      if (!search) return true
+      return [row.date, row.report_no, row.collector, row.form_type, row.source, row.status].join(' ').toLowerCase().includes(search)
+    })
+  }, [craafRows, filters])
+
+  const craafSummary = useMemo(() => filteredCraafRows.reduce((acc, row) => {
+    acc.rows += 1
+    acc.receipts += Number(row.receipt_qty || 0)
+    acc.issued += Number(row.issued_qty || 0)
+    acc.ending += Number(row.ending_qty || 0)
+    return acc
+  }, { rows: 0, receipts: 0, issued: 0, ending: 0 }), [filteredCraafRows])
+
+  const formatRange = (from, to) => {
+    const cleanFrom = String(from || '').trim()
+    const cleanTo = String(to || '').trim()
+    if (!cleanFrom && !cleanTo) return '-'
+    if (cleanFrom && cleanTo) return `${cleanFrom} - ${cleanTo}`
+    return cleanFrom || cleanTo
+  }
+
+  const csvValue = (value) => {
+    const text = String(value ?? '')
+    const needsQuotes = text.includes(',') || text.includes('\n') || text.includes('\r') || text.includes('"')
+    return needsQuotes ? `"${text.replace(/"/g, '""')}"` : text
+  }
+
+  const craafPeriodLabel = useMemo(() => {
+    const rawDate = filters.dateFrom || filters.dateTo
+    if (!rawDate) return 'For the selected period'
+    const date = new Date(`${rawDate}T00:00:00`)
+    if (Number.isNaN(date.getTime())) return 'For the selected period'
+    return `For the month of ${date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+  }, [filters.dateFrom, filters.dateTo])
+
+  const craafQty = (value) => {
+    const number = Number(value || 0)
+    return number > 0 ? number : ''
+  }
+
+  const craafCell = (value) => String(value ?? '').trim()
+
+  const escapeHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+
+  const craafOfficialRowsHtml = () => filteredCraafRows.map((row) => `
+    <tr>
+      <td>${escapeHtml(row.date || '')}</td>
+      <td>${escapeHtml(row.form_type || '')}</td>
+      <td>${escapeHtml(craafQty(row.beginning_qty))}</td>
+      <td>${escapeHtml(craafCell(row.beginning_from))}</td>
+      <td>${escapeHtml(craafCell(row.beginning_to))}</td>
+      <td>${escapeHtml(craafQty(row.receipt_qty))}</td>
+      <td>${escapeHtml(craafCell(row.receipt_from))}</td>
+      <td>${escapeHtml(craafCell(row.receipt_to))}</td>
+      <td>${escapeHtml(craafQty(row.issued_qty))}</td>
+      <td>${escapeHtml(craafCell(row.issued_from))}</td>
+      <td>${escapeHtml(craafCell(row.issued_to))}</td>
+      <td>${escapeHtml(craafQty(row.ending_qty))}</td>
+      <td>${escapeHtml(craafCell(row.ending_from))}</td>
+      <td>${escapeHtml(craafCell(row.ending_to))}</td>
+      <td>${escapeHtml(row.collector || '')}</td>
+    </tr>
+  `).join('')
+
+  const craafOfficialDocument = () => `
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>CRAAF</title>
+        <style>
+          body { color: #000; font-family: Arial, sans-serif; margin: 20px; }
+          table { border-collapse: collapse; font-size: 10pt; width: 100%; }
+          th, td { border: 1px solid #000; padding: 4px 6px; text-align: center; vertical-align: middle; }
+          .no-border { border: 0; }
+          .title { font-family: 'Arial Black', Arial, sans-serif; font-size: 10pt; font-weight: 700; text-align: center; }
+          .subtitle { font-size: 10pt; text-align: center; }
+          .treasurer { text-align: left; }
+          .header { font-weight: 700; }
+          .collector { text-align: left; }
+          @page { size: landscape; margin: 10mm; }
+          @media print { body { margin: 0; } }
+        </style>
+      </head>
+      <body>
+        <table>
+          <colgroup>
+            <col style="width: 13%" /><col style="width: 13%" /><col style="width: 6%" /><col style="width: 8%" /><col style="width: 8%" />
+            <col style="width: 6%" /><col style="width: 8%" /><col style="width: 8%" /><col style="width: 6%" /><col style="width: 8%" /><col style="width: 8%" />
+            <col style="width: 6%" /><col style="width: 8%" /><col style="width: 8%" /><col style="width: 14%" />
+          </colgroup>
+          <tr><td class="no-border"></td><td colspan="14" class="title">CONSOLIDATED REPORT OF ACCOUNTABILITY FOR ACCOUNTABLE FORMS</td></tr>
+          <tr><td class="no-border"></td><td colspan="14" class="subtitle">Municipality of Zamboanguita</td></tr>
+          <tr><td class="no-border"></td><td colspan="14" class="subtitle">${escapeHtml(craafPeriodLabel)}</td></tr>
+          <tr><td colspan="5" class="treasurer">Municipal Treasurer: Paul Ree Ambrose A. Martinez</td><td colspan="10" class="no-border"></td></tr>
+          <tr class="header">
+            <th rowspan="2">DATE</th>
+            <th rowspan="2">Name of Form</th>
+            <th colspan="3">Beginning Balance</th>
+            <th colspan="3">Receipt</th>
+            <th colspan="3">Issued</th>
+            <th colspan="3">Ending Balance</th>
+            <th rowspan="2">Name of Collector</th>
+          </tr>
+          <tr class="header">
+            <th>Qty.</th><th colspan="2">Inclusive Serial Numbers</th>
+            <th>Qty.</th><th colspan="2">Inclusive Serial Numbers</th>
+            <th>Qty.</th><th colspan="2">Inclusive Serial Numbers</th>
+            <th>Qty.</th><th colspan="2">Inclusive Serial Numbers</th>
+          </tr>
+          ${craafOfficialRowsHtml() || '<tr><td colspan="15">No CRAAF records found.</td></tr>'}
+        </table>
+      </body>
+    </html>
+  `
+
+  const downloadCraafExcel = async () => {
+    try {
+      const response = await axiosInstance.get('/rcd/craaf/download', {
+        params: {
+          date_from: filters.dateFrom,
+          date_to: filters.dateTo,
+          collector: filters.collector,
+          form: filters.form,
+          search: filters.search,
+        },
+        responseType: 'blob',
+      })
+      const disposition = response.headers?.['content-disposition'] || ''
+      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i)
+      const fallbackName = `CRAAF_${filters.dateFrom || 'start'}_${filters.dateTo || 'end'}.xlsx`
+      const url = window.URL.createObjectURL(new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filenameMatch?.[1] || fallbackName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err?.response?.data?.message || err?.message || 'Unable to download CRAAF Excel file.')
+    }
+  }
+
+  const printCraaf = () => {
+    const printWindow = window.open('', '_blank', 'width=1400,height=900')
+    if (!printWindow) {
+      setError('Popup blocked. Please allow popups to print CRAAF.')
+      return
+    }
+    printWindow.document.write(craafOfficialDocument())
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
+  }
 
   const reportSummary = useMemo(() => {
     const byCollector = new Map()
@@ -294,6 +484,17 @@ export function AcoDashboardPage({ user }) {
     const cashPlusCheck = Number(receiveForm.cashAmount || 0) + Number(receiveForm.checkAmount || 0)
     const variance = total - amountReceived
 
+    const gfRcdNo = receiveForm.rcdNo.trim()
+    const sefRcdNo = deriveSefRcdNo(gfRcdNo)
+
+    if (!gfRcdNo) {
+      setReceiveMessage('GF RCD No. is required before confirming receive.')
+      return
+    }
+    if (!/-100-/i.test(gfRcdNo)) {
+      setReceiveMessage('GF RCD No. must contain -100- so SEF can auto-generate as -200-.')
+      return
+    }
     if (amountReceived <= 0) {
       setReceiveMessage('Amount received must be greater than zero.')
       return
@@ -319,6 +520,9 @@ export function AcoDashboardPage({ user }) {
         cash_amount: Number(receiveForm.cashAmount || 0),
         check_amount: Number(receiveForm.checkAmount || 0),
         reference_no: receiveForm.referenceNo,
+        rcd_no: gfRcdNo,
+        gf_rcd_no: gfRcdNo,
+        sef_rcd_no: sefRcdNo,
         received_by_aco: receiveForm.receivedByAco,
         received_by_aco_at: receiveForm.receivedAt,
         remittance_remarks: receiveForm.remarks,
@@ -415,7 +619,7 @@ export function AcoDashboardPage({ user }) {
         <Box sx={{ alignItems: 'flex-start', display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'space-between' }}>
           <Box>
             <Typography variant="overline" sx={{ color: colors.teal, fontWeight: 900 }}>Accountable Officer Control</Typography>
-            <Typography variant="h4" sx={{ color: colors.navy, fontWeight: 950, lineHeight: 1.1 }}>ACO Dashboard</Typography>
+            <Typography variant="h4" sx={{ color: colors.navy, fontWeight: 950, lineHeight: 1.1 }}>ACO Collector</Typography>
             <Typography sx={{ color: colors.steel, fontWeight: 700, mt: 0.5 }}>Monitor collector remittances, verify RCD totals, and receive turn-over collections.</Typography>
           </Box>
           <Button disabled={loading} onClick={refreshDashboard} startIcon={loading ? <CircularProgress size={16} /> : <VerifiedUserIcon />} sx={{ bgcolor: colors.teal, borderRadius: 2, color: '#fff', fontWeight: 900, minHeight: 42, textTransform: 'none', '&:hover': { bgcolor: colors.tealHover } }} variant="contained">Refresh</Button>
@@ -445,6 +649,7 @@ export function AcoDashboardPage({ user }) {
           <Tab label="Accountable Forms" value="forms" />
           <Tab label="Audit Trail" value="audit" />
           <Tab label="Reports" value="reports" />
+          <Tab label="CRAAF" value="craaf" />
         </Tabs>
       </Paper>
 
@@ -656,6 +861,92 @@ export function AcoDashboardPage({ user }) {
         </Box>
       )}
 
+
+      {activeTab === 'craaf' && (
+        <Box sx={{ display: 'grid', gap: 3 }}>
+          <Paper sx={{ border: `1px solid ${colors.border}`, borderRadius: 3, p: 2.5 }}>
+            <Box sx={{ alignItems: 'flex-start', display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'space-between' }}>
+              <Box>
+                <Typography variant="h6" sx={{ color: colors.navy, fontWeight: 900 }}>CRAAF</Typography>
+                <Typography sx={{ color: colors.steel, mt: 0.5 }}>Consolidated Report of Accountability for Accountable Forms.</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                <Button disabled={loading} onClick={loadCraafRows} sx={{ borderColor: `${colors.teal}66`, color: colors.teal, fontWeight: 900, textTransform: 'none' }} variant="outlined">Apply Filters</Button>
+                <Button disabled={filteredCraafRows.length === 0} onClick={downloadCraafExcel} sx={{ bgcolor: colors.teal, color: '#fff', fontWeight: 900, textTransform: 'none', '&:hover': { bgcolor: colors.tealHover } }} variant="contained">Download Excel</Button>
+                <Button disabled={filteredCraafRows.length === 0} onClick={printCraaf} sx={{ borderColor: `${colors.navy}66`, color: colors.navy, fontWeight: 900, textTransform: 'none' }} variant="outlined">Print</Button>
+              </Box>
+            </Box>
+          </Paper>
+
+          <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(4, 1fr)' } }}>
+            {[
+              ['Rows', craafSummary.rows],
+              ['Receipt Qty', craafSummary.receipts],
+              ['Issued Qty', craafSummary.issued],
+              ['Ending Qty', craafSummary.ending],
+            ].map(([label, value]) => (
+              <Card key={label} sx={{ border: `1px solid ${colors.border}`, borderRadius: 2, boxShadow: '0 10px 24px rgba(15,39,71,0.08)', p: 2 }}>
+                <Typography sx={{ color: colors.steel, fontSize: 12, fontWeight: 900, textTransform: 'uppercase' }}>{label}</Typography>
+                <Typography variant="h6" sx={{ color: colors.navy, fontWeight: 950, mt: 1 }}>{value}</Typography>
+              </Card>
+            ))}
+          </Box>
+
+          <TableContainer component={Paper} sx={{ border: `1px solid ${colors.border}`, borderRadius: 3 }}>
+            <Box sx={{ p: 2 }}>
+              <Typography sx={{ color: colors.navy, fontWeight: 900 }}>Consolidated Report of Accountability for Accountable Forms</Typography>
+              <Typography sx={{ color: colors.steel }}>Based on RCD C. Accountability snapshots and Accountable Forms releases.</Typography>
+            </Box>
+            <Table size="small" sx={{ minWidth: 1500 }}>
+              <TableHead>
+                <TableRow sx={{ '& th': { bgcolor: '#f7f9fc', color: colors.navy, fontWeight: 900, textTransform: 'uppercase' } }}>
+                  <TableCell rowSpan={2}>Date</TableCell>
+                  <TableCell rowSpan={2}>Name of Form</TableCell>
+                  <TableCell colSpan={3} align="center">Beginning Balance</TableCell>
+                  <TableCell colSpan={3} align="center">Receipt</TableCell>
+                  <TableCell colSpan={3} align="center">Issued</TableCell>
+                  <TableCell colSpan={3} align="center">Ending Balance</TableCell>
+                  <TableCell rowSpan={2}>Name of Collector</TableCell>
+                </TableRow>
+                <TableRow sx={{ '& th': { bgcolor: '#f7f9fc', color: colors.navy, fontWeight: 900, textTransform: 'uppercase' } }}>
+                  <TableCell align="center">Qty.</TableCell>
+                  <TableCell align="center" colSpan={2}>Inclusive Serial Numbers</TableCell>
+                  <TableCell align="center">Qty.</TableCell>
+                  <TableCell align="center" colSpan={2}>Inclusive Serial Numbers</TableCell>
+                  <TableCell align="center">Qty.</TableCell>
+                  <TableCell align="center" colSpan={2}>Inclusive Serial Numbers</TableCell>
+                  <TableCell align="center">Qty.</TableCell>
+                  <TableCell align="center" colSpan={2}>Inclusive Serial Numbers</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filteredCraafRows.length === 0 ? (
+                  <TableRow><TableCell align="center" colSpan={15} sx={{ color: colors.steel, fontWeight: 800, py: 5 }}>No CRAAF records found.</TableCell></TableRow>
+                ) : filteredCraafRows.map((row) => (
+                  <TableRow hover key={row.id}>
+                    <TableCell>{row.date || ''}</TableCell>
+                    <TableCell sx={{ fontWeight: 900 }}>{row.form_type || ''}</TableCell>
+                    <TableCell align="center">{craafQty(row.beginning_qty)}</TableCell>
+                    <TableCell align="center">{craafCell(row.beginning_from)}</TableCell>
+                    <TableCell align="center">{craafCell(row.beginning_to)}</TableCell>
+                    <TableCell align="center">{craafQty(row.receipt_qty)}</TableCell>
+                    <TableCell align="center">{craafCell(row.receipt_from)}</TableCell>
+                    <TableCell align="center">{craafCell(row.receipt_to)}</TableCell>
+                    <TableCell align="center">{craafQty(row.issued_qty)}</TableCell>
+                    <TableCell align="center">{craafCell(row.issued_from)}</TableCell>
+                    <TableCell align="center">{craafCell(row.issued_to)}</TableCell>
+                    <TableCell align="center">{craafQty(row.ending_qty)}</TableCell>
+                    <TableCell align="center">{craafCell(row.ending_from)}</TableCell>
+                    <TableCell align="center">{craafCell(row.ending_to)}</TableCell>
+                    <TableCell>{row.collector || ''}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
+      )}
+
       <Menu anchorEl={menuAnchor} onClose={closeMenu} open={Boolean(menuAnchor)}>
         {activeActions.map((item) => (
           <MenuItem key={item.label} onClick={item.action} sx={{ color: item.danger ? 'var(--color-danger-dark)' : item.accent ? colors.teal : colors.navy, fontWeight: item.accent || item.danger ? 900 : 700, minWidth: 220 }}>
@@ -714,6 +1005,10 @@ export function AcoDashboardPage({ user }) {
           {receiveMessage && <Alert severity="error" sx={{ mb: 2 }}>{receiveMessage}</Alert>}
           <Box sx={{ display: 'grid', gap: 2 }}>
             <TextField InputProps={{ readOnly: true }} label="Collector Name" value={selectedBatch?.collector || '-'} />
+            <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
+              <TextField label="GF RCD No." onChange={(event) => setReceiveForm((current) => ({ ...current, rcdNo: event.target.value }))} required value={receiveForm.rcdNo} />
+              <TextField InputProps={{ readOnly: true }} helperText="Auto: -100- becomes -200-" label="SEF RCD No." value={deriveSefRcdNo(receiveForm.rcdNo)} />
+            </Box>
             <TextField InputProps={{ readOnly: true }} label="Total Collection Amount" value={formatPeso(selectedBatch?.total)} />
             <TextField InputProps={{ readOnly: true }} label="Amount Remitted by Collector" value={formatPeso(selectedBatch?.amount_remitted || selectedBatch?.total)} />
             <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>

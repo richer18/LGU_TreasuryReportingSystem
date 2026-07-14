@@ -21,12 +21,14 @@ const MAIN_REPORT_NUMBERS = new Set([...UI_REPORT_NUMBERS, ...DOWNLOAD_ONLY_REPO
 const COLLECTOR_REPORT_NUMBER = 34
 const DATE_RANGE_REPORT_NUMBER = 37
 const QUARTER_REPORT_NUMBER = 38
+const CRAAF_REPORT_ID = 'craaf'
 const REPORT_COLLECTORS = [
   { value: 'flora', label: 'FLORA MY D. FERRER' },
   { value: 'agnes', label: 'AGNES B. ELLO' },
   { value: 'ricardo', label: 'RICARDO T. ENOPIA' },
   { value: 'angelique', label: 'ANGELIQUE IRIS A. RAFALES' },
   { value: 'emily', label: 'EMILY E. CREDO' },
+  { value: 'gtz', label: 'GTZ' },
 ]
 
 const currentMonth = () => {
@@ -108,6 +110,10 @@ const quarterToken = (quarter) => {
 const fallbackDownloadName = (report, period, selectedMonth) => {
   if (report.number === QUARTER_REPORT_NUMBER) {
     return `ESRE-REPORT-${quarterToken(period.quarter)}-QTR-${timestampForFilename()}.xlsx`
+  }
+
+  if (report.number === CRAAF_REPORT_ID) {
+    return `CRAAF_${period.dateFrom || 'start'}_${period.dateTo || 'end'}.xlsx`
   }
 
   return `report-${report.number}-${selectedMonth}.xlsx`
@@ -962,7 +968,7 @@ export function ReportsPage({ page, variant = 'reports', user }) {
   const collectorOptions = cashierAssignment ? [cashierAssignment] : REPORT_COLLECTORS
   const isCollectionMonitor = variant === 'collectionMonitor'
   const mainReports = page.reports.filter((report) => (
-    MAIN_REPORT_NUMBERS.has(report.number) && !(report.number >= 1 && report.number <= 20)
+    (MAIN_REPORT_NUMBERS.has(report.number) || report.number === CRAAF_REPORT_ID) && !(report.number >= 1 && report.number <= 20)
   ))
   const otherReports = page.reports.filter((report) => report.number >= 1 && report.number <= 20)
   const quickReports = isCollectionMonitor ? page.reports : mainReports
@@ -970,7 +976,7 @@ export function ReportsPage({ page, variant = 'reports', user }) {
   const findReport = (value) => page.reports.find((report) => String(report.number) === value)
   const selectedReport = findReport(selectedReportNumber)
   const requiresCollector = selectedReport?.number === COLLECTOR_REPORT_NUMBER
-  const usesDateRange = selectedReport?.number === DATE_RANGE_REPORT_NUMBER
+  const usesDateRange = selectedReport?.number === DATE_RANGE_REPORT_NUMBER || selectedReport?.number === COLLECTOR_REPORT_NUMBER || selectedReport?.number === CRAAF_REPORT_ID
   const usesQuarterRange = selectedReport?.number === QUARTER_REPORT_NUMBER
 
   useEffect(() => {
@@ -988,7 +994,11 @@ export function ReportsPage({ page, variant = 'reports', user }) {
       params.collector = selectedCollector
     }
 
-    const response = await axiosInstance.get(`/generated-reports/${report.number}/download`, {
+    const endpoint = report.number === CRAAF_REPORT_ID
+      ? '/rcd/craaf/download'
+      : `/generated-reports/${report.number}/download`
+
+    const response = await axiosInstance.get(endpoint, {
       params,
       responseType: 'blob',
     })
@@ -1009,8 +1019,8 @@ export function ReportsPage({ page, variant = 'reports', user }) {
   const generateReport = async () => {
     const report = findReport(selectedReportNumber)
     if (!report) return
-    const isDownloadOnly = DOWNLOAD_ONLY_REPORT_NUMBERS.has(report.number)
-    const reportPeriod = report.number === DATE_RANGE_REPORT_NUMBER
+    const isDownloadOnly = DOWNLOAD_ONLY_REPORT_NUMBERS.has(report.number) || report.number === CRAAF_REPORT_ID
+    const reportPeriod = report.number === DATE_RANGE_REPORT_NUMBER || report.number === COLLECTOR_REPORT_NUMBER || report.number === CRAAF_REPORT_ID
       ? { dateFrom: dateRange.dateFrom, dateTo: dateRange.dateTo }
       : report.number === QUARTER_REPORT_NUMBER
         ? quarterRange
@@ -1021,9 +1031,9 @@ export function ReportsPage({ page, variant = 'reports', user }) {
       return
     }
 
-    if (report.number === DATE_RANGE_REPORT_NUMBER) {
+    if (report.number === DATE_RANGE_REPORT_NUMBER || report.number === COLLECTOR_REPORT_NUMBER || report.number === CRAAF_REPORT_ID) {
       if (!dateRange.dateFrom || !dateRange.dateTo) {
-        setGenerationError('Please select Date From and Date To for Official Report Breakdown.')
+        setGenerationError(report.number === COLLECTOR_REPORT_NUMBER ? 'Please select Date From and Date To for Generate Collection Receipt Per Collector.' : report.number === CRAAF_REPORT_ID ? 'Please select Date From and Date To for CRAAF.' : 'Please select Date From and Date To for Official Report Breakdown.')
         return
       }
 
@@ -1261,7 +1271,7 @@ export function ReportsPage({ page, variant = 'reports', user }) {
           <Info size={18} aria-hidden="true" />
           <div>
             <strong>Report Scope</strong>
-            <p>Choose a month and report template. Report 37 uses Date From and Date To, while Report 38 uses Quarter and Year. Reports are generated from the read-only Firebird bridge, BPLS workbook sources, and uploaded Excel templates.</p>
+            <p>Choose a report template and date scope. Generate Collection Receipt Per Collector, Report 37, and CRAAF use Date From and Date To, while Report 38 uses Quarter and Year. Reports are generated from the read-only Firebird bridge, BPLS workbook sources, MySQL RCD/accountable forms data, and uploaded Excel templates.</p>
           </div>
         </div>
 

@@ -27,5 +27,17 @@ return [
             'label' => 'Angelique Iris Rafales',
             'aliases' => ['angelique iris rafales', 'angelique iris a rafales', 'angelique iris a. rafales', 'angelique', 'iris'],
         ],
+        [
+            'code' => 'amabella',
+            'label' => 'Amabella S. Ramos',
+            'aliases' => ['amabella s ramos', 'amabella s. ramos', 'amabella', 'collector account', 'collector'],
+        ],
+        [
+            'code' => 'gtz',
+            'label' => 'GTZ',
+            'aliases' => ['gtz'],
+        ],
     ],
 ];
+
+

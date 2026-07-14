@@ -17,6 +17,7 @@ COLLECTOR_ALIASES = {
     "emily credo": "emily",
     "emily e credo": "emily",
     "emily e. credo": "emily",
+    "gtz": "gtz",
 }
 CANCEL_STATUS_CODES = {"CNL", "CAN", "CNC", "CANCEL", "CANCELLED", "VOID", "VOI"}
 

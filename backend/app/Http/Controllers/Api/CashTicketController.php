@@ -210,6 +210,17 @@ class CashTicketController extends Controller
         return response()->json(['ok' => true, 'data' => $collection->fresh()->load('type:id,name,unit_value')]);
     }
 
+    public function destroyCollection(Request $request, CashTicketCollection $collection): JsonResponse
+    {
+        DB::transaction(function () use ($request, $collection) {
+            $snapshot = $collection->toArray();
+            $this->audit($request, $collection, 'collection.deleted', $snapshot);
+            $collection->delete();
+        });
+
+        return response()->json(['ok' => true, 'message' => 'Cash ticket remittance deleted.']);
+    }
+
     public function storeReportRow(Request $request): JsonResponse
     {
         $data = $request->validate([

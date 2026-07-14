@@ -51,6 +51,8 @@ def collector_name(value):
         "RICARDO": "RICARDO T. ENOPIA",
         "IRIS": "ANGELIQUE IRIS A. RAFALES",
         "EMILY": "EMILY E. CREDO",
+        "AMABELLA": "AMABELLA S. RAMOS",
+        "GTZ": "GTZ",
     }
     key = str(value or "").strip().upper()
     return mapping.get(key, value or "RCD")
@@ -89,12 +91,19 @@ def write_basic_workbook(path, batch):
     rows.append(["C. ACCOUNTABILITY OF ACCOUNTABLE FORMS"])
     rows.append(["Form", "Beginning Balance", "Receipt", "Issued", "Ending Balance"])
 
-    for line in batch.get("lines") or []:
+    form = batch.get("form") or {}
+    manual_accountability_rows = form.get("accountabilityRows") if isinstance(form.get("accountabilityRows"), list) else []
+    accountability_rows = manual_accountability_rows or (batch.get("lines") or [])
+
+    for line in accountability_rows:
+        issued_qty = line.get('issuedQty') or count_range(line.get('receiptFrom'), line.get('receiptTo'))
+        issued_from = line.get('issuedFrom') or line.get('receiptFrom') or ''
+        issued_to = line.get('issuedTo') or line.get('receiptTo') or line.get('receiptFrom') or ''
         rows.append([
-            line.get("formType") or "",
+            line.get("formType") or line.get("form_type") or "",
             f"{line.get('beginningQty') or 0}: {line.get('beginningFrom') or ''} - {line.get('beginningTo') or ''}",
             f"{line.get('receiptAccountQty') or 0}: {line.get('receiptAccountFrom') or ''} - {line.get('receiptAccountTo') or ''}",
-            f"{count_range(line.get('receiptFrom'), line.get('receiptTo'))}: {line.get('receiptFrom') or ''} - {line.get('receiptTo') or ''}",
+            f"{issued_qty or 0}: {issued_from} - {issued_to}",
             f"{line.get('endingQty') or ''}: {line.get('endingFrom') or ''} - {line.get('endingTo') or ''}",
         ])
 

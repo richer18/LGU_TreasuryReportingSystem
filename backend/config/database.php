@@ -74,6 +74,26 @@ return [
             ]) : [],
         ],
 
+        'business_mysql' => [
+            'driver' => env('BUSINESS_DB_CONNECTION', 'mysql'),
+            'url' => env('BUSINESS_DB_URL'),
+            'host' => env('BUSINESS_DB_HOST', '127.0.0.1'),
+            'port' => env('BUSINESS_DB_PORT', '3306'),
+            'database' => env('BUSINESS_DB_DATABASE', 'business_permit_license'),
+            'username' => env('BUSINESS_DB_USERNAME', 'root'),
+            'password' => env('BUSINESS_DB_PASSWORD', ''),
+            'unix_socket' => env('BUSINESS_DB_SOCKET', ''),
+            'charset' => env('BUSINESS_DB_CHARSET', 'utf8mb4'),
+            'collation' => env('BUSINESS_DB_COLLATION', 'utf8mb4_unicode_ci'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA) => env('BUSINESS_MYSQL_ATTR_SSL_CA'),
+            ]) : [],
+        ],
+
         'mariadb' => [
             'driver' => 'mariadb',
             'url' => env('DB_URL'),

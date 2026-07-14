@@ -1,20 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
-import {
-  Chip,
-  LinearProgress,
-  Paper,
-} from '@mui/material'
+﻿import { useEffect, useMemo, useState } from 'react'
+import { Paper } from '@mui/material'
 import {
   AlertCircle,
   CalendarDays,
-  Gauge,
   Landmark,
   ListChecks,
-  ReceiptText,
   RefreshCcw,
   Target,
   TrendingUp,
-  Users,
 } from 'lucide-react'
 import axiosInstance from '../../axiosinstance/axiosInstance'
 import { formatMoney } from '../GeneralFund/utils/generalFundFormat'
@@ -117,30 +110,9 @@ const formatPercent = (value) =>
     minimumFractionDigits: 1,
   }).format(Number(value || 0))
 
-const formatCompactMoney = (value) => {
-  const amount = Number(value || 0)
-  const absolute = Math.abs(amount)
-
-  if (absolute >= 1_000_000) {
-    return `₱${(amount / 1_000_000).toLocaleString('en-PH', {
-      maximumFractionDigits: 2,
-      minimumFractionDigits: 2,
-    })}M`
-  }
-
-  if (absolute >= 1_000) {
-    return `₱${(amount / 1_000).toLocaleString('en-PH', {
-      maximumFractionDigits: 1,
-      minimumFractionDigits: 1,
-    })}K`
-  }
-
-  return formatMoney(amount)
-}
-
 const clamp = (value, min = 0, max = 100) => Math.min(max, Math.max(min, Number(value || 0)))
 
-const dashboardColors = ['#0554F2', '#6AAED9', '#8CBF3F', '#F2D230', '#D93F07', '#6B7280']
+const dashboardColors = ['#2563eb', '#60a5fa', '#22c55e', '#f59e0b', '#f97316', '#94a3b8']
 
 const categoryConfig = [
   {
@@ -221,7 +193,45 @@ const categoryConfig = [
   },
 ]
 
-export function DashboardPage() {
+const statusForRate = (rate, target = 0) => {
+  if (Number(target || 0) <= 0) return { label: 'Unavailable', tone: 'neutral' }
+  if (rate >= 100) return { label: 'On track', tone: 'good' }
+  if (rate >= 70) return { label: 'Keep an eye on this', tone: 'warning' }
+  return { label: 'Needs attention', tone: 'critical' }
+}
+
+const normalizeRoleLabel = (role) =>
+  String(role || 'Treasury user')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+
+const initialsFromName = (name) => {
+  const parts = String(name || 'U')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (!parts.length) return 'U'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+}
+
+const reconciliationMessage = (reconciliation = {}) => {
+  const difference = Number(reconciliation.difference || 0)
+  const absolute = formatMoney(Math.abs(difference))
+
+  if (Math.abs(difference) <= 0.01) {
+    return 'Collector totals match the overall paid collections.'
+  }
+
+  if (difference > 0) {
+    return `Collector totals are ${absolute} lower than overall paid collections.`
+  }
+
+  return `Collector totals are ${absolute} higher than overall paid collections.`
+}
+
+export function DashboardPage({ user, connectionClass, connectionLabel }) {
   const [year, setYear] = useState(String(new Date().getFullYear()))
   const [dashboardData, setDashboardData] = useState(emptyDashboardData)
   const [cacheMeta, setCacheMeta] = useState(null)
@@ -351,23 +361,12 @@ export function DashboardPage() {
     })
   }, [dashboardData])
 
-  const collectorDisplayRows = useMemo(() => {
-    const rows = dashboardData.collectors || []
-    if (rows.length <= 6) return rows
-
-    const topRows = rows.slice(0, 5)
-    const others = rows.slice(5).reduce(
-      (total, row) => ({
-        collector: 'Others / Unassigned',
-        receipt_count: total.receipt_count + Number(row.receipt_count || 0),
-        total_amount: total.total_amount + Number(row.total_amount || 0),
-      }),
-      { collector: 'Others / Unassigned', receipt_count: 0, total_amount: 0 },
-    )
-
-    return [...topRows, others]
-  }, [dashboardData.collectors])
-
+  const allCollectorRows = useMemo(() => dashboardData.collectors || [], [dashboardData.collectors])
+  const collectorTotal = useMemo(
+    () => allCollectorRows.reduce((total, row) => total + Number(row.total_amount || 0), 0),
+    [allCollectorRows],
+  )
+  const topCollectorRows = useMemo(() => allCollectorRows.slice(0, 5), [allCollectorRows])
   const collectorReconciliation = dashboardData.collectorsReconciliation || {}
 
   const diveTickets = dashboardData.diveTickets || {}
@@ -375,6 +374,8 @@ export function DashboardPage() {
     () => dashboardData.diveTicketsYear?.top_buyers || [],
     [dashboardData.diveTicketsYear],
   )
+  const topDiveBuyer = topDiveBuyers[0] || null
+
   const collectionShareRows = useMemo(() => {
     const ytdRow = collectionModel.ytdRow
     return [
@@ -391,34 +392,6 @@ export function DashboardPage() {
     ]
   }, [collectionModel.ytdRow])
 
-  const collectorChartRows = useMemo(
-    () => collectorDisplayRows.map((collector, index) => ({
-      color: dashboardColors[index % dashboardColors.length],
-      label: collector.collector || 'Unspecified',
-      value: Number(collector.total_amount || 0),
-    })),
-    [collectorDisplayRows],
-  )
-
-  const diveBuyerChartRows = useMemo(
-    () => topDiveBuyers.map((buyer, index) => ({
-      color: dashboardColors[index % dashboardColors.length],
-      label: buyer.taxpayer || 'Unspecified',
-      value: Number(buyer.total_amount || 0),
-    })),
-    [topDiveBuyers],
-  )
-
-  const categoryChartRows = useMemo(
-    () => categoryRows.map((row, index) => ({
-      color: dashboardColors[index % dashboardColors.length],
-      label: row.label,
-      percent: row.rate,
-      value: row.actual,
-    })),
-    [categoryRows],
-  )
-
   const recentPaymentLogs = useMemo(
     () => (dashboardData.recentPayments || [])
       .filter((row) => String(row.collection_status || 'Paid') === 'Paid')
@@ -427,27 +400,79 @@ export function DashboardPage() {
         if (dateSort !== 0) return dateSort
         return String(b.receipt_no || '').localeCompare(String(a.receipt_no || ''), undefined, { numeric: true })
       })
-      .slice(0, 8),
+      .slice(0, 5),
     [dashboardData.recentPayments],
   )
 
-  const paceStatus = collectionModel.varianceToDate >= 0 ? 'On Pace' : 'Behind Target'
-  const paceClass = collectionModel.varianceToDate >= 0 ? 'is-good' : 'is-warning'
+  const paceStatus = collectionModel.varianceToDate > 0
+    ? 'On track'
+    : collectionModel.varianceToDate < 0
+      ? 'Needs attention'
+      : 'On pace'
+  const paceTone = collectionModel.varianceToDate >= 0 ? 'good' : 'warning'
+  const paceMessage = collectionModel.varianceToDate > 0
+    ? `You're ahead of the expected pace by ${formatMoney(collectionModel.varianceToDate)}.`
+    : collectionModel.varianceToDate < 0
+      ? `You're behind the expected pace by ${formatMoney(Math.abs(collectionModel.varianceToDate))}.`
+      : 'Collections are exactly on the expected pace.'
+  const userRoleLabel = normalizeRoleLabel(user?.role)
+  const userName = user?.name || 'Treasury user'
+  const dashboardViewModel = useMemo(() => ({
+    summary: collectionModel,
+    collectionShare: collectionShareRows,
+    collectors: {
+      all: allCollectorRows,
+      topFive: topCollectorRows,
+      total: collectorTotal,
+    },
+    sourceGroups: categoryRows,
+    reconciliation: collectorReconciliation,
+    diveTickets: {
+      currentMonth: diveTickets,
+      topBuyer: topDiveBuyer,
+      topBuyers: topDiveBuyers,
+    },
+    recentReceipts: recentPaymentLogs,
+    currentMonth: {
+      name: period.monthName,
+      total: collectionModel.monthTotal,
+      target: collectionModel.monthlyTarget,
+      rate: collectionModel.monthRate,
+    },
+    metadata: cacheMeta,
+  }), [
+    allCollectorRows,
+    cacheMeta,
+    categoryRows,
+    collectionModel,
+    collectionShareRows,
+    collectorReconciliation,
+    collectorTotal,
+    diveTickets,
+    period.monthName,
+    recentPaymentLogs,
+    topCollectorRows,
+    topDiveBuyer,
+    topDiveBuyers,
+  ])
 
   return (
-    <div className="page-stack">
-      <section className="dashboard-hero">
-        <div>
-          <p className="eyebrow">Collection Target Monitor</p>
-          <h2>Collections vs Income Target</h2>
-          <span>
-            Paid collections from Report 21 compared against Local Sources target for {period.selectedYear}.
-          </span>
+    <div className="page-stack dashboard-decision-page">
+      <section className="dashboard-hero dashboard-hero-compact dashboard-welcome-header">
+        <div className="dashboard-hero-main">
+          <p className="eyebrow">Municipality of Zamboanguita</p>
+          <h2>Revenue Collection Dashboard</h2>
+          <span>Here's how collections are performing for the selected year.</span>
+          <div className="dashboard-user-meta">
+            <span>{userName}</span>
+            <span>{userRoleLabel}</span>
+          </div>
         </div>
-        <div className="dashboard-year-actions">
-          <label className="treasury-field">
+        <div className="dashboard-year-actions dashboard-toolbar-actions">
+          <label className="treasury-field dashboard-year-field">
             <span><CalendarDays size={14} aria-hidden="true" /> Year</span>
             <input
+              aria-label="Dashboard year"
               max="2100"
               min="2000"
               onChange={handleYearChange}
@@ -455,239 +480,130 @@ export function DashboardPage() {
               value={year}
             />
           </label>
-          <button className="secondary-button" disabled={loading || refreshing} onClick={refreshDashboardData} type="button">
-            <RefreshCcw size={16} aria-hidden="true" />
-            {refreshing ? 'Refreshing...' : 'Refresh Data'}
-          </button>
           {cacheMeta?.generated_at && (
-            <span className="dashboard-cache-updated">Last updated: {cacheMeta.generated_at}</span>
+            <span className="dashboard-cache-updated">Updated {cacheMeta.generated_at}</span>
           )}
+          <span className={`dashboard-connection-pill ${connectionClass || (cacheMeta?.success ? 'is-good' : 'is-warning')}`}>
+            {connectionLabel || (cacheMeta?.success ? 'Cache ready' : 'Needs refresh')}
+          </span>
+          <button
+            aria-label="Refresh dashboard data"
+            className="primary-button dashboard-refresh-button"
+            disabled={loading || refreshing}
+            onClick={refreshDashboardData}
+            type="button"
+          >
+            <RefreshCcw size={16} aria-hidden="true" />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
       </section>
 
       {error && (
-        <section className="inline-alert">
+        <section className="inline-alert" role="alert">
           <AlertCircle size={18} aria-hidden="true" />
           {error}
         </section>
       )}
 
-      <Paper className="target-monitor-panel" elevation={0} variant="outlined">
-        <div className="target-monitor-summary">
-          <div>
-            <p className="label">Local Collection Achievement</p>
-            <h3>{formatPercent(collectionModel.annualRate)}%</h3>
-            <span>
-              {formatMoney(collectionModel.ytdTotal)} collected of {formatMoney(collectionModel.localTarget)}
-            </span>
-          </div>
-          <div className={`target-status-pill ${paceClass}`}>
-            <Gauge size={16} aria-hidden="true" />
-            {paceStatus}
-          </div>
+      {loading && !error && (
+        <section className="inline-alert is-info" role="status">
+          <RefreshCcw size={18} aria-hidden="true" />
+          Loading dashboard data...
+        </section>
+      )}
+
+      <section className="dashboard-summary-grid" aria-label="Executive collection metrics">
+        <CollectionProgressCard
+          achievement={dashboardViewModel.summary.annualRate}
+          collected={dashboardViewModel.summary.ytdTotal}
+          helper={`Annual local target: ${formatMoney(dashboardViewModel.summary.localTarget)}`}
+          status={paceStatus}
+          statusMessage={paceMessage}
+          tone={paceTone}
+        />
+        <div className="dashboard-support-card-grid">
+          <ExecutiveKpi icon={Target} label="Annual target" value={formatMoney(dashboardViewModel.summary.localTarget)} helper="Approved local sources target" />
+          <ExecutiveKpi icon={CalendarDays} label="Expected to date" value={formatMoney(dashboardViewModel.summary.targetToDate)} helper={`${formatPercent(dashboardViewModel.summary.expectedRate)}% of year elapsed`} />
+          <ExecutiveKpi icon={Landmark} label="Remaining to target" value={formatMoney(dashboardViewModel.summary.remaining)} helper="Balance to reach local target" />
         </div>
-        <div className="target-monitor-chart-row">
-          <GaugeChart
-            label="Annual Target"
-            percent={collectionModel.annualRate}
-            value={formatMoney(collectionModel.ytdTotal)}
+      </section>
+
+      <section className="dashboard-analysis-grid" aria-label="Primary dashboard analysis">
+        <Paper className="dashboard-table-card dashboard-source-card" elevation={0} variant="outlined">
+          <ChartHeader
+            title="Source Group Performance"
+            subtitle="Report 21 paid collections, Report 27 RPT municipal share, and income target rows."
           />
-          <div className="target-monitor-progress-stack">
-            <ChartMetric label="Expected to date" value={`${formatMoney(collectionModel.targetToDate)} (${formatPercent(collectionModel.expectedRate)}%)`} />
-            <ChartMetric label="Variance" value={formatMoney(collectionModel.varianceToDate)} tone={collectionModel.varianceToDate >= 0 ? 'good' : 'warning'} />
-            <ChartMetric label="Remaining" value={formatMoney(collectionModel.remaining)} />
-          </div>
-        </div>
-        <div className="target-monitor-detail">
-          <span>Expected to date: {formatMoney(collectionModel.targetToDate)} ({formatPercent(collectionModel.expectedRate)}%)</span>
-          <span>Variance: {formatMoney(collectionModel.varianceToDate)}</span>
-          <span>Remaining: {formatMoney(collectionModel.remaining)}</span>
-        </div>
-      </Paper>
-
-      <section className="metrics-grid dashboard-target-grid" aria-label="Collection target cards">
-        <Metric icon={ReceiptText} label="YTD Paid Collections" value={formatMoney(collectionModel.ytdTotal)} />
-        <Metric icon={Target} label="Local Sources Target" value={formatMoney(collectionModel.localTarget)} />
-        <Metric icon={TrendingUp} label={`${period.monthName} Collections`} value={formatMoney(collectionModel.monthTotal)} />
-        <Metric icon={CalendarDays} label="Monthly Target Pace" value={formatMoney(collectionModel.monthlyTarget)} />
-      </section>
-
-      <section className="dashboard-chart-grid" aria-label="Dashboard charts">
-        <Paper className="dashboard-chart-card" elevation={0} variant="outlined">
-          <ChartHeader title="Collection Share" subtitle="YTD distribution from Report 21" />
-          <DonutChart centerLabel={formatCompactMoney(collectionModel.ytdTotal)} rows={collectionShareRows} />
+          <SourcePerformanceTable rows={dashboardViewModel.sourceGroups} />
         </Paper>
 
-        <Paper className="dashboard-chart-card" elevation={0} variant="outlined">
-          <ChartHeader title="Collector Collection" subtitle="Overall total collection grouped by collector/cashier." />
-          <HorizontalBarChart rows={collectorChartRows} />
+        <div className="dashboard-side-stack">
+          <Paper className="dashboard-chart-card dashboard-share-card" elevation={0} variant="outlined">
+            <ChartHeader title="Collection share" subtitle="YTD distribution from Report 21" />
+            <DonutChart centerLabel={formatMoney(dashboardViewModel.summary.ytdTotal)} rows={dashboardViewModel.collectionShare} />
+          </Paper>
+
+          <ReconciliationAlert reconciliation={dashboardViewModel.reconciliation} />
+
+          <Paper className="dashboard-compact-card" elevation={0} variant="outlined">
+            <p className="label">{dashboardViewModel.currentMonth.name} collections</p>
+            <strong>{formatMoney(dashboardViewModel.currentMonth.total)}</strong>
+            <span>{formatPercent(dashboardViewModel.currentMonth.rate)}% of monthly target pace</span>
+          </Paper>
+        </div>
+      </section>
+
+      <section className="dashboard-performance-grid" aria-label="Collector and operational summaries">
+        <TopCollectors rows={dashboardViewModel.collectors.topFive} allRows={dashboardViewModel.collectors.all} total={dashboardViewModel.collectors.total} />
+        <DiveTicketsSummary period={period} summary={dashboardViewModel.diveTickets.currentMonth} topBuyer={dashboardViewModel.diveTickets.topBuyer} topBuyers={dashboardViewModel.diveTickets.topBuyers} />
+      </section>
+
+      <section className="dashboard-operations-grid" aria-label="Recent activity and notes">
+        <RecentReceipts rows={dashboardViewModel.recentReceipts} />
+        <Paper className="dashboard-method-card" elevation={0} variant="outlined">
+          <ChartHeader title="Methodology Note" subtitle="Source of displayed values" />
+          <div className="dashboard-note-list">
+            <span>Collection totals use the existing dashboard summary cache.</span>
+            <span>Report 21 is paid collections only.</span>
+            <span>RPT local GF uses Report 27 municipal share where generated.</span>
+            <span>LGU Grand Income Target is kept separate from Local Sources Annual Target.</span>
+          </div>
         </Paper>
-
-        <Paper className="dashboard-chart-card" elevation={0} variant="outlined">
-          <ChartHeader title="Dive Ticket Buyers" subtitle={`${period.selectedYear} top 3 buyers`} />
-          <HorizontalBarChart rows={diveBuyerChartRows} />
-        </Paper>
-      </section>
-
-      <Paper className="dashboard-chart-card dashboard-wide-chart" elevation={0} variant="outlined">
-        <ChartHeader title="Source Group Target Gauge" subtitle="Actual paid YTD collection vs annual income target" />
-        <div className="source-gauge-grid">
-          {categoryChartRows.map((row) => (
-            <SourceGauge key={row.label} row={row} />
-          ))}
-        </div>
-      </Paper>
-
-      <section className="dashboard-grid">
-        <div className="panel">
-          <h3>Collector Collection</h3>
-          <div className="snapshot-list">
-            {collectorDisplayRows.map((collector, index) => (
-              <Snapshot
-                icon={Users}
-                key={collector.collector || index}
-                label={`${index + 1}. ${collector.collector || 'Unspecified'}`}
-                value={`${formatMoney(collector.total_amount)} - ${collector.receipt_count} receipts`}
-              />
-            ))}
-            {!collectorDisplayRows.length && (
-              <Snapshot icon={Users} label="Collectors" value="No collection data for the selected period." />
-            )}
-            {collectorReconciliation.overall_total_collection !== undefined && (
-              <Snapshot
-                icon={ListChecks}
-                label={collectorReconciliation.is_matched ? 'Matched with Overall Total Collection' : 'Reconciliation Difference'}
-                value={`Overall ${formatMoney(collectorReconciliation.overall_total_collection || 0)} | Collectors ${formatMoney(collectorReconciliation.collector_summary_total || 0)} | Difference ${formatMoney(collectorReconciliation.difference || 0)}`}
-              />
-            )}
-          </div>
-        </div>
-
-        <div className="panel">
-          <h3>Dive Tickets Monthly Collection</h3>
-          <dl>
-            <div>
-              <dt>{period.monthName} Total</dt>
-              <dd>{formatMoney(diveTickets.total_amount || 0)}</dd>
-            </div>
-            <div>
-              <dt>Receipts / Buyers</dt>
-              <dd>{Number(diveTickets.receipt_count || 0)} receipts / {Number(diveTickets.buyer_count || 0)} buyers</dd>
-            </div>
-          </dl>
-          <div className="dashboard-mini-list">
-            <p className="label">Top 3 Dive Ticket Buyers - Whole Year</p>
-            {topDiveBuyers.map((buyer, index) => (
-              <div className="dashboard-mini-row" key={`${buyer.taxpayer}-${index}`}>
-                <strong>{index + 1}. {buyer.taxpayer}</strong>
-                <span>{formatMoney(buyer.total_amount)} - {buyer.receipt_count} receipts</span>
-              </div>
-            ))}
-            {!topDiveBuyers.length && (
-              <div className="dashboard-mini-row">
-                <strong>No dive tickets found</strong>
-                <span>{period.selectedYear}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="panel dashboard-category-panel">
-        <div className="panel-title-row">
-          <div>
-            <h3>Collections vs Income Target by Source Group</h3>
-            <span>Paid YTD collections compared with the approved income target.</span>
-          </div>
-          <div className="target-status-pill is-good">
-            <Landmark size={16} aria-hidden="true" />
-            Report 21/27 + Income Target
-          </div>
-        </div>
-
-        <div className="dashboard-category-table">
-          <div className="dashboard-category-head">
-            <span>Source Group</span>
-            <span>Actual</span>
-            <span>Target</span>
-            <span>Rate</span>
-            <span>Variance</span>
-          </div>
-          {categoryRows.map((row) => (
-            <div className="dashboard-category-row" key={row.key}>
-              <strong>{row.label}</strong>
-              <span>{formatMoney(row.actual)}</span>
-              <span>{formatMoney(row.target)}</span>
-              <span>{formatPercent(row.rate)}%</span>
-              <span className={row.variance >= 0 ? 'is-positive' : 'is-negative'}>{formatMoney(row.variance)}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="dashboard-grid">
-        <div className="panel">
-          <h3>Target Snapshot</h3>
-          <div className="snapshot-list">
-            <Snapshot icon={ReceiptText} label="Report Basis" value="Report 21 paid collections only" />
-            <Snapshot icon={Target} label="Grand Income Target" value={formatMoney(collectionModel.grandTarget)} />
-            <Snapshot icon={Users} label="YTD Pace" value={`${formatPercent(collectionModel.ytdPaceRate)}% of expected local target`} />
-          </div>
-        </div>
-
-        <div className="panel">
-          <div className="panel-title-row">
-            <div>
-              <h3>Logs</h3>
-              <span>Latest paid receipts from Firebird .FDB</span>
-            </div>
-            <div className="target-status-pill is-good">
-              <ListChecks size={16} aria-hidden="true" />
-              Paid only
-            </div>
-          </div>
-          <div className="payment-log-list">
-            {recentPaymentLogs.map((row) => (
-              <div className="payment-log-row" key={`${row.payment_id}-${row.receipt_no}`}>
-                <div>
-                  <strong>{row.taxpayer || 'UNSPECIFIED'}</strong>
-                  <span>OR {row.receipt_no || '-'} • {row.collection_date || '-'} • {row.collector || 'Unassigned'}</span>
-                </div>
-                <em>{formatMoney(row.total_amount || 0)}</em>
-              </div>
-            ))}
-            {!recentPaymentLogs.length && (
-              <div className="payment-log-empty">
-                <ListChecks size={18} aria-hidden="true" />
-                <span>No recent paid receipt logs for the selected year.</span>
-              </div>
-            )}
-          </div>
-        </div>
       </section>
     </div>
   )
 }
 
-function Metric({ icon: Icon, label, value }) {
+function CollectionProgressCard({ achievement, collected, helper, status, statusMessage, tone }) {
   return (
-    <div className="metric">
-      <Icon size={20} aria-hidden="true" />
-      <span className="metric-label">{label}</span>
-      <strong>{value}</strong>
-    </div>
-  )
-}
-
-function Snapshot({ icon: Icon, label, value }) {
-  return (
-    <div className="snapshot-item">
-      <Icon size={18} aria-hidden="true" />
-      <div>
-        <strong>{label}</strong>
-        <span>{value}</span>
+    <Paper className="dashboard-progress-card" elevation={0} variant="outlined">
+      <div className="dashboard-progress-card-top">
+        <div>
+          <span>Collection progress</span>
+          <strong>{formatMoney(collected)}</strong>
+          <p>{formatPercent(achievement)}% of the annual local target</p>
+        </div>
+        <StatusPill tone={tone}>{status}</StatusPill>
       </div>
-    </div>
+      <ProgressBar label="Annual collection achievement" percent={achievement} tone={tone} />
+      <div className={`dashboard-progress-message ${tone}`}>
+        <TrendingUp size={18} aria-hidden="true" />
+        <span>{statusMessage}</span>
+      </div>
+      <small>{helper}</small>
+    </Paper>
+  )
+}
+
+function ExecutiveKpi({ icon: Icon, label, value, helper, tone = 'neutral' }) {
+  return (
+    <Paper className={`dashboard-kpi-card ${tone}`} elevation={0} variant="outlined">
+      <div className="dashboard-kpi-icon"><Icon size={18} aria-hidden="true" /></div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{helper}</small>
+    </Paper>
   )
 }
 
@@ -702,35 +618,202 @@ function ChartHeader({ title, subtitle }) {
   )
 }
 
-function ChartMetric({ label, value, tone = 'neutral' }) {
+function ProgressBar({ percent, color, label, tone = 'neutral' }) {
   return (
-    <div className={`chart-metric ${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div className={`dashboard-progress ${tone}`} aria-label={label} role="img" title={`${formatPercent(percent)}%`}>
+      <span style={{ '--progress-width': `${clamp(percent)}%`, '--progress-color': color || undefined }} />
     </div>
   )
 }
 
-function GaugeChart({ label, percent, value }) {
-  const safePercent = clamp(percent)
+function SourcePerformanceTable({ rows }) {
+  if (!rows.length) {
+    return <div className="empty-row">No source-group data for the selected period.</div>
+  }
 
   return (
-    <div className="dashboard-gauge">
-      <svg aria-label={`${label} ${formatPercent(safePercent)} percent`} role="img" viewBox="0 0 120 72">
-        <path className="dashboard-gauge-track" d="M20 58 A40 40 0 0 1 100 58" pathLength="100" />
-        <path
-          className="dashboard-gauge-value"
-          d="M20 58 A40 40 0 0 1 100 58"
-          pathLength="100"
-          style={{ strokeDasharray: `${safePercent} 100` }}
-        />
-      </svg>
-      <div className="dashboard-gauge-center">
-        <strong>{formatPercent(safePercent)}%</strong>
-        <span>{label}</span>
+    <div className="dashboard-source-table" role="table" aria-label="Source group performance">
+      <div className="dashboard-source-head" role="row">
+        <span role="columnheader">Source group</span>
+        <span role="columnheader">Actual</span>
+        <span role="columnheader">Target</span>
+        <span role="columnheader">Achievement</span>
+        <span role="columnheader">Variance</span>
+        <span role="columnheader">Progress</span>
+        <span role="columnheader">Status</span>
       </div>
-      <p>{value}</p>
+      {rows.map((row, index) => {
+        const status = statusForRate(row.rate, row.target)
+        return (
+          <div className={`dashboard-source-row ${status.tone}`} key={row.key} role="row">
+            <strong role="cell">{row.label}</strong>
+            <span role="cell">{formatMoney(row.actual)}</span>
+            <span role="cell">{formatMoney(row.target)}</span>
+            <span role="cell">{formatPercent(row.rate)}%</span>
+            <span className={row.variance >= 0 ? 'is-positive' : 'is-negative'} role="cell">{formatMoney(row.variance)}</span>
+            <span role="cell"><ProgressBar label={`${row.label} progress`} percent={row.rate} tone={status.tone} /></span>
+            <span role="cell"><StatusPill tone={status.tone}>{status.label}</StatusPill></span>
+          </div>
+        )
+      })}
     </div>
+  )
+}
+
+function StatusPill({ children, tone = 'neutral' }) {
+  return <span className={`dashboard-status-pill ${tone}`}>{children}</span>
+}
+
+function ReconciliationAlert({ reconciliation }) {
+  const hasData = reconciliation.overall_total_collection !== undefined
+  const isMatched = Boolean(reconciliation.is_matched)
+  const tone = isMatched ? 'good' : 'warning'
+
+  return (
+    <Paper className={`dashboard-reconciliation-alert ${tone}`} elevation={0} variant="outlined">
+      <div className="dashboard-alert-heading">
+        <AlertCircle size={18} aria-hidden="true" />
+        <div>
+          <h3>Reconciliation</h3>
+          <span>{hasData ? reconciliationMessage(reconciliation) : 'No reconciliation data loaded.'}</span>
+        </div>
+      </div>
+      {hasData ? (
+        <>
+          <dl>
+            <div><dt>Overall collections</dt><dd>{formatMoney(reconciliation.overall_total_collection || 0)}</dd></div>
+            <div><dt>Collector total</dt><dd>{formatMoney(reconciliation.collector_summary_total || 0)}</dd></div>
+            <div><dt>Difference</dt><dd>{formatMoney(reconciliation.difference || 0)}</dd></div>
+            <div><dt>Status</dt><dd>{isMatched ? 'Matched' : 'Needs review'}</dd></div>
+          </dl>
+          <button className="dashboard-link-button" type="button">
+            <ListChecks size={16} aria-hidden="true" />
+            Review reconciliation
+          </button>
+        </>
+      ) : (
+        <p>No reconciliation values are available for this dashboard cache.</p>
+      )}
+    </Paper>
+  )
+}
+
+function TopCollectors({ rows, allRows, total }) {
+  return (
+    <Paper className="dashboard-table-card" elevation={0} variant="outlined">
+      <ChartHeader title="Top collectors" subtitle="Top 5 only; complete generated list is expandable below." />
+      <div className="dashboard-rank-list">
+        {rows.map((row, index) => {
+          const value = Number(row.total_amount || 0)
+          const share = total > 0 ? (value / total) * 100 : 0
+          return (
+            <div className="dashboard-rank-row" key={`${row.collector}-${index}`}>
+              <div className="dashboard-rank-avatar" aria-hidden="true">{initialsFromName(row.collector)}</div>
+              <div>
+                <strong>{index + 1}. {row.collector || 'Unspecified'}</strong>
+                <span>{Number(row.receipt_count || 0).toLocaleString('en-PH')} receipts - {formatPercent(share)}% share</span>
+              </div>
+              <em>{formatMoney(value)}</em>
+              <ProgressBar label={`${row.collector || 'Collector'} share`} percent={share} tone="blue" />
+            </div>
+          )
+        })}
+        {!rows.length && <div className="empty-row">No collector totals for the selected period.</div>}
+      </div>
+      {allRows.length > rows.length && (
+        <details className="dashboard-expander">
+          <summary>View all collectors</summary>
+          <div className="dashboard-detail-list">
+            {allRows.map((row, index) => (
+              <div key={`${row.collector}-${index}`}>
+                <span>{row.collector || 'Unspecified'}</span>
+                <strong>{formatMoney(row.total_amount || 0)}</strong>
+                <em>{Number(row.receipt_count || 0)} receipts</em>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </Paper>
+  )
+}
+
+function DiveTicketsSummary({ period, summary, topBuyer, topBuyers }) {
+  const receiptCount = Number(summary.receipt_count || 0)
+  const totalAmount = Number(summary.total_amount || 0)
+  const averageTicketValue = receiptCount > 0 ? totalAmount / receiptCount : 0
+
+  return (
+    <Paper className="dashboard-table-card" elevation={0} variant="outlined">
+      <ChartHeader title="Dive Tickets" subtitle={`${period.monthName} summary and top annual buyer`} />
+      <div className="dashboard-ticket-summary">
+        <div>
+          <span>Current-month total</span>
+          <strong>{formatMoney(totalAmount)}</strong>
+        </div>
+        <div>
+          <span>Receipts</span>
+          <strong>{receiptCount.toLocaleString('en-PH')}</strong>
+        </div>
+        <div>
+          <span>Buyers</span>
+          <strong>{Number(summary.buyer_count || 0)}</strong>
+        </div>
+        <div>
+          <span>Top buyer</span>
+          <strong>{topBuyer?.taxpayer || 'No buyer yet'}</strong>
+          <small>{topBuyer ? `${formatMoney(topBuyer.total_amount)} | ${topBuyer.receipt_count} receipts` : period.selectedYear}</small>
+        </div>
+        <div>
+          <span>Average ticket value</span>
+          <strong>{receiptCount > 0 ? formatMoney(averageTicketValue) : formatMoney(0)}</strong>
+          <small>Derived from total divided by receipt count</small>
+        </div>
+      </div>
+      {topBuyers.length > 0 && (
+        <details className="dashboard-expander">
+          <summary>View dive-ticket details</summary>
+          <div className="dashboard-detail-list">
+            {topBuyers.map((buyer, index) => (
+              <div key={`${buyer.taxpayer}-${index}`}>
+                <span>{buyer.taxpayer || 'Unspecified'}</span>
+                <strong>{formatMoney(buyer.total_amount || 0)}</strong>
+                <em>{Number(buyer.receipt_count || 0)} receipts</em>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </Paper>
+  )
+}
+
+function RecentReceipts({ rows }) {
+  return (
+    <Paper className="dashboard-table-card" elevation={0} variant="outlined">
+      <ChartHeader title="Recent Paid Receipts" subtitle="Five latest paid receipt logs from the generated cache." />
+      <div className="payment-log-list dashboard-payment-list">
+        {rows.map((row) => (
+          <div className="payment-log-row" key={`${row.payment_id}-${row.receipt_no}`}>
+            <div>
+              <strong>{row.taxpayer || 'UNSPECIFIED'}</strong>
+              <span>OR {row.receipt_no || '-'} | {row.collection_date || '-'} | {row.collector || 'Unassigned'}</span>
+            </div>
+            <em>{formatMoney(row.total_amount || 0)}</em>
+          </div>
+        ))}
+        {!rows.length && (
+          <div className="payment-log-empty">
+            <ListChecks size={18} aria-hidden="true" />
+            <span>No recent paid receipt logs for the selected year.</span>
+          </div>
+        )}
+      </div>
+      <details className="dashboard-expander dashboard-action-expander">
+        <summary>View all activity</summary>
+        <p>Open the existing General Fund, Reports, or Search Receipt page for the full receipt history.</p>
+      </details>
+    </Paper>
   )
 }
 
@@ -750,23 +833,23 @@ function DonutChart({ centerLabel, rows }) {
     : '#e4eaf0 0% 100%'
 
   return (
-    <div className="donut-chart-layout">
-      <div className="donut-chart" style={{ background: `conic-gradient(${gradient})` }}>
+    <div className="donut-chart-layout dashboard-share-layout">
+      <div className="donut-chart" style={{ '--donut-delay': '120ms', background: `conic-gradient(${gradient})` }}>
         <div>
-          <strong>{centerLabel}</strong>
+          <strong title={centerLabel}>{centerLabel}</strong>
           <span>Total</span>
         </div>
       </div>
       <div className="chart-legend">
-        {rows.map((row) => {
+        {rows.map((row, index) => {
           const percent = total > 0 ? (Number(row.value || 0) / total) * 100 : 0
           return (
-          <div key={row.label}>
-            <i style={{ backgroundColor: row.color }} />
-            <span>{row.label}</span>
-            <em>{formatPercent(percent)}%</em>
-            <strong>{formatMoney(row.value)}</strong>
-          </div>
+            <div key={row.label} style={{ '--legend-delay': `${180 + index * 60}ms` }}>
+              <i style={{ backgroundColor: row.color }} />
+              <span>{row.label}</span>
+              <em>{formatPercent(percent)}%</em>
+              <strong>{formatMoney(row.value)}</strong>
+            </div>
           )
         })}
       </div>
@@ -774,60 +857,6 @@ function DonutChart({ centerLabel, rows }) {
   )
 }
 
-function HorizontalBarChart({ rows }) {
-  const max = Math.max(...rows.map((row) => Number(row.value || 0)), 0)
 
-  if (!rows.length) {
-    return <div className="empty-row">No chart data for the selected period.</div>
-  }
 
-  return (
-    <div className="horizontal-bar-chart">
-      {rows.map((row) => {
-        const percent = max > 0 ? (Number(row.value || 0) / max) * 100 : 0
-        return (
-          <div className="horizontal-bar-row" key={row.label}>
-            <div>
-              <strong>{row.label}</strong>
-              <span>{formatMoney(row.value)}</span>
-            </div>
-            <div className="horizontal-bar-track">
-              <span style={{ backgroundColor: row.color, width: `${clamp(percent)}%` }} />
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
 
-function SourceGauge({ row }) {
-  const safePercent = clamp(row.percent)
-  const tone = row.percent >= 100 ? 'success' : row.percent >= 70 ? 'warning' : 'default'
-
-  return (
-    <div className="source-gauge-card">
-      <div className="source-gauge-heading">
-        <strong>{row.label}</strong>
-        <Chip label={`${formatPercent(row.percent)}%`} color={tone} size="small" variant="outlined" />
-      </div>
-      <LinearProgress
-        value={safePercent}
-        variant="determinate"
-        sx={{
-          backgroundColor: '#e4eaf0',
-          borderRadius: 999,
-          height: 10,
-          '& .MuiLinearProgress-bar': {
-            backgroundColor: row.color,
-            borderRadius: 999,
-          },
-        }}
-      />
-      <div className="source-gauge-values">
-        <span>{formatMoney(row.value)}</span>
-        <span>Target rate</span>
-      </div>
-    </div>
-  )
-}

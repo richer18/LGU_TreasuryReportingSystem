@@ -336,6 +336,14 @@ def safe_filename(value):
     return clean.strip("._") or "report"
 
 
+def long_date_label(value):
+    try:
+        parsed = datetime.strptime(str(value), "%Y-%m-%d")
+        return f"{parsed.strftime('%B')} {parsed.day} {parsed.year}"
+    except (TypeError, ValueError):
+        return str(value or "")
+
+
 def official_category_for_source(source_name):
     for category, sources in OFFICIAL_CATEGORY_SOURCES.items():
         if source_name in sources:
@@ -1375,22 +1383,22 @@ def write_collector_receipt_workbook(date_from, date_to, output_dir, collector=N
     sheet.title = "Collector Receipts"
 
     title = "Generate Collection Receipt Per Collector"
-    sheet.merge_cells("A1:I1")
+    sheet.merge_cells("A1:J1")
     sheet["A1"] = title
     sheet["A1"].font = Font(bold=True, color="FFFFFF", size=14)
     sheet["A1"].fill = PatternFill("solid", fgColor="0554F2")
     sheet["A1"].alignment = Alignment(horizontal="center")
 
-    sheet.merge_cells("A2:I2")
-    sheet["A2"] = f"Period: {date_from} to {date_to}"
+    sheet.merge_cells("A2:J2")
+    sheet["A2"] = f"Period: from {long_date_label(date_from)} to {long_date_label(date_to)}"
     sheet["A2"].alignment = Alignment(horizontal="center")
 
     if collector:
-        sheet.merge_cells("A3:I3")
+        sheet.merge_cells("A3:J3")
         sheet["A3"] = f"Collector: {collector}"
         sheet["A3"].alignment = Alignment(horizontal="center")
 
-    headers = ["Date", "Collector", "Receipt Type", "OR No.", "Taxpayer", "Lines", "Status", "RCD No.", "Total"]
+    headers = ["Date", "Collector", "Fund / Source", "Receipt Type", "OR No.", "Taxpayer", "Lines", "Status", "RCD No.", "Total"]
     header_row = 5
     header_fill = PatternFill("solid", fgColor="EAF2FF")
     for column_index, header in enumerate(headers, start=1):
@@ -1407,6 +1415,7 @@ def write_collector_receipt_workbook(date_from, date_to, output_dir, collector=N
         values = [
             row.get("collection_date"),
             row.get("collector"),
+            row.get("fund_source"),
             row.get("receipt_type"),
             row.get("receipt_no"),
             row.get("taxpayer"),
@@ -1417,14 +1426,14 @@ def write_collector_receipt_workbook(date_from, date_to, output_dir, collector=N
         ]
         for column_index, value in enumerate(values, start=1):
             sheet.cell(row_index, column_index).value = excel_value(value)
-        sheet.cell(row_index, 9).number_format = "#,##0.00"
+        sheet.cell(row_index, 10).number_format = "#,##0.00"
 
     total_row = header_row + len(rows) + 1
-    sheet.cell(total_row, 8).value = "Total"
-    sheet.cell(total_row, 8).font = Font(bold=True)
-    sheet.cell(total_row, 9).value = float(total_amount)
+    sheet.cell(total_row, 9).value = "Total"
     sheet.cell(total_row, 9).font = Font(bold=True)
-    sheet.cell(total_row, 9).number_format = "#,##0.00"
+    sheet.cell(total_row, 10).value = float(total_amount)
+    sheet.cell(total_row, 10).font = Font(bold=True)
+    sheet.cell(total_row, 10).number_format = "#,##0.00"
 
     for column_index, column in enumerate(sheet.columns, start=1):
         max_length = max(len(str(cell.value or "")) for cell in column)

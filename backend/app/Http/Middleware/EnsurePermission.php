@@ -9,16 +9,18 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnsurePermission
 {
-    public function handle(Request $request, Closure $next, string $permission): Response
+    public function handle(Request $request, Closure $next, string ...$requiredPermissions): Response
     {
         $user = $request->user();
         $permissions = config("permissions.roles.{$user?->role}", []);
 
-        if (! $user || ! in_array($permission, $permissions, true)) {
+        $allowed = collect($requiredPermissions)->contains(fn (string $permission) => in_array($permission, $permissions, true));
+
+        if (! $user || ! $allowed) {
             Log::warning('Unauthorized permission access attempt.', [
                 'user_id' => $user?->id,
                 'role' => $user?->role,
-                'permission' => $permission,
+                'permissions' => $requiredPermissions,
                 'path' => $request->path(),
             ]);
 

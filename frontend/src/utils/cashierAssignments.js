@@ -4,6 +4,8 @@ export const CASHIER_COLLECTOR_ASSIGNMENTS = [
   { value: 'ricardo', label: 'Ricardo Enopia', aliases: ['ricardo enopia', 'ricardo t enopia', 'ricardo t. enopia', 'ricardo'] },
   { value: 'emily', label: 'Emily Credo', aliases: ['emily credo', 'emily e credo', 'emily e. credo', 'emily'] },
   { value: 'angelique', label: 'Angelique Iris Rafales', aliases: ['angelique iris rafales', 'angelique iris a rafales', 'angelique iris a. rafales', 'angelique', 'iris'] },
+  { value: 'amabella', label: 'Amabella S. Ramos', aliases: ['amabella s ramos', 'amabella s. ramos', 'amabella', 'collector account', 'collector'] },
+  { value: 'gtz', label: 'GTZ', aliases: ['gtz'] },
 ]
 
 const normalizeAssignmentName = (value) =>
@@ -41,3 +43,4 @@ export const getCashierAssignmentByName = (name) => {
     return aliases.some((alias) => normalizeAssignmentName(alias) === normalized)
   }) || null
 }
+

@@ -59,7 +59,7 @@ const formatDate = (value) => {
 
 const normalizeRoleLabel = (role) =>
   String(role || '')
-    .split('_')
+    .split(/[_-]+/)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
 
@@ -95,6 +95,8 @@ export function UserAccountsPage({ user }) {
   const [passwordForm, setPasswordForm] = useState(emptyPasswordForm)
 
   const canManageUsers = user?.permissions?.includes('users.manage')
+  const canViewOwnAccount = user?.permissions?.includes('users.self')
+  const canOpenUserAccounts = canManageUsers || canViewOwnAccount
 
   const loadUsers = async () => {
     setLoading(true)
@@ -120,14 +122,14 @@ export function UserAccountsPage({ user }) {
   }
 
   useEffect(() => {
-    if (!canManageUsers) {
+    if (!canOpenUserAccounts) {
       setLoading(false)
       return
     }
 
     loadUsers()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canManageUsers])
+  }, [canOpenUserAccounts])
 
   const roleOptions = useMemo(() => Object.keys(roles), [roles])
 
@@ -268,12 +270,12 @@ export function UserAccountsPage({ user }) {
     }
   }
 
-  if (!canManageUsers) {
+  if (!canOpenUserAccounts) {
     return (
       <div className="page-stack">
         <section className="inline-alert">
           <ShieldCheck size={18} aria-hidden="true" />
-          Forbidden. Admin access is required.
+          Forbidden. You do not have access to user accounts.
         </section>
       </div>
     )
@@ -283,48 +285,52 @@ export function UserAccountsPage({ user }) {
     <div className="page-stack user-accounts-page">
       <section className="page-hero compact-hero">
         <div>
-          <p className="eyebrow">Admin Control</p>
+          <p className="eyebrow">{canManageUsers ? 'Admin Control' : 'My Account'}</p>
           <h1>User's Accounts</h1>
-          <span>Manage system users, roles, and account access.</span>
+          <span>{canManageUsers ? 'Manage system users, roles, and account access.' : 'View your account and update your password.'}</span>
         </div>
-        <button className="primary-button" onClick={openCreate} type="button">
-          <Plus size={16} aria-hidden="true" />
-          New User
-        </button>
+        {canManageUsers && (
+          <button className="primary-button" onClick={openCreate} type="button">
+            <Plus size={16} aria-hidden="true" />
+            New User
+          </button>
+        )}
       </section>
 
-      <Paper className="user-account-toolbar" elevation={0} variant="outlined">
-        <label className="treasury-field">
-          <span><Search size={14} aria-hidden="true" /> Search</span>
-          <input
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Name or username"
-            type="search"
-            value={query}
-          />
-        </label>
-        <label className="treasury-field">
-          <span>Role</span>
-          <select onChange={(event) => setRoleFilter(event.target.value)} value={roleFilter}>
-            <option value="">All roles</option>
-            {roleOptions.map((role) => (
-              <option key={role} value={role}>{normalizeRoleLabel(role)}</option>
-            ))}
-          </select>
-        </label>
-        <label className="treasury-field">
-          <span>Status</span>
-          <select onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}>
-            <option value="">All statuses</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
-        </label>
-        <button className="secondary-button" disabled={loading} onClick={loadUsers} type="button">
-          <RefreshCcw size={16} aria-hidden="true" />
-          Refresh
-        </button>
-      </Paper>
+      {canManageUsers && (
+              <Paper className="user-account-toolbar" elevation={0} variant="outlined">
+                <label className="treasury-field">
+                  <span><Search size={14} aria-hidden="true" /> Search</span>
+                  <input
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Name or username"
+                    type="search"
+                    value={query}
+                  />
+                </label>
+                <label className="treasury-field">
+                  <span>Role</span>
+                  <select onChange={(event) => setRoleFilter(event.target.value)} value={roleFilter}>
+                    <option value="">All roles</option>
+                    {roleOptions.map((role) => (
+                      <option key={role} value={role}>{normalizeRoleLabel(role)}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="treasury-field">
+                  <span>Status</span>
+                  <select onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}>
+                    <option value="">All statuses</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </label>
+                <button className="secondary-button" disabled={loading} onClick={loadUsers} type="button">
+                  <RefreshCcw size={16} aria-hidden="true" />
+                  Refresh
+                </button>
+              </Paper>
+      )}
 
       {message && <section className="inline-alert success-alert">{message}</section>}
       {error && <section className="inline-alert">{error}</section>}
@@ -361,12 +367,12 @@ export function UserAccountsPage({ user }) {
                   <TableCell sx={tableCellSx} align="right">
                     <div className="user-action-row">
                       <button className="text-button" onClick={() => openView(row)} type="button"><Eye size={14} /> View</button>
-                      <button className="text-button" onClick={() => openEdit(row)} type="button"><Pencil size={14} /> Edit</button>
+                      {canManageUsers && <button className="text-button" onClick={() => openEdit(row)} type="button"><Pencil size={14} /> Edit</button>}
                       <button className="text-button" onClick={() => openResetPassword(row)} type="button"><KeyRound size={14} /> Reset</button>
-                      <button className="text-button danger" disabled={saving || row.id === user?.id} onClick={() => toggleStatus(row)} type="button">
+                      {canManageUsers && <button className="text-button danger" disabled={saving || row.id === user?.id} onClick={() => toggleStatus(row)} type="button">
                         <UserX size={14} />
                         {row.account_status === 'active' ? 'Deactivate' : 'Activate'}
-                      </button>
+                      </button>}
                     </div>
                   </TableCell>
                 </TableRow>

@@ -42,6 +42,7 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong'
 import SaveIcon from '@mui/icons-material/Save'
 import SearchIcon from '@mui/icons-material/Search'
 import axiosInstance from '../../axiosinstance/axiosInstance'
+import { getCashierCollectorAssignment } from '../../utils/cashierAssignments'
 
 const uiColors = {
   navy: 'var(--color-text-strong)',
@@ -138,6 +139,34 @@ const emptyLine = () => ({
   validationMessage: '',
 })
 
+const emptyManualAccountabilityLine = () => ({
+  id: makeClientId(),
+  formType: 'AF 51',
+  beginningQty: '',
+  beginningFrom: '',
+  beginningTo: '',
+  receiptAccountQty: '',
+  receiptAccountFrom: '',
+  receiptAccountTo: '',
+  issuedQty: '',
+  issuedFrom: '',
+  issuedTo: '',
+  endingQty: '',
+  endingFrom: '',
+  endingTo: '',
+})
+
+const emptyLiquidatingOfficerLine = () => ({
+  id: makeClientId(),
+  officerName: '',
+  otherOfficerName: '',
+  reportNo: '',
+  amount: '',
+  autoFilled: false,
+  sourceBatchKey: '',
+  sourceDate: '',
+})
+
 const months = [
   { label: 'January', value: '1' },
   { label: 'February', value: '2' },
@@ -160,14 +189,49 @@ const collectorOptions = [
   { label: 'RICARDO T. ENOPIA', value: 'RICARDO' },
   { label: 'ANGELIQUE IRIS A. RAFALES', value: 'IRIS' },
   { label: 'EMILY E. CREDO', value: 'EMILY' },
+  { label: 'AMABELLA S. RAMOS', value: 'AMABELLA' },
+  { label: 'GTZ', value: 'GTZ' },
 ]
 const formTypeOptions = ['AF 51', 'Comm Tax.', 'AF 56', 'RPT', 'RPT SEF']
 const templateOptions = [
   { value: '100_GF', label: '100_GF' },
   { value: '200_SEF', label: '200_SEF' },
 ]
+const bankOptions = ['LAND BANK', 'DBP', 'VETERANS BANK', 'Other Bank']
+const cashierOptions = [
+  { label: 'AGNES B. ELLO', value: 'AGNES B. ELLO' },
+  { label: 'EMILY E. CREDO', value: 'EMILY E. CREDO' },
+  { label: 'FLORA MY D. FERRER', value: 'FLORA MY D. FERRER' },
+  { label: 'RICARDO T. ENOPIA', value: 'RICARDO T. ENOPIA' },
+  { label: 'Cashier Account', value: 'Cashier Account' },
+  { label: 'Others', value: 'Others' },
+]
 
 const collectorFullName = (value) => collectorOptions.find((collector) => collector.value === value)?.label || value || 'RCD'
+const collectorValueForUser = (user) => {
+  const identity = [user?.name, user?.username, user?.email].filter(Boolean).join(' ').toUpperCase()
+  if (!identity) return ''
+
+  return collectorOptions.find((collector) => {
+    const label = collector.label.toUpperCase()
+    const value = collector.value.toUpperCase()
+    return identity.includes(value) || identity.includes(label) || label.includes(identity)
+  })?.value || ''
+}
+const cashierCollectorValueForUser = (user) => {
+  const assignment = getCashierCollectorAssignment(user)
+  if (!assignment && String(user?.role || '').toLowerCase() !== 'cashier') return ''
+
+  const assignmentLabel = assignment?.label || user?.name || ''
+  const assignmentValue = assignment?.value || user?.name || ''
+  const identity = [assignmentValue, assignmentLabel, user?.name, user?.username, user?.email].filter(Boolean).join(' ').toUpperCase()
+
+  return collectorOptions.find((collector) => {
+    const label = collector.label.toUpperCase()
+    const value = collector.value.toUpperCase()
+    return identity.includes(value) || identity.includes(label) || label.includes(identity)
+  })?.value || assignmentLabel
+}
 
 const safeFileName = (value) => String(value || 'RCD').trim().replace(/[^A-Za-z0-9-]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '')
 const cleanReportNo = (value) => {
@@ -243,6 +307,8 @@ const statusMeta = {
   Approved: { bg: 'var(--color-secondary-soft)', color: 'var(--color-primary)' },
   Deposited: { bg: 'var(--color-success-soft)', color: 'var(--color-success-dark)' },
   Issued: { bg: 'var(--color-primary-soft)', color: 'var(--color-primary)' },
+  Released: { bg: 'var(--color-secondary-soft)', color: 'var(--color-primary)' },
+  Returned: { bg: 'var(--color-success-soft)', color: 'var(--color-success-dark)' },
 }
 
 const canRemitStatus = (status) => ['Saved', 'For Remittance', 'Ready for Remittance'].includes(status)
@@ -250,6 +316,7 @@ const canReceiveStatus = (status) => status === 'Remitted to ACO'
 const canDeleteStatus = (status) => !['Saved', 'Printed', 'Remitted'].includes(status)
 const canDeleteDraftStatus = (status) => status === 'Draft'
 const isCollectorRole = (role) => String(role || '').toLowerCase().includes('collector')
+const isAccountableCustodianRole = (role) => String(role || '').toLowerCase().includes('accountable_custodian') || String(role || '').toLowerCase().includes('accountable custodian')
 const isAcoRole = (role) => {
   const value = String(role || '').toLowerCase()
   return value.includes('aco') || value.includes('accountable') || value.includes('admin')
@@ -259,6 +326,7 @@ const defaultRemitForm = () => ({
   cashAmount: 0,
   checkAmount: 0,
   referenceNo: '',
+  rcdNo: '',
   receivedBy: '',
   remittanceDate: `${todayValue()}T${new Date().toTimeString().slice(0, 5)}`,
   remarks: '',
@@ -269,8 +337,33 @@ function StatusChip({ value }) {
   return <Chip label={value || '-'} size="small" sx={{ bgcolor: meta.bg, color: meta.color, fontWeight: 800 }} />
 }
 
-function RcdPage({ user }) {
-  const [activeSection, setActiveSection] = useState('overview')
+function RcdPage({ user, workflow = 'rcd' }) {
+  const currentRole = user?.role || 'Admin'
+  const roleValue = String(currentRole || '').toLowerCase()
+  const acoCollectorWorkflow = workflow === 'acoCollector' || roleValue.includes('aco_collector') || roleValue.includes('aco collector')
+  const collectorView = isCollectorRole(currentRole)
+  const cashierView = roleValue.includes('cashier')
+  const accountableCustodianView = isAccountableCustodianRole(currentRole)
+  const canManageAccountableForms = Boolean(user?.permissions?.includes('rcd.accountable'))
+  const acoView = isAcoRole(currentRole)
+  const adminView = roleValue.includes('admin')
+  const treasurerView = roleValue.includes('treasurer')
+  const canOpenRemittance = collectorView || cashierView || treasurerView || adminView
+  const canEditRemitRcdNo = collectorView || roleValue.includes('aco_collector') || roleValue.includes('aco collector')
+  const userCollectorValue = collectorValueForUser(user)
+  const cashierCollectorValue = cashierView ? cashierCollectorValueForUser(user) : ''
+  const defaultCollectorValue = (collectorView && userCollectorValue) ? userCollectorValue : (cashierCollectorValue || '')
+  const lockedCollectorValue = (collectorView && userCollectorValue) ? userCollectorValue : (cashierCollectorValue || '')
+  const entryCollectorOptions = lockedCollectorValue
+    ? (collectorOptions.some((collector) => collector.value === lockedCollectorValue)
+        ? collectorOptions.filter((collector) => collector.value === lockedCollectorValue)
+        : [{ label: lockedCollectorValue, value: lockedCollectorValue }])
+    : collectorOptions
+  const accountabilityCollectorOptions = collectorView && userCollectorValue
+    ? collectorOptions.filter((collector) => collector.value === userCollectorValue)
+    : collectorOptions
+
+  const [activeSection, setActiveSection] = useState(accountableCustodianView ? 'accountability' : 'overview')
   const [accessStatus, setAccessStatus] = useState(null)
   const [accessError, setAccessError] = useState('')
   const [loadingAccess, setLoadingAccess] = useState(false)
@@ -299,29 +392,45 @@ function RcdPage({ user }) {
   const [actionMenuRow, setActionMenuRow] = useState(null)
   const [accountabilityRows, setAccountabilityRows] = useState([])
   const [accountabilityMessage, setAccountabilityMessage] = useState('')
+  const [accountabilitySearch, setAccountabilitySearch] = useState('')
   const [savingAccountability, setSavingAccountability] = useState(false)
+  const [returnDialogOpen, setReturnDialogOpen] = useState(false)
+  const [returningAccountableRow, setReturningAccountableRow] = useState(null)
+  const [returnForm, setReturnForm] = useState({ returnedAt: todayValue() })
+  const [editAccountableDialogOpen, setEditAccountableDialogOpen] = useState(false)
+  const [editingAccountableRow, setEditingAccountableRow] = useState(null)
+  const [editAccountableForm, setEditAccountableForm] = useState({ collector: '', collectorSignedBy: '', remarks: '' })
   const [accountabilityForm, setAccountabilityForm] = useState({
-    collector: 'IRIS',
+    collector: defaultCollectorValue,
     collectorSignedBy: '',
     formType: 'AF 51',
     receiptFrom: '',
     receiptTo: '',
     releasedAt: todayValue(),
     releasedBy: user?.name || '',
+    returnedAt: '',
     remarks: '',
     serialNo: '',
   })
   const [form, setForm] = useState({
     template: '100_GF + 200_SEF',
-    collector: 'IRIS',
+    collector: defaultCollectorValue,
     collectionDate: todayValue(),
     reportNo: '',
     cashierRemittedAt: '',
     collectorBankRemittedAt: '',
     bankName: '',
     bankReference: '',
+    liquidatingOfficerName: '',
+    liquidatingReportNo: '',
+    liquidatingAmount: '',
+    depositBank: 'LAND BANK',
+    depositOtherBank: '',
+    depositReference: '',
   })
   const [collectionLines, setCollectionLines] = useState([emptyLine()])
+  const [liquidatingRows, setLiquidatingRows] = useState([emptyLiquidatingOfficerLine()])
+  const [manualAccountabilityLines, setManualAccountabilityLines] = useState([emptyManualAccountabilityLine()])
 
   const totals = useMemo(() => {
     const collectorTotal = collectionLines.reduce((sum, line) => sum + Number(line.collectorAmount || 0), 0)
@@ -329,6 +438,11 @@ function RcdPage({ user }) {
     const receiptCount = collectionLines.reduce((sum, line) => sum + countReceiptRange(line.receiptFrom, line.receiptTo), 0)
     return { collectorTotal, fdbTotal, receiptCount, difference: collectorTotal - fdbTotal }
   }, [collectionLines])
+
+  const liquidatingTotal = useMemo(
+    () => liquidatingRows.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+    [liquidatingRows],
+  )
 
   const accountabilityReceiptCount = useMemo(
     () => countReceiptRange(accountabilityForm.receiptFrom, accountabilityForm.receiptTo || accountabilityForm.receiptFrom),
@@ -343,12 +457,6 @@ function RcdPage({ user }) {
     () => Number(receiveForm.amountReceived || 0) - Number(receiveBatch?.total || 0),
     [receiveForm.amountReceived, receiveBatch],
   )
-  const currentRole = user?.role || 'Admin'
-  const collectorView = isCollectorRole(currentRole)
-  const acoView = isAcoRole(currentRole)
-  const adminView = String(currentRole || '').toLowerCase().includes('admin')
-  const collectorActionView = collectorView || adminView
-
   const summary = useMemo(() => batches.reduce((acc, batch) => {
     acc.total += Number(batch.total || 0)
     if (batch.stage === 'Draft') acc.draft += 1
@@ -362,11 +470,49 @@ function RcdPage({ user }) {
     return batches.filter((batch) => [batch.id, batch.collector, batch.fund, batch.forms, batch.stage].join(' ').toLowerCase().includes(term))
   }, [batches, search])
 
+  const filteredAccountabilityRows = useMemo(() => {
+    const term = accountabilitySearch.trim().toLowerCase()
+    if (!term) return accountabilityRows
+
+    return accountabilityRows.filter((row) => [
+      row.released_at,
+      row.returned_at,
+      row.form_type,
+      row.serial_no,
+      row.collector_full_name,
+      row.collector,
+      row.receipt_no_from,
+      row.receipt_no_to,
+      row.receipt_count,
+      row.released_by,
+      row.collector_signed_by,
+      row.ending_balance_from,
+      row.ending_balance_to,
+      row.status,
+      row.remarks,
+    ].join(' ').toLowerCase().includes(term))
+  }, [accountabilityRows, accountabilitySearch])
+
+
   const updateLine = (id, field, value) => {
     setCollectionLines((current) => current.map((line) => (line.id === id ? { ...line, [field]: value } : line)))
   }
 
   const addCollectionLine = () => setCollectionLines((current) => [...current, emptyLine()])
+  const addLiquidatingRow = () => setLiquidatingRows((current) => [...current, emptyLiquidatingOfficerLine()])
+  const updateLiquidatingRow = (id, field, value) => {
+    setLiquidatingRows((current) => current.map((row) => (row.id === id ? { ...row, [field]: value, autoFilled: false, sourceBatchKey: '', sourceDate: '' } : row)))
+  }
+  const removeLiquidatingRow = (id) => {
+    setLiquidatingRows((current) => (current.length > 1 ? current.filter((row) => row.id !== id) : [emptyLiquidatingOfficerLine()]))
+  }
+  const addManualAccountabilityLine = () => setManualAccountabilityLines((current) => [...current, emptyManualAccountabilityLine()])
+  const updateManualAccountabilityLine = (id, field, value) => {
+    setManualAccountabilityLines((current) => current.map((line) => (line.id === id ? { ...line, [field]: value } : line)))
+  }
+  const removeManualAccountabilityLine = (id) => {
+    setManualAccountabilityLines((current) => (current.length > 1 ? current.filter((line) => line.id !== id) : [emptyManualAccountabilityLine()]))
+  }
 
   const validateCollectorLines = async () => {
     const linesToValidate = collectionLines
@@ -461,23 +607,55 @@ function RcdPage({ user }) {
   }
 
   const accountabilityForLine = (line) => {
+    if (acoCollectorWorkflow) {
+      return {
+        beginningFrom: line.beginningFrom || '',
+        beginningQty: line.beginningQty || '',
+        beginningTo: line.beginningTo || '',
+        ending: { from: line.endingFrom || '', qty: line.endingQty || '', to: line.endingTo || '' },
+        receiptAccountFrom: line.receiptAccountFrom || '',
+        receiptAccountQty: line.receiptAccountQty || '',
+        receiptAccountTo: line.receiptAccountTo || '',
+        release: null,
+      }
+    }
+
     const release = matchingReleaseForLine(line)
+    const issuedFrom = serialNumber(line.receiptFrom)
+    const issuedTo = serialNumber(line.receiptTo || line.receiptFrom)
     const releasedFrom = release?.receipt_no_from || release?.beginning_balance_from || ''
     const releasedTo = release?.receipt_no_to || release?.beginning_balance_to || ''
     const endingFrom = release?.ending_balance_from || ''
     const endingTo = release?.ending_balance_to || ''
+    const endingStart = serialNumber(endingFrom)
+    const endingEnd = serialNumber(endingTo)
     const untouchedRelease = Boolean(
       release
       && endingFrom
       && endingTo
-      && serialNumber(endingFrom) === serialNumber(releasedFrom)
-      && serialNumber(endingTo) === serialNumber(releasedTo)
+      && endingStart === serialNumber(releasedFrom)
+      && endingEnd === serialNumber(releasedTo)
+    )
+    const issuedFallsWithinEndingBalance = Boolean(
+      release
+      && endingStart
+      && endingEnd
+      && issuedFrom >= endingStart
+      && issuedTo <= endingEnd
     )
     const releaseIsBeforeCollection = isAfterDate(form.collectionDate, release?.released_at)
-    const hasCarryForwardBalance = Boolean(release && endingFrom && endingTo && !untouchedRelease && releaseIsBeforeCollection)
+    const issuedStartsAfterReleaseStart = Boolean(release && serialNumber(releasedFrom) && issuedFrom > serialNumber(releasedFrom))
+    const fallbackBeginningFrom = endingFrom || (issuedStartsAfterReleaseStart ? (line.receiptFrom || '') : '')
+    const fallbackBeginningTo = endingTo || (issuedStartsAfterReleaseStart ? releasedTo : '')
+    const hasCarryForwardBalance = Boolean(
+      release
+      && fallbackBeginningFrom
+      && fallbackBeginningTo
+      && (issuedFallsWithinEndingBalance || (releaseIsBeforeCollection && (endingFrom || issuedStartsAfterReleaseStart)))
+    )
 
-    const beginningFrom = release ? (hasCarryForwardBalance ? endingFrom : '') : (line.beginningFrom || '')
-    const beginningTo = release ? (hasCarryForwardBalance ? endingTo : '') : (line.beginningTo || '')
+    const beginningFrom = release ? (hasCarryForwardBalance ? fallbackBeginningFrom : '') : (line.beginningFrom || '')
+    const beginningTo = release ? (hasCarryForwardBalance ? fallbackBeginningTo : '') : (line.beginningTo || '')
     const beginningQty = beginningFrom && beginningTo ? countReceiptRange(beginningFrom, beginningTo) : (release ? '' : (line.beginningQty || ''))
     const receiptAccountFrom = release && !hasCarryForwardBalance ? releasedFrom : (release ? '' : (line.receiptAccountFrom || ''))
     const receiptAccountTo = release && !hasCarryForwardBalance ? releasedTo : (release ? '' : (line.receiptAccountTo || ''))
@@ -507,6 +685,10 @@ function RcdPage({ user }) {
   const linePayload = (line) => {
     const accountability = accountabilityForLine(line)
     const ending = accountability.ending
+    const issuedFrom = collectorView ? (line.issuedFrom || line.receiptFrom || '') : (line.receiptFrom || '')
+    const issuedTo = collectorView ? (line.issuedTo || line.receiptTo || line.receiptFrom || '') : (line.receiptTo || line.receiptFrom || '')
+    const issuedQty = collectorView ? (line.issuedQty || countReceiptRange(issuedFrom, issuedTo) || '') : countReceiptRange(line.receiptFrom, line.receiptTo)
+
     return {
       ...line,
       beginningFrom: accountability.beginningFrom,
@@ -515,19 +697,42 @@ function RcdPage({ user }) {
       endingFrom: ending.from === '-' ? '' : ending.from,
       endingQty: ending.qty === '-' ? '' : String(ending.qty),
       endingTo: ending.to === '-' ? '' : ending.to,
+      issuedFrom,
+      issuedQty: issuedQty ? String(issuedQty) : '',
+      issuedTo,
       receiptAccountFrom: accountability.receiptAccountFrom,
       receiptAccountQty: accountability.receiptAccountQty,
       receiptAccountTo: accountability.receiptAccountTo,
     }
   }
 
-  const rcdPayload = (status) => ({
-    form: { ...form, reportNo: cleanReportNo(form.reportNo), template: '100_GF + 200_SEF' },
-    lookup_key: editingReportNo || '',
-    report_no: cleanReportNo(form.reportNo),
-    status,
-    lines: collectionLines.filter((line) => line.formType && line.receiptFrom).map(linePayload),
-  })
+  const rcdPayload = (status) => {
+    const formPayload = { ...form, reportNo: cleanReportNo(form.reportNo), template: '100_GF + 200_SEF' }
+    if (acoCollectorWorkflow) {
+      const liquidatingPayload = liquidatingRows
+        .filter((row) => ['officerName', 'otherOfficerName', 'reportNo', 'amount'].some((key) => String(row[key] || '').trim() !== ''))
+        .map(({ id, autoFilled, sourceBatchKey, sourceDate, ...row }) => ({
+          ...row,
+          officerName: row.officerName === 'Others' ? row.otherOfficerName : row.officerName,
+        }))
+      formPayload.liquidatingRows = liquidatingPayload
+      formPayload.liquidatingOfficerName = liquidatingPayload[0]?.officerName || ''
+      formPayload.liquidatingReportNo = liquidatingPayload[0]?.reportNo || ''
+      formPayload.liquidatingAmount = liquidatingPayload[0]?.amount || totals.collectorTotal
+      formPayload.manualAccountabilityMode = 'acoCollector'
+      formPayload.accountabilityRows = manualAccountabilityLines
+        .filter((line) => Object.entries(line).some(([key, value]) => key !== 'id' && String(value || '').trim() !== ''))
+        .map(({ id, ...line }) => line)
+    }
+
+    return {
+      form: formPayload,
+      lookup_key: editingReportNo || '',
+      report_no: cleanReportNo(form.reportNo),
+      status,
+      lines: collectionLines.filter((line) => line.formType && line.receiptFrom).map(linePayload),
+    }
+  }
 
   const printRcdData = (rcd) => {
     const lines = rcd?.lines || []
@@ -570,7 +775,7 @@ function RcdPage({ user }) {
           <div class="meta">
             <div>Fund: <b>${escapeHtml(rcd?.fund)}</b></div>
             <div>Date: <b>${escapeHtml(rcd?.date)}</b></div>
-            <div>Name of Accountable Officer: <b>${escapeHtml(rcd?.collector)}</b></div>
+            <div>Name of Accountable Officer: <b>${escapeHtml(collectorFullName(rcd?.collector))}</b></div>
             <div>Report No.: <b>${escapeHtml(rcd?.id)}</b></div>
           </div>
           <div class="section">A. COLLECTIONS</div>
@@ -598,16 +803,24 @@ function RcdPage({ user }) {
     setForm((current) => ({
       ...current,
       template: '100_GF + 200_SEF',
-      collector: 'IRIS',
+      collector: defaultCollectorValue,
       collectionDate: todayValue(),
       reportNo: '',
       cashierRemittedAt: '',
       collectorBankRemittedAt: '',
       bankName: '',
       bankReference: '',
+      liquidatingOfficerName: '',
+      liquidatingReportNo: '',
+      liquidatingAmount: '',
+      depositBank: 'LAND BANK',
+      depositOtherBank: '',
+      depositReference: '',
     }))
     setEditingReportNo('')
     setCollectionLines([emptyLine()])
+    setLiquidatingRows([emptyLiquidatingOfficerLine()])
+    setManualAccountabilityLines([emptyManualAccountabilityLine()])
     setGenerateMessage('')
   }
 
@@ -670,16 +883,118 @@ function RcdPage({ user }) {
   const resetAccountabilityForm = () => {
     setAccountabilityForm((current) => ({
       ...current,
-      collector: 'IRIS',
+      collector: defaultCollectorValue,
       collectorSignedBy: '',
       formType: 'AF 51',
       receiptFrom: '',
       receiptTo: '',
       releasedAt: todayValue(),
       releasedBy: user?.name || '',
+      returnedAt: '',
       remarks: '',
       serialNo: '',
     }))
+  }
+
+  const openReturnDialog = (row) => {
+    setReturningAccountableRow(row)
+    setReturnForm({ returnedAt: dateValue(row.returned_at) || todayValue() })
+    setAccountabilityMessage('')
+    setReturnDialogOpen(true)
+  }
+
+  const closeReturnDialog = () => {
+    if (savingAccountability) return
+    setReturnDialogOpen(false)
+    setReturningAccountableRow(null)
+  }
+
+  const openEditAccountableDialog = (row) => {
+    const collectorValue = collectorOptions.find((option) => option.value === row.collector)?.value
+      || collectorOptions.find((option) => option.label === row.collector_full_name)?.value
+      || row.collector
+      || ''
+    setEditingAccountableRow(row)
+    setEditAccountableForm({
+      collector: collectorValue,
+      collectorSignedBy: row.collector_signed_by || row.collector_full_name || row.collector || '',
+      remarks: row.remarks || '',
+    })
+    setAccountabilityMessage('')
+    setEditAccountableDialogOpen(true)
+  }
+
+  const closeEditAccountableDialog = () => {
+    if (savingAccountability) return
+    setEditAccountableDialogOpen(false)
+    setEditingAccountableRow(null)
+  }
+
+  const saveAccountableAssignmentUpdate = async () => {
+    if (!editingAccountableRow?.id) {
+      setAccountabilityMessage('Unable to update assignment: missing accountable form id.')
+      return
+    }
+
+    if (!editAccountableForm.collector) {
+      setAccountabilityMessage('Please select Collector before saving.')
+      return
+    }
+
+    setSavingAccountability(true)
+    setAccountabilityMessage('')
+
+    try {
+      const selectedCollector = collectorOptions.find((option) => option.value === editAccountableForm.collector)
+      const response = await axiosInstance.patch(`/rcd/accountable-forms/${editingAccountableRow.id}`, {
+        collector: editAccountableForm.collector,
+        collector_signed_by: editAccountableForm.collectorSignedBy || selectedCollector?.label || editAccountableForm.collector,
+        remarks: editAccountableForm.remarks,
+        updated_by: user?.name || '',
+      })
+      setAccountabilityRows(response.data?.data || [])
+      setAccountabilityMessage(response.data?.message || 'Accountable form assignment updated.')
+      closeEditAccountableDialog()
+    } catch (error) {
+      setAccountabilityMessage(error.response?.data?.error || error.response?.data?.message || error.message || 'Unable to update accountable form assignment.')
+    } finally {
+      setSavingAccountability(false)
+    }
+  }
+
+  const saveReturnedDate = async () => {
+    if (!returningAccountableRow?.id) {
+      setAccountabilityMessage('Unable to update return date: missing accountable form id.')
+      return
+    }
+
+    if (!returnForm.returnedAt) {
+      setAccountabilityMessage('Please select Date Returned.')
+      return
+    }
+
+    setSavingAccountability(true)
+    setAccountabilityMessage('')
+
+    try {
+      const response = await axiosInstance.patch(`/rcd/accountable-forms/${returningAccountableRow.id}/return`, {
+        returned_at: returnForm.returnedAt,
+        returned_to: user?.name || '',
+      })
+      setAccountabilityRows((current) => current.map((row) => (
+        row.id === returningAccountableRow.id
+          ? (response.data?.data || { ...row, returned_at: returnForm.returnedAt, status: 'Returned' })
+          : row
+      )))
+      setAccountabilityMessage(response.data?.message || 'Date returned saved.')
+      setReturnDialogOpen(false)
+      setReturningAccountableRow(null)
+      await loadAccountableForms()
+    } catch (error) {
+      setAccountabilityMessage(error.response?.data?.error || error.response?.data?.message || error.message || 'Unable to save date returned.')
+    } finally {
+      setSavingAccountability(false)
+    }
   }
 
   const saveAccountableFormRelease = async () => {
@@ -706,6 +1021,9 @@ function RcdPage({ user }) {
         receipt_no_to: accountabilityForm.receiptTo || accountabilityForm.receiptFrom,
         released_at: accountabilityForm.releasedAt,
         released_by: accountabilityForm.releasedBy,
+        returned_at: accountabilityForm.returnedAt || null,
+        returned_to: accountabilityForm.returnedAt ? (accountabilityForm.releasedBy || user?.name || '') : null,
+        status: accountabilityForm.returnedAt ? 'Returned' : 'Released',
         remarks: accountabilityForm.remarks,
         serial_no: accountabilityForm.serialNo,
         updated_by: user?.name || '',
@@ -732,6 +1050,40 @@ function RcdPage({ user }) {
         reportNo: cleanReportNo(rcd.form?.reportNo || rcd.id),
       }))
       setCollectionLines((rcd.lines || []).map((line) => ({ ...emptyLine(), ...line, id: makeClientId() })))
+      const savedLiquidatingRows = Array.isArray(rcd.form?.liquidatingRows) ? rcd.form.liquidatingRows : []
+      const legacyLiquidatingRows = rcd.form?.liquidatingOfficerName || rcd.form?.liquidatingReportNo
+        ? [{ officerName: rcd.form.liquidatingOfficerName || '', reportNo: rcd.form.liquidatingReportNo || '', amount: rcd.form.liquidatingAmount || rcd.total || '' }]
+        : []
+      const liquidatingSourceRows = savedLiquidatingRows.length ? savedLiquidatingRows : legacyLiquidatingRows
+      setLiquidatingRows((liquidatingSourceRows.length ? liquidatingSourceRows : [emptyLiquidatingOfficerLine()]).map((row) => {
+        const knownCashier = cashierOptions.some((option) => option.value === row.officerName)
+        return {
+          ...emptyLiquidatingOfficerLine(),
+          ...row,
+          officerName: row.officerName && !knownCashier ? 'Others' : (row.officerName || ''),
+          otherOfficerName: row.officerName && !knownCashier ? row.officerName : (row.otherOfficerName || ''),
+          id: makeClientId(),
+        }
+      }))
+      const savedAccountabilityRows = Array.isArray(rcd.form?.accountabilityRows) ? rcd.form.accountabilityRows : []
+      const derivedAccountabilityRows = (rcd.lines || []).map((line) => ({
+        ...emptyManualAccountabilityLine(),
+        formType: line.formType || line.form_type || 'AF 51',
+        beginningQty: line.beginningQty || '',
+        beginningFrom: line.beginningFrom || '',
+        beginningTo: line.beginningTo || '',
+        receiptAccountQty: line.receiptAccountQty || '',
+        receiptAccountFrom: line.receiptAccountFrom || '',
+        receiptAccountTo: line.receiptAccountTo || '',
+        issuedQty: line.issuedQty || countReceiptRange(line.receiptFrom, line.receiptTo) || '',
+        issuedFrom: line.issuedFrom || line.receiptFrom || '',
+        issuedTo: line.issuedTo || line.receiptTo || line.receiptFrom || '',
+        endingQty: line.endingQty || '',
+        endingFrom: line.endingFrom || '',
+        endingTo: line.endingTo || '',
+        id: makeClientId(),
+      }))
+      setManualAccountabilityLines((savedAccountabilityRows.length ? savedAccountabilityRows : derivedAccountabilityRows).map((line) => ({ ...emptyManualAccountabilityLine(), ...line, id: makeClientId() })))
       setGenerateMessage('')
       setEntryDialogOpen(true)
     } catch (error) {
@@ -816,6 +1168,7 @@ function RcdPage({ user }) {
         amountRemitted: total,
         cashAmount: total,
         remittedBy: user?.name || collectorFullName(batch?.collector || row.collector),
+        rcdNo: cleanReportNo(batch?.id || row.id),
       })
       setRemitDialogOpen(true)
     } catch (error) {
@@ -859,6 +1212,10 @@ function RcdPage({ user }) {
       setRemitMessage('Cash amount plus check amount must equal amount remitted.')
       return
     }
+    if (canEditRemitRcdNo && !cleanReportNo(remitForm.rcdNo)) {
+      setRemitMessage('RCD No. is required before confirming remittance.')
+      return
+    }
     if (Math.round(remitVariance * 100) !== 0 && !remitForm.remarks.trim()) {
       setRemitMessage('Variance requires remarks.')
       return
@@ -876,6 +1233,7 @@ function RcdPage({ user }) {
         received_at: remitForm.remittanceDate,
         remittance_remarks: remitForm.remarks,
         remitted_by: remitForm.remittedBy || user?.name || collectorFullName(remitBatch.collector),
+        rcd_no: canEditRemitRcdNo ? cleanReportNo(remitForm.rcdNo) : undefined,
       })
       await loadRcdBatches()
       setRemitDialogOpen(false)
@@ -959,19 +1317,30 @@ function RcdPage({ user }) {
   }
 
   useEffect(() => {
-    loadAccessStatus()
-    loadRcdBatches().catch((error) => setAccessError(error.response?.data?.error || error.message || 'Unable to load RCD batches.'))
-    loadAccountableForms().catch((error) => setAccessError(error.response?.data?.error || error.message || 'Unable to load accountable forms.'))
-  }, [])
+    if (activeSection === 'accountability' && !canManageAccountableForms) {
+      setActiveSection('overview')
+    }
+  }, [activeSection, canManageAccountableForms])
 
-  const actionTabs = [
-    { key: 'overview', label: 'Overview', icon: <AccountBalanceIcon /> },
-    { key: 'entries', label: 'Daily Entries', icon: <ReceiptLongIcon /> },
-    // { key: 'generate-rcd', label: 'Generate RCD', icon: <LocalPrintshopIcon /> },
-    // { key: 'review-queue', label: 'Review Queue', icon: <FactCheckIcon /> },
-    // { key: 'deposit-queue', label: 'Deposit Queue', icon: <PaidIcon /> },
-    { key: 'accountability', label: 'Accountable Forms', icon: <Inventory2Icon /> },
-  ]
+  useEffect(() => {
+    loadAccessStatus()
+    if (!accountableCustodianView) {
+      loadRcdBatches().catch((error) => setAccessError(error.response?.data?.error || error.message || 'Unable to load RCD batches.'))
+    }
+    loadAccountableForms().catch((error) => setAccessError(error.response?.data?.error || error.message || 'Unable to load accountable forms.'))
+  }, [accountableCustodianView])
+
+
+  const actionTabs = accountableCustodianView
+    ? [{ key: 'accountability', label: 'Accountable Forms', icon: <Inventory2Icon /> }]
+    : [
+        { key: 'overview', label: 'Overview', icon: <AccountBalanceIcon /> },
+        { key: 'entries', label: 'Daily Entries', icon: <ReceiptLongIcon /> },
+        // { key: 'generate-rcd', label: 'Generate RCD', icon: <LocalPrintshopIcon /> },
+        // { key: 'review-queue', label: 'Review Queue', icon: <FactCheckIcon /> },
+        // { key: 'deposit-queue', label: 'Deposit Queue', icon: <PaidIcon /> },
+        ...(canManageAccountableForms ? [{ key: 'accountability', label: 'Accountable Forms', icon: <Inventory2Icon /> }] : []),
+      ]
 
   const mismatchDetail = (line, receiptCount, difference) => {
     if (!line.validated) return '-'
@@ -1034,19 +1403,98 @@ function RcdPage({ user }) {
     })
   }
 
-  const renderAccountableFormsEntry = () => {
-    const accountableRows = collectionLines.filter((line) => line.formType && line.receiptFrom)
+  const renderCollectorLiquidationAndDeposits = () => {
+    if (!acoCollectorWorkflow) return null
+
+    const depositBankName = form.depositBank === 'Other Bank' ? form.depositOtherBank : form.depositBank
 
     return (
       <Paper sx={{ border: `1px solid ${uiColors.cardBorder}`, borderRadius: 4, overflow: 'hidden' }}>
-        <Box sx={{ borderBottom: `1px solid ${uiColors.cardBorder}`, p: 2.5 }}>
-          <Typography variant="h6" sx={{ color: uiColors.navy, fontWeight: 900 }}>C. Accountability of Accountable Forms</Typography>
-          <Typography variant="body2" sx={{ color: uiColors.steel }}>
-            Beginning and ending balances are auto-computed from Accountable Forms releases for the selected collector and OR range. Manual fields may still override when needed.
-          </Typography>
+        <Box sx={{ alignItems: 'flex-start', borderBottom: `1px solid ${uiColors.cardBorder}`, display: 'flex', gap: 2, justifyContent: 'space-between', p: 2.5 }}>
+          <Box>
+            <Typography variant="h6" sx={{ color: uiColors.navy, fontWeight: 900 }}>2. For Liquidating Officers/Treasurers</Typography>
+            <Typography variant="body2" sx={{ color: uiColors.steel }}>Report No. and Amount are manual fields for the collector RCD template.</Typography>
+          </Box>
+          <Button onClick={addLiquidatingRow} sx={secondaryToolbarButtonSx(uiColors.teal)} variant="outlined">Add Field</Button>
+        </Box>
+        <Box sx={{ display: 'grid', gap: 2, p: 2.5 }}>
+          {liquidatingRows.map((row, index) => {
+            const selectedKnownCashier = cashierOptions.some((option) => option.value === row.officerName)
+            const officerValue = selectedKnownCashier ? row.officerName : (row.officerName ? 'Others' : '')
+            return (
+              <Box key={row.id} sx={{ alignItems: 'start', display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: '1.4fr 1.4fr 1fr auto' } }}>
+                <TextField
+                  label="Name of Accountable Officer"
+                  onChange={(event) => updateLiquidatingRow(row.id, 'officerName', event.target.value)}
+                  select
+                  value={officerValue}
+                >
+                  <MenuItem value="">Select cashier</MenuItem>
+                  {cashierOptions.map((cashier) => <MenuItem key={cashier.value} value={cashier.value}>{cashier.label}</MenuItem>)}
+                </TextField>
+                <TextField
+                  disabled={officerValue !== 'Others'}
+                  label="Other accountable officer"
+                  onChange={(event) => updateLiquidatingRow(row.id, 'otherOfficerName', event.target.value)}
+                  value={officerValue === 'Others' ? row.otherOfficerName : ''}
+                />
+                <TextField
+                  label="Report No."
+                  onChange={(event) => updateLiquidatingRow(row.id, 'reportNo', event.target.value)}
+                  value={row.reportNo || ''}
+                />
+                <Box sx={{ alignItems: 'center', display: 'flex', gap: 1 }}>
+                  <TextField
+                    label="Amount"
+                    onChange={(event) => updateLiquidatingRow(row.id, 'amount', event.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
+                    slotProps={{ htmlInput: { inputMode: 'decimal' } }}
+                    sx={{ flex: 1 }}
+                    value={row.amount || ''}
+                  />
+                  <Button color="error" disabled={liquidatingRows.length === 1 && index === 0} onClick={() => removeLiquidatingRow(row.id)} size="small">Remove</Button>
+                </Box>
+              </Box>
+            )
+          })}
+
+          <Box>
+            <Typography sx={{ color: uiColors.navy, fontWeight: 900, mb: 1 }}>B. Remittances / Deposits</Typography>
+            <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1.4fr 1fr 1fr' } }}>
+              <TextField label="Accountable Officer / Bank" onChange={(event) => updateForm('depositBank', event.target.value)} select value={form.depositBank}>
+                {bankOptions.map((bank) => <MenuItem key={bank} value={bank}>{bank}</MenuItem>)}
+              </TextField>
+              <TextField disabled={form.depositBank !== 'Other Bank'} label="Other Bank" onChange={(event) => updateForm('depositOtherBank', event.target.value)} value={form.depositOtherBank} />
+              <TextField label="Reference" onChange={(event) => updateForm('depositReference', event.target.value)} value={form.depositReference} />
+              <TextField InputProps={{ readOnly: true }} label="Amount" value={formatPeso(liquidatingTotal)} />
+              <TextField InputProps={{ readOnly: true }} label="Selected Bank" value={depositBankName || '-'} />
+            </Box>
+          </Box>
+        </Box>
+      </Paper>
+    )
+  }
+
+  const renderAccountableFormsEntry = () => {
+    const accountableRows = acoCollectorWorkflow
+      ? manualAccountabilityLines
+      : collectionLines.filter((line) => line.formType && line.receiptFrom)
+    const manualDigitValue = (event) => event.target.value.replace(/\D/g, '')
+
+    return (
+      <Paper sx={{ border: `1px solid ${uiColors.cardBorder}`, borderRadius: 4, overflow: 'hidden' }}>
+        <Box sx={{ alignItems: 'flex-start', borderBottom: `1px solid ${uiColors.cardBorder}`, display: 'flex', gap: 2, justifyContent: 'space-between', p: 2.5 }}>
+          <Box>
+            <Typography variant="h6" sx={{ color: uiColors.navy, fontWeight: 900 }}>C. Accountability of Accountable Forms</Typography>
+            <Typography variant="body2" sx={{ color: uiColors.steel }}>
+              {acoCollectorWorkflow ? 'Manual C section for ACO Collector RCD only.' : 'Beginning and ending balances are auto-computed from Accountable Forms releases for the selected collector and OR range. Manual fields may still override when needed.'}
+            </Typography>
+          </Box>
+          {acoCollectorWorkflow && (
+            <Button onClick={addManualAccountabilityLine} sx={secondaryToolbarButtonSx(uiColors.teal)} variant="outlined">Add Row</Button>
+          )}
         </Box>
         <TableContainer>
-          <Table size="small" sx={{ minWidth: 1120 }}>
+          <Table size="small" sx={{ minWidth: acoCollectorWorkflow ? 1240 : 1120 }}>
             <TableHead>
               <TableRow sx={{ '& th': { bgcolor: '#f7f9fc', color: uiColors.navy, fontWeight: 900, textAlign: 'center', textTransform: 'uppercase' } }}>
                 <TableCell rowSpan={2}>Name of Accountable Form</TableCell>
@@ -1054,6 +1502,7 @@ function RcdPage({ user }) {
                 <TableCell colSpan={3}>Receipt</TableCell>
                 <TableCell colSpan={3}>Issued</TableCell>
                 <TableCell colSpan={3}>Ending Balance</TableCell>
+                {acoCollectorWorkflow && <TableCell rowSpan={2}>Action</TableCell>}
               </TableRow>
               <TableRow sx={{ '& th': { bgcolor: '#f7f9fc', color: uiColors.navy, fontWeight: 900, textAlign: 'center', textTransform: 'uppercase' } }}>
                 {['Qty', 'From', 'To', 'Qty', 'From', 'To', 'Qty', 'From', 'To', 'Qty', 'From', 'To'].map((label, index) => (
@@ -1064,11 +1513,36 @@ function RcdPage({ user }) {
             <TableBody>
               {accountableRows.length === 0 ? (
                 <TableRow>
-                  <TableCell align="center" colSpan={13} sx={{ color: uiColors.steel, fontWeight: 800, py: 4 }}>
-                    Add OR lines in A. Collections to preview accountability rows.
+                  <TableCell align="center" colSpan={acoCollectorWorkflow ? 14 : 13} sx={{ color: uiColors.steel, fontWeight: 800, py: 4 }}>
+                    {acoCollectorWorkflow ? 'Add a manual accountability row.' : 'Add OR lines in A. Collections to preview accountability rows.'}
                   </TableCell>
                 </TableRow>
               ) : accountableRows.map((line) => {
+                if (acoCollectorWorkflow) {
+                  return (
+                    <TableRow hover key={`manual-accountable-${line.id}`}>
+                      <TableCell sx={{ minWidth: 160 }}>
+                        <TextField fullWidth onChange={(event) => updateManualAccountabilityLine(line.id, 'formType', event.target.value)} select size="small" value={line.formType || 'AF 51'}>
+                          {formTypeOptions.map((option) => <MenuItem key={option} value={option}>{option}</MenuItem>)}
+                        </TextField>
+                      </TableCell>
+                      <TableCell align="center"><TextField onChange={(event) => updateManualAccountabilityLine(line.id, 'beginningQty', manualDigitValue(event))} size="small" sx={{ width: 82 }} value={line.beginningQty || ''} /></TableCell>
+                      <TableCell align="center"><TextField onChange={(event) => updateManualAccountabilityLine(line.id, 'beginningFrom', manualDigitValue(event))} size="small" sx={{ width: 118 }} value={line.beginningFrom || ''} /></TableCell>
+                      <TableCell align="center"><TextField onChange={(event) => updateManualAccountabilityLine(line.id, 'beginningTo', manualDigitValue(event))} size="small" sx={{ width: 118 }} value={line.beginningTo || ''} /></TableCell>
+                      <TableCell align="center"><TextField onChange={(event) => updateManualAccountabilityLine(line.id, 'receiptAccountQty', manualDigitValue(event))} size="small" sx={{ width: 82 }} value={line.receiptAccountQty || ''} /></TableCell>
+                      <TableCell align="center"><TextField onChange={(event) => updateManualAccountabilityLine(line.id, 'receiptAccountFrom', manualDigitValue(event))} size="small" sx={{ width: 118 }} value={line.receiptAccountFrom || ''} /></TableCell>
+                      <TableCell align="center"><TextField onChange={(event) => updateManualAccountabilityLine(line.id, 'receiptAccountTo', manualDigitValue(event))} size="small" sx={{ width: 118 }} value={line.receiptAccountTo || ''} /></TableCell>
+                      <TableCell align="center"><TextField onChange={(event) => updateManualAccountabilityLine(line.id, 'issuedQty', manualDigitValue(event))} size="small" sx={{ width: 82 }} value={line.issuedQty || ''} /></TableCell>
+                      <TableCell align="center"><TextField onChange={(event) => updateManualAccountabilityLine(line.id, 'issuedFrom', manualDigitValue(event))} size="small" sx={{ width: 118 }} value={line.issuedFrom || ''} /></TableCell>
+                      <TableCell align="center"><TextField onChange={(event) => updateManualAccountabilityLine(line.id, 'issuedTo', manualDigitValue(event))} size="small" sx={{ width: 118 }} value={line.issuedTo || ''} /></TableCell>
+                      <TableCell align="center"><TextField onChange={(event) => updateManualAccountabilityLine(line.id, 'endingQty', manualDigitValue(event))} size="small" sx={{ width: 82 }} value={line.endingQty || ''} /></TableCell>
+                      <TableCell align="center"><TextField onChange={(event) => updateManualAccountabilityLine(line.id, 'endingFrom', manualDigitValue(event))} size="small" sx={{ width: 118 }} value={line.endingFrom || ''} /></TableCell>
+                      <TableCell align="center"><TextField onChange={(event) => updateManualAccountabilityLine(line.id, 'endingTo', manualDigitValue(event))} size="small" sx={{ width: 118 }} value={line.endingTo || ''} /></TableCell>
+                      <TableCell align="center"><Button color="error" onClick={() => removeManualAccountabilityLine(line.id)} size="small">Remove</Button></TableCell>
+                    </TableRow>
+                  )
+                }
+
                 const issuedQty = countReceiptRange(line.receiptFrom, line.receiptTo)
                 const accountability = accountabilityForLine(line)
                 const endingBalance = accountability.ending
@@ -1084,10 +1558,10 @@ function RcdPage({ user }) {
                     <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'receiptAccountQty', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 82 }} value={accountability.receiptAccountQty || ''} /></TableCell>
                     <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'receiptAccountFrom', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 118 }} value={accountability.receiptAccountFrom || ''} /></TableCell>
                     <TableCell align="center"><TextField onChange={(event) => updateLine(line.id, 'receiptAccountTo', event.target.value.replace(/\D/g, ''))} size="small" sx={{ width: 118 }} value={accountability.receiptAccountTo || ''} /></TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 900 }}>{issuedQty || '-'}</TableCell>
+                    <TableCell align="center"><Box sx={{ fontWeight: 900 }}>{issuedQty || '-'}</Box></TableCell>
                     <TableCell align="center">{line.receiptFrom || '-'}</TableCell>
                     <TableCell align="center">{line.receiptTo || line.receiptFrom || '-'}</TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 900 }}>{endingBalance.qty}</TableCell>
+                    <TableCell align="center"><Box sx={{ fontWeight: 900 }}>{endingBalance.qty}</Box></TableCell>
                     <TableCell align="center">{endingBalance.from}</TableCell>
                     <TableCell align="center">{endingBalance.to}</TableCell>
                   </TableRow>
@@ -1115,8 +1589,9 @@ function RcdPage({ user }) {
           <Box sx={{ alignItems: 'center', display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr auto' } }}>
             <TextField fullWidth label="Report No." onChange={(event) => updateForm('reportNo', event.target.value)} placeholder="Manual RCD no." value={form.reportNo} />
             <TextField fullWidth slotProps={{ inputLabel: { shrink: true } }} label="Collection Date" onChange={(event) => updateForm('collectionDate', event.target.value)} type="date" value={form.collectionDate} />
-            <TextField fullWidth label="Collector" onChange={(event) => updateForm('collector', event.target.value)} select value={form.collector}>
-              {collectorOptions.map((collector) => <MenuItem key={collector.value} value={collector.value}>{collector.label}</MenuItem>)}
+            <TextField disabled={Boolean(lockedCollectorValue)} fullWidth label="Collector" onChange={(event) => updateForm('collector', event.target.value)} select value={form.collector}>
+              {!lockedCollectorValue && <MenuItem value="">Select Collector</MenuItem>}
+              {entryCollectorOptions.map((collector) => <MenuItem key={collector.value} value={collector.value}>{collector.label}</MenuItem>)}
             </TextField>
             <Button disabled={generatingOr} onClick={validateCollectorLines} startIcon={generatingOr ? <CircularProgress color={'inherit'} size={18} /> : <FactCheckIcon />} sx={toolbarButtonSx(uiColors.teal, uiColors.tealHover)} variant={'contained'}>{generatingOr ? 'Validating' : 'Validate in .FDB'}</Button>
           </Box>
@@ -1163,6 +1638,7 @@ function RcdPage({ user }) {
         </Box>
       </Paper>
 
+      {renderCollectorLiquidationAndDeposits()}
       {renderAccountableFormsEntry()}
     </Box>
   )
@@ -1189,7 +1665,7 @@ function RcdPage({ user }) {
         <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: '1fr 220px', mb: 2 }}>
           <Typography sx={{ fontSize: 12 }}>Fund: <strong>{form.template === '100_GF' ? '100 General Fund' : '200 Special Education Fund'}</strong></Typography>
           <Typography sx={{ fontSize: 12 }}>Date: <strong>{form.collectionDate}</strong></Typography>
-          <Typography sx={{ fontSize: 12 }}>Name of Accountable Officer: <strong>{form.collector}</strong></Typography>
+          <Typography sx={{ fontSize: 12 }}>Name of Accountable Officer: <strong>{collectorFullName(form.collector)}</strong></Typography>
           <Typography sx={{ fontSize: 12 }}>Report No.: __________</Typography>
         </Box>
         <Typography sx={{ border: '1px solid #222', borderBottom: 0, fontSize: 12, fontWeight: 900, p: 1 }}>A. COLLECTIONS</Typography>
@@ -1229,10 +1705,12 @@ function RcdPage({ user }) {
       return items
     }
 
-    if ((status === 'For Remittance' || status === 'Saved' || status === 'Ready for Remittance') && collectorActionView) {
+    if ((status === 'For Remittance' || status === 'Saved' || status === 'Ready for Remittance') && canOpenRemittance) {
       items.push({ label: 'Remit to ACO', onClick: () => openRemitDialog(row), accent: true })
-      items.push({ label: 'Edit', onClick: () => openUpdateEntry(row) })
-      items.push({ label: 'Void / Cancel', onClick: () => setAccessError('Void / Cancel with reason is prepared for the next control step.'), danger: true })
+      if (collectorView || acoView || adminView) {
+        items.push({ label: 'Edit', onClick: () => openUpdateEntry(row) })
+        items.push({ label: 'Void / Cancel', onClick: () => setAccessError('Void / Cancel with reason is prepared for the next control step.'), danger: true })
+      }
       return items
     }
 
@@ -1305,7 +1783,7 @@ function RcdPage({ user }) {
               Phase 2: encode the Accountable Forms released by the custodian to each collector. These ranges will be used by RCD validation.
             </Typography>
           </Box>
-          <Chip label={`${accountabilityRows.length} releases`} sx={{ bgcolor: 'var(--color-primary-soft)', color: uiColors.teal, fontWeight: 900 }} />
+          <Chip label={accountabilitySearch.trim() ? `${filteredAccountabilityRows.length} of ${accountabilityRows.length} releases` : `${accountabilityRows.length} releases`} sx={{ bgcolor: 'var(--color-primary-soft)', color: uiColors.teal, fontWeight: 900 }} />
         </Box>
 
         <Alert severity="info" sx={{ borderRadius: 3, mb: 2 }}>
@@ -1335,9 +1813,11 @@ function RcdPage({ user }) {
             select
             value={accountabilityForm.collector}
           >
-            {collectorOptions.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
+            {(!collectorView || !userCollectorValue) && <MenuItem value="">Select Collector</MenuItem>}
+            {accountabilityCollectorOptions.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
           </TextField>
           <TextField slotProps={{ inputLabel: { shrink: true } }} label="Date Released" onChange={(event) => updateAccountabilityForm('releasedAt', event.target.value)} type="date" value={accountabilityForm.releasedAt} />
+          <TextField slotProps={{ inputLabel: { shrink: true } }} label="Date Returned" onChange={(event) => updateAccountabilityForm('returnedAt', event.target.value)} type="date" value={accountabilityForm.returnedAt} />
           <TextField label="Released By" onChange={(event) => updateAccountabilityForm('releasedBy', event.target.value)} value={accountabilityForm.releasedBy} />
           <TextField label="Collector Signed By" onChange={(event) => updateAccountabilityForm('collectorSignedBy', event.target.value)} value={accountabilityForm.collectorSignedBy} />
         </Box>
@@ -1360,11 +1840,27 @@ function RcdPage({ user }) {
         </Box>
       </Paper>
 
-      <TableContainer component={Paper} sx={{ borderRadius: 4 }}>
-        <Table sx={{ minWidth: 1220 }}>
+      <Paper sx={{ borderRadius: 4, overflow: 'hidden' }}>
+        <Box sx={{ alignItems: 'center', borderBottom: `1px solid ${uiColors.cardBorder}`, display: 'flex', flexWrap: 'wrap', gap: 1.5, justifyContent: 'space-between', p: 2 }}>
+          <TextField
+            label="Search accountable forms"
+            onChange={(event) => setAccountabilitySearch(event.target.value)}
+            placeholder="Collector, form, serial, OR, status..."
+            size="small"
+            slotProps={{ input: { startAdornment: <SearchIcon sx={{ color: uiColors.steel, mr: 1 }} /> } }}
+            sx={{ minWidth: { xs: '100%', md: 360 } }}
+            value={accountabilitySearch}
+          />
+          {accountabilitySearch && (
+            <Button onClick={() => setAccountabilitySearch('')} size="small" sx={secondaryToolbarButtonSx(uiColors.steel)} variant="outlined">Clear</Button>
+          )}
+        </Box>
+        <TableContainer>
+          <Table sx={{ minWidth: 1220 }}>
           <TableHead>
             <TableRow sx={{ '& th': { bgcolor: '#f7f9fc', color: uiColors.navy, fontWeight: 900, textTransform: 'uppercase' } }}>
               <TableCell>Released</TableCell>
+              <TableCell>Date Returned</TableCell>
               <TableCell>Form</TableCell>
               <TableCell>Serial</TableCell>
               <TableCell>Collector</TableCell>
@@ -1375,14 +1871,16 @@ function RcdPage({ user }) {
               <TableCell>Ending Balance</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Remarks</TableCell>
+              <TableCell align="right">Action</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {accountabilityRows.length === 0 ? (
-              <TableRow><TableCell align="center" colSpan={11} sx={{ color: uiColors.steel, fontWeight: 800, py: 4 }}>No accountable form releases saved yet.</TableCell></TableRow>
-            ) : accountabilityRows.map((row) => (
+            {filteredAccountabilityRows.length === 0 ? (
+              <TableRow><TableCell align="center" colSpan={13} sx={{ color: uiColors.steel, fontWeight: 800, py: 4 }}>{accountabilityRows.length === 0 ? 'No accountable form releases saved yet.' : 'No accountable form releases match your search.'}</TableCell></TableRow>
+            ) : filteredAccountabilityRows.map((row) => (
               <TableRow hover key={row.id || `${row.form_type}-${row.receipt_no_from}-${row.receipt_no_to}`}>
                 <TableCell>{row.released_at || '-'}</TableCell>
+                <TableCell>{row.returned_at || '-'}</TableCell>
                 <TableCell sx={{ fontWeight: 900 }}>{row.form_type || '-'}</TableCell>
                 <TableCell>{row.serial_no || '-'}</TableCell>
                 <TableCell>{row.collector_full_name || row.collector || '-'}</TableCell>
@@ -1390,21 +1888,32 @@ function RcdPage({ user }) {
                 <TableCell align="center" sx={{ fontWeight: 900 }}>{row.receipt_count || 0}</TableCell>
                 <TableCell>{row.released_by || '-'}</TableCell>
                 <TableCell>{row.collector_signed_by || '-'}</TableCell>
-                <TableCell>{row.ending_balance_from || '-'} to {row.ending_balance_to || '-'}</TableCell>
+                <TableCell>{row.ending_balance_from || row.ending_balance_to ? `${row.ending_balance_from || '-'} to ${row.ending_balance_to || '-'}` : '0'}</TableCell>
                 <TableCell><StatusChip value={row.status || 'Released'} /></TableCell>
                 <TableCell>{row.remarks || '-'}</TableCell>
+                <TableCell align="right">
+                  <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                    <Button disabled={savingAccountability} onClick={() => openEditAccountableDialog(row)} size="small" sx={secondaryToolbarButtonSx(uiColors.blue)} variant="outlined">
+                      Update
+                    </Button>
+                    <Button disabled={savingAccountability} onClick={() => openReturnDialog(row)} size="small" sx={secondaryToolbarButtonSx(row.status === 'Returned' ? uiColors.steel : uiColors.teal)} variant="outlined">
+                      {row.status === 'Returned' ? 'Edit Return' : 'Set Returned'}
+                    </Button>
+                  </Box>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
-        </Table>
-      </TableContainer>
+          </Table>
+        </TableContainer>
+      </Paper>
     </Box>
   )
 
   const renderMainSection = () => {
     if (activeSection === 'entries') return renderBatchTable('Daily Entries', 'Saved and draft RCD batches for the selected period.')
     if (activeSection === 'generate-rcd') return renderGenerateRcd()
-    if (activeSection === 'accountability') return renderAccountability()
+    if (activeSection === 'accountability' && canManageAccountableForms) return renderAccountability()
     // Review Queue hidden temporarily while focusing on core RCD validation.
     // Deposit Queue hidden temporarily while focusing on core RCD validation.
     return (
@@ -1442,10 +1951,11 @@ function RcdPage({ user }) {
             </Tooltip>
           ))}
           <Box sx={{ flex: 1 }} />
-          <Button onClick={openNewEntry} startIcon={<ReceiptLongIcon />} sx={toolbarButtonSx(uiColors.teal, uiColors.tealHover)} variant="contained">New Entry</Button>
+          {!accountableCustodianView && <Button onClick={openNewEntry} startIcon={<ReceiptLongIcon />} sx={toolbarButtonSx(uiColors.teal, uiColors.tealHover)} variant="contained">New Entry</Button>}
         </Box>
       </Paper>
 
+      {!accountableCustodianView && (
       <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(5, 1fr)' } }}>
         {[
           { label: 'Total RCD Amount', value: formatPeso(summary.total), icon: <AccountBalanceIcon />, accent: uiColors.navy, onClick: () => setActiveSection('overview') },
@@ -1461,7 +1971,9 @@ function RcdPage({ user }) {
           </Card>
         ))}
       </Box>
+      )}
 
+      {!accountableCustodianView && (
       <Paper sx={{ border: `1px solid ${uiColors.cardBorder}`, borderRadius: 4, p: 2.5 }}>
         <Box sx={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 2 }}>
           <Autocomplete onChange={(_, value) => setSelectedMonth(value)} options={months} renderInput={(params) => <TextField {...params} label="Select Month" size="small" />} sx={{ minWidth: 190 }} value={selectedMonth} />
@@ -1471,8 +1983,55 @@ function RcdPage({ user }) {
           <Typography variant="body2" sx={{ color: uiColors.steel, fontWeight: 800 }}>{selectedMonth?.label || 'Month'} {selectedYear?.value || 'Year'}</Typography>
         </Box>
       </Paper>
+      )}
 
       {renderMainSection()}
+
+      <Dialog fullWidth maxWidth="sm" onClose={closeEditAccountableDialog} open={editAccountableDialogOpen}>
+        <DialogTitle sx={{ color: uiColors.navy, fontWeight: 900 }}>Update Accountable Form Assignment</DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ display: 'grid', gap: 2, pt: 1 }}>
+            <TextField slotProps={{ input: { readOnly: true } }} label="Form / Serial" value={`${editingAccountableRow?.form_type || '-'} / ${editingAccountableRow?.serial_no || '-'}`} />
+            <TextField slotProps={{ input: { readOnly: true } }} label="OR Range" value={`${editingAccountableRow?.receipt_no_from || '-'} to ${editingAccountableRow?.receipt_no_to || '-'}`} />
+            <TextField
+              label="Collector"
+              onChange={(event) => {
+                const selected = collectorOptions.find((option) => option.value === event.target.value)
+                setEditAccountableForm((current) => ({
+                  ...current,
+                  collector: event.target.value,
+                  collectorSignedBy: selected?.label || current.collectorSignedBy,
+                }))
+              }}
+              select
+              value={editAccountableForm.collector}
+            >
+              {collectorOptions.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
+            </TextField>
+            <TextField label="Collector Signed By" onChange={(event) => setEditAccountableForm((current) => ({ ...current, collectorSignedBy: event.target.value }))} value={editAccountableForm.collectorSignedBy} />
+            <TextField label="Remarks" onChange={(event) => setEditAccountableForm((current) => ({ ...current, remarks: event.target.value }))} value={editAccountableForm.remarks} />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button disabled={savingAccountability} onClick={closeEditAccountableDialog}>Cancel</Button>
+          <Button disabled={savingAccountability} onClick={saveAccountableAssignmentUpdate} startIcon={savingAccountability ? <CircularProgress color="inherit" size={16} /> : <SaveIcon />} sx={toolbarButtonSx(uiColors.teal, uiColors.tealHover)} variant="contained">Save Update</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog fullWidth maxWidth="xs" onClose={closeReturnDialog} open={returnDialogOpen}>
+        <DialogTitle sx={{ color: uiColors.navy, fontWeight: 900 }}>Set Date Returned</DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ display: 'grid', gap: 2, pt: 1 }}>
+            <TextField slotProps={{ input: { readOnly: true } }} label="Form" value={returningAccountableRow?.form_type || '-'} />
+            <TextField slotProps={{ input: { readOnly: true } }} label="OR Range" value={`${returningAccountableRow?.receipt_no_from || '-'} to ${returningAccountableRow?.receipt_no_to || '-'}`} />
+            <TextField slotProps={{ inputLabel: { shrink: true } }} label="Date Returned" onChange={(event) => setReturnForm({ returnedAt: event.target.value })} required type="date" value={returnForm.returnedAt} />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button disabled={savingAccountability} onClick={closeReturnDialog}>Cancel</Button>
+          <Button disabled={savingAccountability} onClick={saveReturnedDate} startIcon={savingAccountability ? <CircularProgress color="inherit" size={16} /> : <AssignmentTurnedInIcon />} sx={toolbarButtonSx(uiColors.teal, uiColors.tealHover)} variant="contained">Save Return Date</Button>
+        </DialogActions>
+      </Dialog>
 
       <Menu anchorEl={actionMenuAnchor} onClose={closeActionMenu} open={Boolean(actionMenuAnchor)}>
         {(actionMenuRow ? actionItemsForRow(actionMenuRow) : []).map((item) => (
@@ -1519,7 +2078,7 @@ function RcdPage({ user }) {
           {remitMessage && <Alert severity="error" sx={{ mb: 2 }}>{remitMessage}</Alert>}
           <Box sx={{ display: 'grid', gap: 2 }}>
             <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' } }}>
-              <TextField slotProps={{ input: { readOnly: true } }} label="RCD No." value={remitBatch?.id || '-'} />
+              <TextField helperText={canEditRemitRcdNo ? 'Collector / ACO Collector only' : 'Read-only'} label="RCD No." onChange={(event) => setRemitForm((current) => ({ ...current, rcdNo: event.target.value }))} required={canEditRemitRcdNo} slotProps={{ input: { readOnly: !canEditRemitRcdNo } }} value={canEditRemitRcdNo ? remitForm.rcdNo : (remitBatch?.id || '-')} />
               <TextField slotProps={{ input: { readOnly: true } }} label="Collector name" value={remitBatch?.collector || '-'} />
               <TextField slotProps={{ input: { readOnly: true } }} label="Collection date" value={remitBatch?.date || '-'} />
               <TextField slotProps={{ input: { readOnly: true } }} label="OR range" value={`${remitBatch?.lines?.[0]?.receiptFrom || '-'} to ${remitBatch?.lines?.[remitBatch?.lines?.length - 1]?.receiptTo || '-'}`} />
@@ -1613,3 +2172,4 @@ function RcdPage({ user }) {
 
 export { RcdPage }
 export default RcdPage
+

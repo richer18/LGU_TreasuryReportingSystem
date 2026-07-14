@@ -21,9 +21,13 @@ class RcdAccessController extends Controller
         ]);
     }
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $result = $this->store->run('list');
+        $result = $this->store->run('list', [
+            'user_role' => $request->user()?->role,
+            'user_name' => $request->user()?->name,
+            'user_email' => $request->user()?->email,
+        ]);
 
         return response()->json($result, ($result['ok'] ?? false) ? 200 : 500);
     }
@@ -111,6 +115,29 @@ class RcdAccessController extends Controller
         return response()->json($result, ($result['ok'] ?? false) ? 200 : 500);
     }
 
+    public function craaf(Request $request): JsonResponse
+    {
+        $result = $this->store->run('craaf', $request->query());
+
+        return response()->json($result, ($result['ok'] ?? false) ? 200 : 500);
+    }
+
+    public function craafDownload(Request $request): JsonResponse|BinaryFileResponse
+    {
+        $result = $this->store->run('craaf-export', $request->query());
+
+        if (! ($result['ok'] ?? false)) {
+            return response()->json($result, 500);
+        }
+
+        $path = $result['path'] ?? null;
+        abort_if(! is_string($path) || ! is_file($path), 500, 'Generated CRAAF Excel file was not found.');
+
+        return response()->download($path, $result['filename'] ?? basename($path), [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
     public function accountableForms(): JsonResponse
     {
         $result = $this->store->run('accountable-list');
@@ -121,6 +148,24 @@ class RcdAccessController extends Controller
     public function storeAccountableForm(Request $request): JsonResponse
     {
         $result = $this->store->run('accountable-save', $request->all());
+
+        return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
+    }
+
+    public function updateAccountableForm(Request $request, int $id): JsonResponse
+    {
+        $payload = $request->all();
+        $payload['id'] = $id;
+        $result = $this->store->run('accountable-update', $payload);
+
+        return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
+    }
+
+    public function returnAccountableForm(Request $request, int $id): JsonResponse
+    {
+        $payload = $request->all();
+        $payload['id'] = $id;
+        $result = $this->store->run('accountable-return', $payload);
 
         return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
     }

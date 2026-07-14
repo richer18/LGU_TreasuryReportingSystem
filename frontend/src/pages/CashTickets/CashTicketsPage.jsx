@@ -10,6 +10,7 @@ import {
   DialogTitle,
   IconButton,
   LinearProgress,
+  Menu,
   MenuItem,
   Paper,
   Tab,
@@ -30,10 +31,14 @@ import {
   CircleDollarSign,
   ClipboardList,
   Download,
+  Eye,
+  MoreVertical,
+  Pencil,
   Plus,
   RefreshCcw,
   Save,
   Ticket,
+  Trash2,
   Upload,
   X,
 } from 'lucide-react'
@@ -178,6 +183,10 @@ export function CashTicketsPage({ user }) {
   const [bookDialogOpen, setBookDialogOpen] = useState(false)
   const [collectionForm, setCollectionForm] = useState(emptyCollectionForm)
   const [bookForm, setBookForm] = useState(emptyBookForm)
+  const [editingCollection, setEditingCollection] = useState(null)
+  const [viewingCollection, setViewingCollection] = useState(null)
+  const [collectionActionAnchor, setCollectionActionAnchor] = useState(null)
+  const [collectionActionRow, setCollectionActionRow] = useState(null)
   const importInputRef = useRef(null)
 
   const loadCashTickets = async () => {
@@ -292,10 +301,14 @@ export function CashTicketsPage({ user }) {
   const collectionPreview = useMemo(() => {
     const selectedIssue = cashTicketIssueOptions.find((option) => option.id === String(collectionForm.selected_book_id))
     const amount = Number(collectionForm.amount || 0)
-    const balanceBefore = Number(selectedIssue?.balance || 0)
+    const editingSerial = editingCollection?.serial_from || editingCollection?.serial_to || editingCollection?.serial_no
+    const editingKey = cashTicketMonitorKey(editingSerial, editingCollection?.collector_name)
+    const selectedKey = selectedIssue ? cashTicketMonitorKey(selectedIssue.serial_no, selectedIssue.collector) : ''
+    const editableCredit = editingKey && editingKey === selectedKey ? Number(editingCollection?.amount || 0) : 0
+    const balanceBefore = Number(selectedIssue?.balance || 0) + editableCredit
     const availableBalance = Number((balanceBefore - amount).toFixed(2))
     return { amount, availableBalance, balanceBefore, selectedIssue }
-  }, [cashTicketIssueOptions, collectionForm])
+  }, [cashTicketIssueOptions, collectionForm, editingCollection])
 
   const remittanceBalance = (row) => {
     const serial = row.serial_from || row.serial_to || row.serial_no
@@ -423,12 +436,12 @@ export function CashTicketsPage({ user }) {
         return
       }
 
-      if (amountRemitted - Number(selectedIssue.balance || 0) > 0.01) {
+      if (amountRemitted - Number(collectionPreview.balanceBefore || 0) > 0.01) {
         setError('Amount Remitted cannot be greater than the available balance.')
         return
       }
 
-      await axiosInstance.post('/cash-tickets/collections', {
+      const payload = {
         ...collectionForm,
         amount: amountRemitted,
         cash_ticket_type_id: null,
@@ -440,9 +453,16 @@ export function CashTicketsPage({ user }) {
         status: 'posted',
         ticket_type_name: 'Cash Ticket Remittance',
         unit_value: amountRemitted,
-      })
-      setMessage('Cash ticket remittance saved.')
+      }
+
+      if (editingCollection?.id) {
+        await axiosInstance.put(`/cash-tickets/collections/${editingCollection.id}`, payload)
+      } else {
+        await axiosInstance.post('/cash-tickets/collections', payload)
+      }
+      setMessage(editingCollection?.id ? 'Cash ticket remittance updated.' : 'Cash ticket remittance saved.')
       setCollectionDialogOpen(false)
+      setEditingCollection(null)
       setCollectionForm(emptyCollectionForm)
       await loadCashTickets()
     } catch (requestError) {
@@ -453,8 +473,71 @@ export function CashTicketsPage({ user }) {
   }
 
   const openCollectionDialog = () => {
+    setEditingCollection(null)
     setCollectionForm(emptyCollectionForm)
     setCollectionDialogOpen(true)
+  }
+
+  const openEditCollection = (row) => {
+    const serial = row.serial_from || row.serial_to || row.serial_no
+    const matchingIssue = cashTicketIssueOptions.find((option) => cashTicketMonitorKey(option.serial_no, option.collector) === cashTicketMonitorKey(serial, row.collector_name))
+    setEditingCollection(row)
+    setCollectionForm({
+      ...emptyCollectionForm,
+      amount: row.amount || '',
+      collection_date: row.remittance_date || row.collection_date || todayValue(),
+      collector_name: row.collector_name || '',
+      remarks: row.remarks || '',
+      remittance_date: row.remittance_date || row.collection_date || todayValue(),
+      selected_book_id: matchingIssue?.id || '',
+      serial_no: serial || '',
+      status: row.status || 'posted',
+    })
+    setCollectionDialogOpen(true)
+  }
+
+  const closeCollectionDialog = () => {
+    if (saving) return
+    setCollectionDialogOpen(false)
+    setEditingCollection(null)
+    setCollectionForm(emptyCollectionForm)
+  }
+
+  const openCollectionActionMenu = (event, row) => {
+    setCollectionActionAnchor(event.currentTarget)
+    setCollectionActionRow(row)
+  }
+
+  const closeCollectionActionMenu = () => {
+    setCollectionActionAnchor(null)
+    setCollectionActionRow(null)
+  }
+
+  const runCollectionAction = (handler) => {
+    const row = collectionActionRow
+    closeCollectionActionMenu()
+    if (row) handler(row)
+  }
+
+  const deleteCollection = async (row) => {
+    const dateLabel = row.remittance_date || row.collection_date || '-'
+    const collectorLabel = row.collector_name || 'collector'
+    if (!window.confirm(`Delete cash ticket remittance for ${collectorLabel} on ${dateLabel}?`)) {
+      return
+    }
+
+    setSaving('collection-delete')
+    setError('')
+    setMessage('')
+    try {
+      await axiosInstance.delete(`/cash-tickets/collections/${row.id}`)
+      setMessage('Cash ticket remittance deleted.')
+      await loadCashTickets()
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || requestError.message || 'Unable to delete remittance.')
+    } finally {
+      setSaving('')
+    }
   }
 
   const summary = overview?.summary || {}
@@ -577,6 +660,7 @@ export function CashTicketsPage({ user }) {
                     <TableCell align="right" sx={headerSx}>Balance</TableCell>
                     <TableCell sx={headerSx}>Remarks</TableCell>
                     <TableCell sx={headerSx}>Status</TableCell>
+                    <TableCell align="right" sx={headerSx}>Action</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -588,11 +672,23 @@ export function CashTicketsPage({ user }) {
                       <TableCell sx={moneySx}>{formatMoney(remittanceBalance(row))}</TableCell>
                       <TableCell sx={cellSx}>{row.remarks || '-'}</TableCell>
                       <TableCell sx={cellSx}><StatusChip value={row.status} /></TableCell>
+                      <TableCell align="right" sx={cellSx}>
+                        <Button
+                          disabled={Boolean(saving)}
+                          endIcon={<MoreVertical size={14} />}
+                          onClick={(event) => openCollectionActionMenu(event, row)}
+                          size="small"
+                          sx={buttonSx}
+                          variant="outlined"
+                        >
+                          Actions
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                   {!collections.length && (
                     <TableRow>
-                      <TableCell align="center" colSpan={6} sx={{ color: 'var(--color-muted)', py: 4 }}>
+                      <TableCell align="center" colSpan={7} sx={{ color: 'var(--color-muted)', py: 4 }}>
                         No cash ticket remittances found for this date range.
                       </TableCell>
                     </TableRow>
@@ -738,14 +834,29 @@ export function CashTicketsPage({ user }) {
         )}
       </Paper>
 
-      <Dialog fullWidth maxWidth="sm" onClose={() => !saving && setCollectionDialogOpen(false)} open={collectionDialogOpen}>
+      <Menu anchorEl={collectionActionAnchor} onClose={closeCollectionActionMenu} open={Boolean(collectionActionAnchor)}>
+        <MenuItem onClick={() => runCollectionAction((row) => setViewingCollection(row))}>
+          <Eye size={16} style={{ marginRight: 8 }} />
+          View
+        </MenuItem>
+        <MenuItem onClick={() => runCollectionAction(openEditCollection)}>
+          <Pencil size={16} style={{ marginRight: 8 }} />
+          Edit
+        </MenuItem>
+        <MenuItem onClick={() => runCollectionAction(deleteCollection)} sx={{ color: 'var(--color-danger-dark)' }}>
+          <Trash2 size={16} style={{ marginRight: 8 }} />
+          Delete
+        </MenuItem>
+      </Menu>
+
+      <Dialog fullWidth maxWidth="sm" onClose={closeCollectionDialog} open={collectionDialogOpen}>
         <DialogTitle sx={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between' }}>
           <Box>
-            <Typography variant="h6" sx={{ fontWeight: 900 }}>New Cash Ticket Collection / Remitted</Typography>
+            <Typography variant="h6" sx={{ fontWeight: 900 }}>{editingCollection ? 'Edit Cash Ticket Collection / Remitted' : 'New Cash Ticket Collection / Remitted'}</Typography>
             <Typography variant="body2" sx={{ color: 'var(--color-muted)' }}>Record cash ticket remittance against an issued collector balance.</Typography>
           </Box>
           <Tooltip title="Close">
-            <IconButton disabled={Boolean(saving)} onClick={() => setCollectionDialogOpen(false)}><X size={18} /></IconButton>
+            <IconButton disabled={Boolean(saving)} onClick={closeCollectionDialog}><X size={18} /></IconButton>
           </Tooltip>
         </DialogTitle>
         <DialogContent dividers>
@@ -779,12 +890,40 @@ export function CashTicketsPage({ user }) {
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button disabled={Boolean(saving)} onClick={() => setCollectionDialogOpen(false)}>Cancel</Button>
+          <Button disabled={Boolean(saving)} onClick={closeCollectionDialog}>Cancel</Button>
           <Button disabled={Boolean(saving)} onClick={saveCollection} startIcon={saving === 'collection' ? <CircularProgress color="inherit" size={16} /> : <Save size={16} />} sx={buttonSx} variant="contained">
-            Save Remittance
+            {editingCollection ? 'Update Remittance' : 'Save Remittance'}
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Dialog fullWidth maxWidth="sm" onClose={() => setViewingCollection(null)} open={Boolean(viewingCollection)}>
+        <DialogTitle sx={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between' }}>
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 900 }}>Cash Ticket Remittance Details</Typography>
+            <Typography variant="body2" sx={{ color: 'var(--color-muted)' }}>Review the selected remittance row.</Typography>
+          </Box>
+          <Tooltip title="Close">
+            <IconButton onClick={() => setViewingCollection(null)}><X size={18} /></IconButton>
+          </Tooltip>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' } }}>
+            <TextField InputProps={{ readOnly: true }} label="Date Remitted" value={viewingCollection?.remittance_date || viewingCollection?.collection_date || '-'} />
+            <TextField InputProps={{ readOnly: true }} label="Collector" value={viewingCollection?.collector_name || '-'} />
+            <TextField InputProps={{ readOnly: true }} label="Serial No." value={displaySerial(viewingCollection)} />
+            <TextField InputProps={{ readOnly: true }} label="Amount Remitted" value={formatMoney(viewingCollection?.amount || 0)} />
+            <TextField InputProps={{ readOnly: true }} label="Status" value={viewingCollection?.status || '-'} />
+            <TextField InputProps={{ readOnly: true }} label="Balance" value={formatMoney(viewingCollection ? remittanceBalance(viewingCollection) : 0)} />
+            <TextField InputProps={{ readOnly: true }} fullWidth label="Remarks" multiline sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }} value={viewingCollection?.remarks || '-'} />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={() => setViewingCollection(null)}>Close</Button>
+          <Button onClick={() => { const row = viewingCollection; setViewingCollection(null); if (row) openEditCollection(row) }} startIcon={<Pencil size={16} />} sx={buttonSx} variant="contained">Edit</Button>
+        </DialogActions>
+      </Dialog>
+
 
       <Dialog fullWidth maxWidth="sm" onClose={() => !saving && setBookDialogOpen(false)} open={bookDialogOpen}>
         <DialogTitle sx={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between' }}>

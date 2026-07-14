@@ -695,9 +695,41 @@ def set_cell_value(sheet, coordinate, value):
     cell.value = value
 
 
+def normalize_label(value):
+    return " ".join(str(value or "").split()).strip().lower()
+
+
+def find_label_row(sheet, label):
+    wanted = normalize_label(label)
+    for row in sheet.iter_rows():
+        for cell in row:
+            if normalize_label(cell.value) == wanted:
+                return cell.row
+    return None
+
+
+def set_currency_formula(sheet, coordinate, formula):
+    set_cell_value(sheet, coordinate, formula)
+    cell = sheet[coordinate]
+    if cell.__class__.__name__ == "MergedCell":
+        for merged_range in sheet.merged_cells.ranges:
+            if coordinate in merged_range:
+                cell = sheet.cell(merged_range.min_row, merged_range.min_col)
+                break
+    cell.number_format = '#,##0.00'
+
+
 def is_sef_line(line):
     form_type = form_type_label(line.get("formType") or line.get("form_type")).upper()
     return "AF 56" in form_type or "RPT" in form_type or "SEF" in form_type
+
+
+def sheet_rcd_no(batch, fund_code):
+    gf_no = str(batch.get("gf_rcd_no") or batch.get("id") or "").strip()
+    if fund_code == "200_SEF":
+        sef_no = str(batch.get("sef_rcd_no") or "").strip()
+        return sef_no or gf_no.replace("-100-", "-200-")
+    return gf_no
 
 
 def fill_rcd_sheet(sheet, batch, lines, fund_code):
@@ -706,18 +738,20 @@ def fill_rcd_sheet(sheet, batch, lines, fund_code):
     sheet["J4"].number_format = "mmmm dd, yyyy"
     officer_name = collector_full_name(batch["collector"])
     sheet["C5"] = officer_name
-    sheet["J5"] = "" if batch["id"] == "-" else batch["id"]
+    rcd_no = sheet_rcd_no(batch, fund_code)
+    sheet["J5"] = "" if rcd_no == "-" else rcd_no
 
     collection_start = 12
-    base_collection_rows = 2
+    base_collection_rows = 6
+    collection_total_row = collection_start + base_collection_rows
     extra_collection_rows = max(len(lines) - base_collection_rows, 0)
     if extra_collection_rows:
-        insert_rows_preserve_merges(sheet, 14, extra_collection_rows)
-        for row in range(14, 14 + extra_collection_rows):
-            copy_row_style(sheet, 13, row)
+        insert_rows_preserve_merges(sheet, collection_total_row, extra_collection_rows)
+        for row in range(collection_total_row, collection_total_row + extra_collection_rows):
+            copy_row_style(sheet, collection_total_row - 1, row)
             merge_collection_row(sheet, row)
+        collection_total_row += extra_collection_rows
 
-    collection_total_row = 14 + extra_collection_rows
     unmerge_rows(sheet, collection_start, collection_total_row - 1)
     for row in range(collection_start, collection_total_row):
         clear_row_values(sheet, row)
@@ -733,36 +767,83 @@ def fill_rcd_sheet(sheet, batch, lines, fund_code):
 
     sheet[f"J{collection_total_row}"] = f"=SUM(J{collection_start}:J{collection_total_row - 1})"
 
-    accountability_start = 26 + extra_collection_rows
-    accountability_summary_row = 28 + extra_collection_rows
-    base_accountability_rows = 2
-    extra_accountability_rows = max(len(lines) - base_accountability_rows, 0)
-    if extra_accountability_rows:
-        insert_rows_preserve_merges(sheet, accountability_summary_row, extra_accountability_rows)
-        for row in range(accountability_summary_row, accountability_summary_row + extra_accountability_rows):
-            copy_row_style(sheet, accountability_summary_row - 1, row)
+    form = batch.get("form") or {}
+    liquidating_header_row = find_label_row(sheet, "Name of Accountable Officer")
+    liquidating_row = liquidating_header_row + 1 if liquidating_header_row else collection_total_row + 3
+    deposit_header_row = find_label_row(sheet, "Accountable Officer/Bank")
+    deposit_row = deposit_header_row + 1 if deposit_header_row else liquidating_row + 3
+    liquidating_rows = form.get("liquidatingRows") if isinstance(form.get("liquidatingRows"), list) else []
+    if not liquidating_rows and (form.get("liquidatingOfficerName") or form.get("liquidatingReportNo")):
+        liquidating_rows = [{
+            "officerName": form.get("liquidatingOfficerName") or "",
+            "reportNo": form.get("liquidatingReportNo") or "",
+            "amount": form.get("liquidatingAmount") or 0,
+        }]
 
-    accountability_end = accountability_summary_row + extra_accountability_rows
+    liquidating_end = max(liquidating_row, (deposit_header_row or liquidating_row + 3) - 1)
+    for row in range(liquidating_row, liquidating_end + 1):
+        set_cell_value(sheet, f"A{row}", "")
+        set_cell_value(sheet, f"G{row}", "")
+        set_cell_value(sheet, f"J{row}", "")
+
+    liquidating_total = 0.0
+    available_liquidating_rows = max(0, liquidating_end - liquidating_row + 1)
+    for offset, item in enumerate(liquidating_rows[:available_liquidating_rows]):
+        row = liquidating_row + offset
+        amount_value = money(item.get("amount"))
+        liquidating_total += amount_value
+        set_cell_value(sheet, f"A{row}", item.get("officerName") or item.get("name") or "")
+        set_cell_value(sheet, f"G{row}", item.get("reportNo") or item.get("report_no") or "")
+        set_cell_value(sheet, f"J{row}", amount_value)
+        sheet[f"J{row}"].number_format = "#,##0.00"
+
+    deposit_bank = form.get("depositOtherBank") if form.get("depositBank") == "Other Bank" else form.get("depositBank")
+    set_cell_value(sheet, f"A{deposit_row}", "")
+    set_cell_value(sheet, f"G{deposit_row}", "")
+    set_cell_value(sheet, f"J{deposit_row}", "")
+    if liquidating_rows or form.get("depositBank"):
+        set_cell_value(sheet, f"A{deposit_row}", deposit_bank or "")
+        set_cell_value(sheet, f"G{deposit_row}", form.get("depositReference") or "")
+        set_cell_value(sheet, f"J{deposit_row}", liquidating_total)
+        sheet[f"J{deposit_row}"].number_format = "#,##0.00"
+
+    manual_accountability_rows = form.get("accountabilityRows") if isinstance(form.get("accountabilityRows"), list) else []
+    accountability_lines = manual_accountability_rows or lines
+
+    accountability_header_row = find_label_row(sheet, "C. ACCOUNTABILITY OF ACCOUNTABLE FORMS")
+    accountability_start = (accountability_header_row + 4) if accountability_header_row else 30
+    summary_header_row = find_label_row(sheet, "SUMMARY OF COLLECTIONS AND REMITTANCES/DEPOSITS")
+    if not summary_header_row:
+        summary_header_row = accountability_start + max(len(accountability_lines), 1)
+    base_accountability_rows = max(summary_header_row - accountability_start, 0)
+    extra_accountability_rows = max(len(accountability_lines) - base_accountability_rows, 0)
+    if extra_accountability_rows:
+        insert_rows_preserve_merges(sheet, summary_header_row, extra_accountability_rows)
+        for row in range(summary_header_row, summary_header_row + extra_accountability_rows):
+            copy_row_style(sheet, summary_header_row - 1, row)
+        summary_header_row += extra_accountability_rows
+
+    accountability_end = summary_header_row
     unmerge_rows(sheet, accountability_start, accountability_end - 1)
     for row in range(accountability_start, accountability_end):
         clear_row_values(sheet, row)
 
-    for offset, line in enumerate(lines):
+    for offset, line in enumerate(accountability_lines[:max(0, accountability_end - accountability_start)]):
         row = accountability_start + offset
-        issued_qty = count_range(line.get("receiptFrom"), line.get("receiptTo"))
-        sheet[f"A{row}"] = form_type_label(line.get("formType"))
-        sheet[f"B{row}"] = int(line.get("beginningQty") or 0)
-        sheet[f"C{row}"] = line.get("beginningFrom") or ""
-        sheet[f"D{row}"] = line.get("beginningTo") or ""
-        sheet[f"E{row}"] = int(line.get("receiptAccountQty") or 0)
-        sheet[f"F{row}"] = line.get("receiptAccountFrom") or ""
-        sheet[f"G{row}"] = line.get("receiptAccountTo") or ""
+        issued_qty = int(line.get("issuedQty") or count_range(line.get("receiptFrom"), line.get("receiptTo")) or 0)
+        sheet[f"A{row}"] = form_type_label(line.get("formType") or line.get("form_type"))
+        sheet[f"B{row}"] = int(line.get("beginningQty") or line.get("beginning_qty") or 0)
+        sheet[f"C{row}"] = line.get("beginningFrom") or line.get("beginning_from") or ""
+        sheet[f"D{row}"] = line.get("beginningTo") or line.get("beginning_to") or ""
+        sheet[f"E{row}"] = int(line.get("receiptAccountQty") or line.get("receipt_qty") or 0)
+        sheet[f"F{row}"] = line.get("receiptAccountFrom") or line.get("receipt_from") or ""
+        sheet[f"G{row}"] = line.get("receiptAccountTo") or line.get("receipt_to") or ""
         sheet[f"H{row}"] = issued_qty
-        sheet[f"I{row}"] = line.get("receiptFrom") or ""
-        sheet[f"J{row}"] = line.get("receiptTo") or line.get("receiptFrom") or ""
-        sheet[f"K{row}"] = int(line.get("endingQty") or 0)
-        sheet[f"L{row}"] = line.get("endingFrom") or ""
-        sheet[f"M{row}"] = line.get("endingTo") or ""
+        sheet[f"I{row}"] = line.get("issuedFrom") or line.get("issued_from") or line.get("receiptFrom") or ""
+        sheet[f"J{row}"] = line.get("issuedTo") or line.get("issued_to") or line.get("receiptTo") or line.get("receiptFrom") or ""
+        sheet[f"K{row}"] = int(line.get("endingQty") or line.get("ending_qty") or 0)
+        sheet[f"L{row}"] = line.get("endingFrom") or line.get("ending_from") or ""
+        sheet[f"M{row}"] = line.get("endingTo") or line.get("ending_to") or ""
 
         for col in range(1, 14):
             cell = sheet.cell(row, col)
@@ -772,9 +853,12 @@ def fill_rcd_sheet(sheet, batch, lines, fund_code):
             font.bold = False
             cell.font = font
 
-    summary_collection_row = 30 + extra_collection_rows + extra_accountability_rows
-    sheet[f"J{summary_collection_row}"] = f"=J{collection_total_row}"
-    signature_row = 38 + extra_collection_rows + extra_accountability_rows
+    summary_collection_row = find_label_row(sheet, "Add: Collection")
+    if summary_collection_row:
+        set_currency_formula(sheet, f"J{summary_collection_row}", f"=J{collection_total_row}")
+
+    signature_label_row = find_label_row(sheet, "Name and Signature of Accountable Officer")
+    signature_row = signature_label_row - 2 if signature_label_row and signature_label_row > 2 else 38 + extra_collection_rows + extra_accountability_rows
     set_cell_value(sheet, f"A{signature_row}", officer_name)
 
 

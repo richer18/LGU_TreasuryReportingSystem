@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import {
   LayoutDashboard,
   CalendarDays,
@@ -31,6 +31,7 @@ import { DashboardPage } from './pages/Dashboard/DashboardPage'
 import { GeneralFundPage } from './pages/GeneralFund/GeneralFundPage'
 import { IncomeTargetPage } from './pages/IncomeTarget/IncomeTargetPage'
 import { LoginPage } from './pages/Login/LoginPage'
+import MtoPermitsPage from './pages/MtoPermits/MtoPermitsPage'
 import { ReportsPage } from './pages/Reports/ReportsPage'
 import RcdPage from './pages/Rcd/RcdPage'
 import { SearchReceiptPage } from './pages/SearchReceipt/SearchReceiptPage'
@@ -50,11 +51,11 @@ const navItems = [
 { id: 'cashtickets', label: 'Cash Tickets', icon: Tickets, permission: 'cash_tickets.view' },
 { id: 'businesspermit', label: 'Business Permits', icon: BriefcaseBusiness, permission: 'business_permits.view' },
 { id: 'motorcylefranchise', label: 'MTO Permits', icon: Bike, permission: 'mto_permits.view' },
-{ id: 'rcd', label: 'RCD', icon: ClipboardList, permission: 'rcd.view' },
-{ id: 'acoDashboard', label: 'ACO Dashboard', icon: ShieldCheck, permission: 'aco_dashboard.view' },
+{ id: 'rcd', label: 'RCD Workspace', icon: ClipboardList, permission: ['rcd.workspace.view', 'rcd.accountable'] },
+{ id: 'acoDashboard', label: 'ACO Collector', icon: ShieldCheck, permission: 'aco_dashboard.view' },
 { id: 'incometarget', label: 'Income Target', icon: Target, permission: 'income_target.view' },
 { id: 'searchreceipt', label: 'Search Receipt', icon: SearchCheck, permission: 'search_receipts.view' },
-{ id: 'userAccounts', label: "User's Accounts", icon: UsersRound, permission: 'users.manage' },
+{ id: 'userAccounts', label: "User's Accounts", icon: UsersRound, permission: ['users.manage', 'users.self'] },
 { id: 'reports', label: 'Reports', icon: FileBarChart, permission: 'reports.view' },
 { id: 'settings', label: 'Settings', icon: Settings, permission: 'settings.view' },
 ]
@@ -173,8 +174,14 @@ function App() {
   }, [firebirdStatus])
 
   const connectionClass = firebirdStatus.data?.ok ? 'is-connected' : 'is-offline'
+  const hasPermission = (permission) => {
+    if (!permission) return true
+    if (Array.isArray(permission)) return permission.some((item) => user?.permissions?.includes(item))
+    return user?.permissions?.includes(permission)
+  }
+
   const visibleNavItems = useMemo(
-    () => navItems.filter((item) => !item.permission || user?.permissions?.includes(item.permission)),
+    () => navItems.filter((item) => hasPermission(item.permission)),
     [user],
   )
 
@@ -199,10 +206,21 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (!visibleNavItems.some((item) => item.id === activePage)) {
-      navigateToPage(visibleNavItems[0]?.id || 'settings', true)
+    if (isCheckingAuth) return
+
+    if (!isAuthenticated && typeof window !== 'undefined' && window.location.pathname !== '/') {
+      window.history.replaceState({}, '', '/')
+      setActivePage('dashboard')
     }
-  }, [activePage, visibleNavItems])
+  }, [isAuthenticated, isCheckingAuth])
+
+  useEffect(() => {
+    if (!isAuthenticated || isCheckingAuth) return
+
+    if (!visibleNavItems.some((item) => item.id === activePage)) {
+      navigateToPage(visibleNavItems[0]?.id || 'dashboard', true)
+    }
+  }, [activePage, isAuthenticated, isCheckingAuth, visibleNavItems])
 
   const handleLoginFormChange = (field, value) => {
     setLoginForm((current) => ({ ...current, [field]: value }))
@@ -319,6 +337,7 @@ function App() {
             connectionLabel={connectionLabel}
             firebirdStatus={firebirdStatus}
             onRefresh={loadFirebirdStatus}
+            user={user}
           />
         )}
 
@@ -327,6 +346,8 @@ function App() {
         {activePage === 'calendar' && <CalendarPage user={user} />}
 
         {activePage === 'cashtickets' && <CashTicketsPage user={user} />}
+
+        {activePage === 'motorcylefranchise' && <MtoPermitsPage user={user} />}
 
         {collectionMonitorPages[activePage] && (
           <GeneralFundPage
@@ -344,9 +365,9 @@ function App() {
 
         {activePage === 'rcd' && <RcdPage user={user} />}
 
-        {activePage === 'acoDashboard' && <AcoDashboardPage user={user} />}
+        {activePage === 'acoDashboard' && (String(user?.role || '').toLowerCase() === 'collector' ? <RcdPage user={user} workflow="acoCollector" /> : <AcoDashboardPage user={user} />)}
 
-        {activePage !== 'generalFund' && activePage !== 'calendar' && activePage !== 'cashtickets' && !collectionMonitorPages[activePage] && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'userAccounts' && activePage !== 'rcd' && activePage !== 'acoDashboard' && fundPages[activePage] && (
+        {activePage !== 'generalFund' && activePage !== 'calendar' && activePage !== 'cashtickets' && activePage !== 'motorcylefranchise' && !collectionMonitorPages[activePage] && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'userAccounts' && activePage !== 'rcd' && activePage !== 'acoDashboard' && fundPages[activePage] && (
           <ReportsPage page={fundPages[activePage]} user={user} />
         )}
 
@@ -354,6 +375,7 @@ function App() {
           <SettingsPage
             firebirdStatus={firebirdStatus}
             onRefresh={loadFirebirdStatus}
+            user={user}
           />
         )}
       </section>
@@ -362,4 +384,6 @@ function App() {
 }
 
 export default App
+
+
 

@@ -43,6 +43,7 @@ const collectorDefaults = [
   { label: 'RICARDO', value: 'ricardo' },
   { label: 'EMILY E. CREDO', value: 'EMILY E. CREDO' },
   { label: 'AMABELLA', value: 'amabella' },
+  { label: 'GTZ', value: 'gtz' },
 ]
 
 const toDateInputValue = (date) => {

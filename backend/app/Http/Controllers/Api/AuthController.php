@@ -19,6 +19,7 @@ class AuthController extends Controller
         ]);
 
         $identifier = strtolower(trim($credentials['email']));
+        $normalizedIdentifier = preg_replace('/\\s+/', ' ', $identifier);
         $email = str_contains($identifier, '@') ? $identifier : "{$identifier}@zamboanguita.local";
 
         $user = User::query()
@@ -26,6 +27,7 @@ class AuthController extends Controller
             ->when(! str_contains($identifier, '@'), function ($query) use ($identifier) {
                 $query->orWhereRaw('LOWER(email) LIKE ?', ["{$identifier}@%"]);
             })
+            ->orWhereRaw('LOWER(name) = ?', [$normalizedIdentifier])
             ->first();
 
         if (! $user || ! Hash::check($credentials['password'], $user->password)) {

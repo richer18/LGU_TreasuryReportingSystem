@@ -17,6 +17,10 @@ use App\Http\Controllers\Api\GeneratedReportController;
 use App\Http\Controllers\Api\IncomeTargetController;
 use App\Http\Controllers\Api\MtoPermitPrintController;
 use App\Http\Controllers\Api\ReportCatalogController;
+use App\Http\Controllers\Api\RptDelinquencyFirebirdController;
+use App\Http\Controllers\Api\RptPaymentCardController;
+use App\Http\Controllers\Api\RptDelinquencyNoticeController;
+use App\Http\Controllers\Api\RptDelinquencyRecordController;
 use App\Http\Controllers\Api\ReceiptExceptionsController;
 use App\Http\Controllers\Api\RcdAccessController;
 use App\Http\Controllers\Api\RcdGenerateOrController;
@@ -81,6 +85,16 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/generated-reports/{number}/preview', [GeneratedReportController::class, 'preview']);
     Route::get('/generated-reports/{number}/download', [GeneratedReportController::class, 'download']);
+    Route::get('/reports/rpt-delinquency-notice/download', [RptDelinquencyNoticeController::class, 'download'])->middleware('permission:reports.view');
+    Route::get('/rpt-delinquency-firebird/barangays', [RptDelinquencyFirebirdController::class, 'barangays'])->middleware('permission:reports.view');
+    Route::get('/rpt-delinquency-firebird', RptDelinquencyFirebirdController::class)->middleware('permission:reports.view');
+    Route::get('/rpt-payment-card', RptPaymentCardController::class)->middleware('permission:reports.view');
+    Route::get('/rpt-delinquency-records', [RptDelinquencyRecordController::class, 'index'])->middleware('permission:reports.view');
+    Route::post('/rpt-delinquency-records/generate', [RptDelinquencyRecordController::class, 'generate'])->middleware('permission:reports.view');
+    Route::post('/rpt-delinquency-records', [RptDelinquencyRecordController::class, 'store'])->middleware('permission:reports.view');
+    Route::patch('/rpt-delinquency-records/{record}', [RptDelinquencyRecordController::class, 'update'])->middleware('permission:reports.view');
+    Route::delete('/rpt-delinquency-records/{record}', [RptDelinquencyRecordController::class, 'destroy'])->middleware('permission:reports.view');
+    Route::get('/rpt-delinquency-records/{record}/notice', [RptDelinquencyNoticeController::class, 'downloadRecord'])->middleware('permission:reports.view');
     Route::get('/reports/receipt-exceptions/canceled-void', [ReceiptExceptionsController::class, 'canceledVoid']);
     Route::get('/reports/receipt-exceptions/not-remitted', [ReceiptExceptionsController::class, 'notRemitted']);
 

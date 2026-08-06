@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   LayoutDashboard,
   CalendarDays,
@@ -95,6 +95,7 @@ const pageFromPath = () => {
 }
 
 const hiddenTopbarPages = new Set([
+  'dashboard',
   'generalFund',
   'calendar',
   'cashtickets',
@@ -269,7 +270,7 @@ function App() {
   }
 
   return (
-    <main className="app-layout">
+    <main className={activePage === 'dashboard' ? 'app-layout dashboard-app-shell' : 'app-layout'}>
       <aside className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
         <div className="sidebar-header">
           <div className="system-logo">
@@ -336,6 +337,7 @@ function App() {
             connectionClass={connectionClass}
             connectionLabel={connectionLabel}
             firebirdStatus={firebirdStatus}
+            onOpenMenu={() => setSidebarOpen(true)}
             onRefresh={loadFirebirdStatus}
             user={user}
           />

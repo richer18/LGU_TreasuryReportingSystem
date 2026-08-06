@@ -1,0 +1,48 @@
+import json,sys
+sys.path.insert(0,r"\\MAIN-SERVER\LGU_TreasuryReportingSystem_$\runner")
+from firebird_probe import open_odbc_connection
+c=open_odbc_connection(readonly=True); q=c.cursor()
+sql="""
+WITH RECURSIVE
+active_ids AS (
+ SELECT a.TAXTRANS_ID current_taxtrans_id,a.PROP_ID
+ FROM RPTASSESSMENT a JOIN PROPERTY p ON p.PROP_ID=a.PROP_ID
+ LEFT JOIN RPTASSESSMENTDETAIL d ON d.TAXTRANS_ID=a.TAXTRANS_ID
+ WHERE COALESCE(a.ENDED_BV,0)=0 AND a.CANCELLATIONDATE IS NULL
+   AND COALESCE(d.TAXABILITY_BV,1)=1 AND p.BARANGAY_CT='001'
+ GROUP BY a.TAXTRANS_ID,a.PROP_ID
+),
+chain(current_taxtrans_id,taxtrans_id,depth) AS (
+ SELECT current_taxtrans_id,current_taxtrans_id,0 FROM active_ids
+ UNION ALL
+ SELECT c.current_taxtrans_id,p.TAXTRANS_ID,c.depth+1
+ FROM chain c JOIN RPTASSESSMENT a ON a.TAXTRANS_ID=c.taxtrans_id
+ JOIN RPTASSESSMENT p ON p.TAXTRANS_ID=a.PREVTAXTRANS_ID WHERE c.depth<25
+),
+ledger AS (
+ SELECT c.current_taxtrans_id,
+  SUM(CASE WHEN ta.ITAXTYPE_CT='BSC' AND ta.CASETYPE_CT='REG' THEN COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0) ELSE 0 END) bsc_net,
+  SUM(CASE WHEN ta.ITAXTYPE_CT='SEF' AND ta.CASETYPE_CT='REG' THEN COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0) ELSE 0 END) sef_net,
+  SUM(CASE WHEN ta.ITAXTYPE_CT='BSC' AND ta.CASETYPE_CT IN ('PEN','DED') THEN COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0) ELSE 0 END) bpen_net,
+  SUM(CASE WHEN ta.ITAXTYPE_CT='SEF' AND ta.CASETYPE_CT IN ('PEN','DED') THEN COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0) ELSE 0 END) spen_net,
+  SUM(CASE WHEN ta.ITAXTYPE_CT='BSC' AND ta.CASETYPE_CT='REG' AND COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0)>0 THEN COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0) ELSE 0 END) bsc_pos,
+  SUM(CASE WHEN ta.ITAXTYPE_CT='SEF' AND ta.CASETYPE_CT='REG' AND COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0)>0 THEN COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0) ELSE 0 END) sef_pos,
+  SUM(CASE WHEN ta.ITAXTYPE_CT='BSC' AND ta.CASETYPE_CT='PEN' AND COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0)>0 THEN COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0) ELSE 0 END)
+  + SUM(CASE WHEN ta.ITAXTYPE_CT='BSC' AND ta.CASETYPE_CT='DED' THEN COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0) ELSE 0 END) bpen_adjusted,
+  SUM(CASE WHEN ta.ITAXTYPE_CT='SEF' AND ta.CASETYPE_CT='PEN' AND COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0)>0 THEN COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0) ELSE 0 END)
+  + SUM(CASE WHEN ta.ITAXTYPE_CT='SEF' AND ta.CASETYPE_CT='DED' THEN COALESCE(ta.DEBITAMOUNT,0)-COALESCE(ta.CREDITAMOUNT,0) ELSE 0 END) spen_adjusted
+ FROM chain c JOIN TPACCOUNT ta ON ta.TAXTRANS_ID=c.taxtrans_id
+ WHERE COALESCE(ta.CANCELLED_BV,0)=0 AND ta.EARMARK_CT='OPN' AND ta.TAXYEAR<=2025
+ GROUP BY c.current_taxtrans_id
+)
+SELECT
+ COUNT(*) record_count,
+ SUM(bsc_net) bsc_net,SUM(bpen_net) bpen_net,SUM(sef_net) sef_net,SUM(spen_net) spen_net,
+ SUM(bsc_pos) bsc_pos,SUM(bpen_adjusted) bpen_adjusted,SUM(sef_pos) sef_pos,SUM(spen_adjusted) spen_adjusted
+FROM ledger
+WHERE bsc_net+bpen_net+sef_net+spen_net>0
+"""
+q.execute(sql)
+cols=[d[0].strip().lower() for d in q.description]
+print(json.dumps(dict(zip(cols,q.fetchone())),default=str,indent=2))
+c.close()

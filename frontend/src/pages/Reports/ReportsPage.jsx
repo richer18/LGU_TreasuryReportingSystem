@@ -1,7 +1,10 @@
-import { BookOpen, Calendar, FileSpreadsheet, FileText, Info, Printer } from 'lucide-react'
+import { BookOpen, Calendar, Eraser, FileSpreadsheet, FileText, Info, LoaderCircle, Printer, RefreshCw, Trash2 } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { useEffect, useMemo, useState } from 'react'
 import axiosInstance from '../../axiosinstance/axiosInstance'
 import { getCashierCollectorAssignment } from '../../utils/cashierAssignments'
+import { RealPropertyTaxPaymentCardReport } from './RealPropertyTaxPaymentCardReport'
+import './ReportsDelinquency.css'
 
 const UI_REPORT_NUMBERS = new Set([21, 22, 23, 27, 28, 31, 33])
 const DOWNLOAD_ONLY_REPORT_NUMBERS = new Set([
@@ -22,6 +25,27 @@ const COLLECTOR_REPORT_NUMBER = 34
 const DATE_RANGE_REPORT_NUMBER = 37
 const QUARTER_REPORT_NUMBER = 38
 const CRAAF_REPORT_ID = 'craaf'
+const DELINQUENCY_LIST_REPORT_ID = 'rpt-delinquency-list'
+const DELINQUENCY_NOTICE_REPORT_ID = 'rpt-delinquency-notice'
+const RPT_PAYMENT_CARD_REPORT_ID = 'rpt-payment-card'
+const RPT_PAYMENT_CARD_REPORT = {
+  number: RPT_PAYMENT_CARD_REPORT_ID,
+  name: 'Real Property Tax Payment Card',
+  group: 'rpt',
+  status: 'implemented_read_only',
+}
+const DELINQUENCY_LIST_REPORT = {
+  number: DELINQUENCY_LIST_REPORT_ID,
+  name: 'List of Real Property Tax Delinquencies',
+  group: 'rpt',
+  status: 'implemented_read_only',
+}
+const DELINQUENCY_NOTICE_REPORT = {
+  number: DELINQUENCY_NOTICE_REPORT_ID,
+  name: 'Notice of Delinquency on the Payment of Real Property Tax',
+  group: 'rpt',
+  status: 'implemented_template',
+}
 const REPORT_COLLECTORS = [
   { value: 'flora', label: 'FLORA MY D. FERRER' },
   { value: 'agnes', label: 'AGNES B. ELLO' },
@@ -36,6 +60,14 @@ const currentMonth = () => {
   const year = today.getFullYear()
   const month = String(today.getMonth() + 1).padStart(2, '0')
   return `${year}-${month}`
+}
+
+const currentDateValue = () => {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 const currentYear = () => String(new Date().getFullYear())
@@ -114,6 +146,10 @@ const fallbackDownloadName = (report, period, selectedMonth) => {
 
   if (report.number === CRAAF_REPORT_ID) {
     return `CRAAF_${period.dateFrom || 'start'}_${period.dateTo || 'end'}.xlsx`
+  }
+
+  if (report.number === DELINQUENCY_NOTICE_REPORT_ID) {
+    return `Notice_of_Delinquency_${timestampForFilename()}.docx`
   }
 
   return `report-${report.number}-${selectedMonth}.xlsx`
@@ -955,7 +991,40 @@ export function ReportsPage({ page, variant = 'reports', user }) {
   const [selectedQuarterYear, setSelectedQuarterYear] = useState(currentYear())
   const [selectedReportNumber, setSelectedReportNumber] = useState('')
   const [selectedCollector, setSelectedCollector] = useState('')
+  const [delinquencyNotice, setDelinquencyNotice] = useState(() => ({
+    taxpayerName: '',
+    taxYear: currentYear(),
+    computedUntil: currentDateValue(),
+    taxDecNo: '',
+    propertyIndexNo: '',
+    lotNo: '',
+    location: '',
+    propertyKind: '',
+    assessedValue: '',
+    unpaidYears: '',
+    unpaidQuarters: '',
+    totalAmount: '',
+    status: 'Active',
+    remarks: '',
+  }))
   const [generatedReport, setGeneratedReport] = useState(null)
+  const [delinquencyRecords, setDelinquencyRecords] = useState([])
+  const [firebirdDelinquencyRows, setFirebirdDelinquencyRows] = useState([])
+  const [firebirdDelinquencyMeta, setFirebirdDelinquencyMeta] = useState(null)
+  const [delinquencyBarangays, setDelinquencyBarangays] = useState([])
+  const [isLoadingDelinquencyBarangays, setIsLoadingDelinquencyBarangays] = useState(false)
+  const [delinquencyAmountSort, setDelinquencyAmountSort] = useState('total_desc')
+  const [delinquencyGeneratedAt, setDelinquencyGeneratedAt] = useState(null)
+  const [delinquencyListFilters, setDelinquencyListFilters] = useState(() => ({
+    asOf: currentDateValue(),
+    barangayCode: '',
+    includeCurrentYear: false,
+    limit: '200',
+  }))
+  const [selectedDelinquencyId, setSelectedDelinquencyId] = useState('')
+  const [isLoadingDelinquencies, setIsLoadingDelinquencies] = useState(false)
+  const [isSavingDelinquency, setIsSavingDelinquency] = useState(false)
+  const [delinquencyRecordMessage, setDelinquencyRecordMessage] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const [generationError, setGenerationError] = useState('')
@@ -967,15 +1036,34 @@ export function ReportsPage({ page, variant = 'reports', user }) {
   const cashierAssignment = getCashierCollectorAssignment(user)
   const collectorOptions = cashierAssignment ? [cashierAssignment] : REPORT_COLLECTORS
   const isCollectionMonitor = variant === 'collectionMonitor'
-  const mainReports = page.reports.filter((report) => (
-    (MAIN_REPORT_NUMBERS.has(report.number) || report.number === CRAAF_REPORT_ID) && !(report.number >= 1 && report.number <= 20)
+  const allReports = useMemo(() => [...page.reports, RPT_PAYMENT_CARD_REPORT, DELINQUENCY_LIST_REPORT, DELINQUENCY_NOTICE_REPORT], [page.reports])
+  const mainReports = allReports.filter((report) => (
+    (MAIN_REPORT_NUMBERS.has(report.number) || report.number === CRAAF_REPORT_ID || report.number === RPT_PAYMENT_CARD_REPORT_ID || report.number === DELINQUENCY_LIST_REPORT_ID || report.number === DELINQUENCY_NOTICE_REPORT_ID) && !(report.number >= 1 && report.number <= 20)
   ))
   const otherReports = page.reports.filter((report) => report.number >= 1 && report.number <= 20)
   const quickReports = isCollectionMonitor ? page.reports : mainReports
 
-  const findReport = (value) => page.reports.find((report) => String(report.number) === value)
+  const findReport = (value) => allReports.find((report) => String(report.number) === value)
   const selectedReport = findReport(selectedReportNumber)
   const requiresCollector = selectedReport?.number === COLLECTOR_REPORT_NUMBER
+  const isDelinquencyList = selectedReport?.number === DELINQUENCY_LIST_REPORT_ID
+  const isDelinquencyNotice = selectedReport?.number === DELINQUENCY_NOTICE_REPORT_ID
+  const isRptPaymentCard = selectedReport?.number === RPT_PAYMENT_CARD_REPORT_ID
+  const sortedFirebirdDelinquencyRows = useMemo(() => {
+    const direction = delinquencyAmountSort === 'total_asc' ? 1 : -1
+    return [...firebirdDelinquencyRows].sort((left, right) => (
+      (Number(left.total) - Number(right.total)) * direction
+    ))
+  }, [firebirdDelinquencyRows, delinquencyAmountSort])
+  const selectedDelinquencyBarangay = delinquencyBarangays.find(
+    (barangay) => String(barangay.code) === String(delinquencyListFilters.barangayCode),
+  )
+  const delinquencyBarangayNames = useMemo(
+    () => Object.fromEntries(delinquencyBarangays.map((barangay) => [String(barangay.code), barangay.name || barangay.code])),
+    [delinquencyBarangays],
+  )
+  const delinquencyAsOfYear = Number(delinquencyListFilters.asOf.slice(0, 4)) || new Date().getFullYear()
+  const delinquencyCutOffYear = delinquencyAsOfYear - (delinquencyListFilters.includeCurrentYear ? 0 : 1)
   const usesDateRange = selectedReport?.number === DATE_RANGE_REPORT_NUMBER || selectedReport?.number === COLLECTOR_REPORT_NUMBER || selectedReport?.number === CRAAF_REPORT_ID
   const usesQuarterRange = selectedReport?.number === QUARTER_REPORT_NUMBER
 
@@ -985,18 +1073,538 @@ export function ReportsPage({ page, variant = 'reports', user }) {
     }
   }, [cashierAssignment, requiresCollector])
 
-  const downloadReport = async (report, period) => {
-    const params = {
-      date_from: period.dateFrom,
-      date_to: period.dateTo,
+  const updateDelinquencyNotice = (field, value) => {
+    setDelinquencyNotice((current) => ({ ...current, [field]: value }))
+    setGenerationError('')
+    setDelinquencyRecordMessage('')
+  }
+
+  const delinquencyPayload = () => ({
+    taxpayer_name: delinquencyNotice.taxpayerName,
+    tax_year: delinquencyNotice.taxYear,
+    computed_until: delinquencyNotice.computedUntil,
+    tax_dec_no: delinquencyNotice.taxDecNo,
+    property_index_no: delinquencyNotice.propertyIndexNo,
+    lot_no: delinquencyNotice.lotNo,
+    location: delinquencyNotice.location,
+    property_kind: delinquencyNotice.propertyKind,
+    assessed_value: delinquencyNotice.assessedValue,
+    unpaid_years: delinquencyNotice.unpaidYears,
+    unpaid_quarters: delinquencyNotice.unpaidQuarters,
+    total_amount: delinquencyNotice.totalAmount,
+    status: delinquencyNotice.status || 'Active',
+    remarks: delinquencyNotice.remarks || '',
+  })
+
+  const noticeDownloadPayload = (notice = delinquencyNotice) => ({
+    taxpayer_name: notice.taxpayerName,
+    tax_year: notice.taxYear,
+    computed_until: notice.computedUntil,
+    tax_dec_no: notice.taxDecNo,
+    property_index_no: notice.propertyIndexNo,
+    lot_no: notice.lotNo,
+    location: notice.location,
+    property_kind: notice.propertyKind,
+    assessed_value: notice.assessedValue,
+    unpaid_years: notice.unpaidYears,
+    unpaid_quarters: notice.unpaidQuarters,
+    total_amount: notice.totalAmount,
+  })
+
+  const firebirdNoticeValues = (record) => {
+    const startYear = Number(record?.start_year || 0)
+    const cutOffYear = Number(firebirdDelinquencyMeta?.cut_off_year || delinquencyCutOffYear)
+    const unpaidYears = startYear > 0
+      ? (startYear === cutOffYear ? String(startYear) : `${startYear}-${cutOffYear}`)
+      : String(cutOffYear)
+    const propertyKind = [record?.property_kind, record?.property_classification]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .join(' - ')
+
+    return {
+      taxpayerName: record?.declarant || '',
+      taxYear: String(cutOffYear),
+      computedUntil: delinquencyListFilters.asOf || currentDateValue(),
+      taxDecNo: record?.td_no || '',
+      propertyIndexNo: record?.property_index_no || '',
+      lotNo: record?.lot_no || '',
+      location: delinquencyBarangayNames[String(record?.barangay_code)] || record?.barangay_code || '',
+      propertyKind,
+      assessedValue: record?.assessed_value ?? '',
+      unpaidYears,
+      unpaidQuarters: record?.unpaid_quarters || '',
+      totalAmount: record?.total ?? '',
+      status: 'Active',
+      remarks: record?.remarks || '',
     }
+  }
+
+  const applyFirebirdDelinquencyRecord = (record) => {
+    const values = firebirdNoticeValues(record)
+    setSelectedDelinquencyId('')
+    setDelinquencyNotice(values)
+    setGenerationError('')
+    setDelinquencyRecordMessage(`Loaded ${values.taxpayerName || 'taxpayer'} from the read-only Firebird delinquency list.`)
+    return values
+  }
+
+  const applyDelinquencyRecord = (record) => {
+    if (!record) return
+
+    setDelinquencyNotice({
+      taxpayerName: record.taxpayerName || '',
+      taxYear: record.taxYear || currentYear(),
+      computedUntil: record.computedUntil || currentDateValue(),
+      taxDecNo: record.taxDecNo || '',
+      propertyIndexNo: record.propertyIndexNo || '',
+      lotNo: record.lotNo || '',
+      location: record.location || '',
+      propertyKind: record.propertyKind || '',
+      assessedValue: record.assessedValue || '',
+      unpaidYears: record.unpaidYears || '',
+      unpaidQuarters: record.unpaidQuarters || '',
+      totalAmount: record.totalAmount || '',
+      status: record.status || 'Active',
+      remarks: record.remarks || '',
+    })
+    setGenerationError('')
+    setDelinquencyRecordMessage('Loaded delinquency record.')
+  }
+
+  const resetDelinquencyNotice = () => {
+    setSelectedDelinquencyId('')
+    setDelinquencyNotice({
+      taxpayerName: '',
+      taxYear: currentYear(),
+      computedUntil: currentDateValue(),
+      taxDecNo: '',
+      propertyIndexNo: '',
+      lotNo: '',
+      location: '',
+      propertyKind: '',
+      assessedValue: '',
+      unpaidYears: '',
+      unpaidQuarters: '',
+      totalAmount: '',
+      status: 'Active',
+      remarks: '',
+    })
+    setGenerationError('')
+    setDelinquencyRecordMessage('Ready for a new delinquency record.')
+  }
+
+  const loadDelinquencyRecords = async () => {
+    setIsLoadingDelinquencies(true)
+    try {
+      const response = await axiosInstance.get('/rpt-delinquency-records', {
+        params: { limit: 200 },
+      })
+      setDelinquencyRecords(response.data.records || [])
+    } catch (error) {
+      setGenerationError(error.response?.data?.message || 'Unable to load RPT delinquency records.')
+    } finally {
+      setIsLoadingDelinquencies(false)
+    }
+  }
+
+  const saveDelinquencyRecord = async (mode = 'create') => {
+    if (!delinquencyNotice.taxpayerName.trim() || !delinquencyNotice.taxYear.trim() || !String(delinquencyNotice.totalAmount).trim()) {
+      setGenerationError('Please enter Taxpayer Name, Tax Year, and Total Amount before saving the delinquency record.')
+      return
+    }
+
+    setIsSavingDelinquency(true)
+    setGenerationError('')
+    setDelinquencyRecordMessage('')
+
+    try {
+      const response = mode === 'update' && selectedDelinquencyId
+        ? await axiosInstance.patch(`/rpt-delinquency-records/${selectedDelinquencyId}`, delinquencyPayload())
+        : await axiosInstance.post('/rpt-delinquency-records', delinquencyPayload())
+
+      const savedRecord = response.data.record
+      await loadDelinquencyRecords()
+      setSelectedDelinquencyId(String(savedRecord.id))
+      applyDelinquencyRecord(savedRecord)
+      setDelinquencyRecordMessage(response.data.message || 'RPT delinquency record saved.')
+    } catch (error) {
+      setGenerationError(error.response?.data?.message || 'Unable to save RPT delinquency record.')
+    } finally {
+      setIsSavingDelinquency(false)
+    }
+  }
+
+  const deleteDelinquencyRecord = async () => {
+    if (!selectedDelinquencyId) return
+
+    setIsSavingDelinquency(true)
+    setGenerationError('')
+    setDelinquencyRecordMessage('')
+
+    try {
+      await axiosInstance.delete(`/rpt-delinquency-records/${selectedDelinquencyId}`)
+      await loadDelinquencyRecords()
+      resetDelinquencyNotice()
+      setDelinquencyRecordMessage('RPT delinquency record deleted.')
+    } catch (error) {
+      setGenerationError(error.response?.data?.message || 'Unable to delete RPT delinquency record.')
+    } finally {
+      setIsSavingDelinquency(false)
+    }
+  }
+
+  const printDelinquencyRecord = async (record) => {
+    if (!record?.id) return
+
+    setIsDownloading(true)
+    setGenerationError('')
+    setDelinquencyRecordMessage('')
+
+    try {
+      const response = await axiosInstance.get(`/rpt-delinquency-records/${record.id}/notice`, {
+        responseType: 'blob',
+      })
+      const disposition = response.headers['content-disposition'] || ''
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/i)
+      const fallbackName = `Notice_of_Delinquency_${record.taxpayerName || 'taxpayer'}.docx`
+      const url = URL.createObjectURL(response.data)
+      const link = document.createElement('a')
+
+      link.href = url
+      link.download = filenameMatch?.[1] || fallbackName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      setDelinquencyRecordMessage(`Notice downloaded for ${record.taxpayerName}.`)
+    } catch (error) {
+      setGenerationError(await downloadErrorMessage(error))
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
+  const downloadDelinquencyNotice = async (notice, label = 'taxpayer') => {
+    const response = await axiosInstance.get('/reports/rpt-delinquency-notice/download', {
+      params: noticeDownloadPayload(notice),
+      responseType: 'blob',
+    })
+    const disposition = response.headers['content-disposition'] || ''
+    const filenameMatch = disposition.match(/filename="?([^"]+)"?/i)
+    const safeLabel = String(label || 'taxpayer').replace(/[^A-Za-z0-9_-]+/g, '_')
+    const url = URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+
+    link.href = url
+    link.download = filenameMatch?.[1] || `Notice_of_Delinquency_${safeLabel}.docx`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  const printCurrentDelinquencyNotice = async () => {
+    if (!delinquencyNotice.taxpayerName.trim() || !delinquencyNotice.taxYear.trim() || !String(delinquencyNotice.totalAmount).trim()) {
+      setGenerationError('Select a delinquent taxpayer or enter Taxpayer Name, Tax Year, and Total Amount before printing the notice.')
+      return
+    }
+
+    setIsDownloading(true)
+    setGenerationError('')
+    setDelinquencyRecordMessage('')
+
+    try {
+      await downloadDelinquencyNotice(delinquencyNotice, delinquencyNotice.taxpayerName)
+      setDelinquencyRecordMessage(`Notice downloaded for ${delinquencyNotice.taxpayerName}.`)
+    } catch (error) {
+      setGenerationError(await downloadErrorMessage(error))
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
+  const printFirebirdDelinquencyNotice = async (record) => {
+    const values = applyFirebirdDelinquencyRecord(record)
+    setIsDownloading(true)
+    setGenerationError('')
+
+    try {
+      await downloadDelinquencyNotice(values, values.taxpayerName)
+      setDelinquencyRecordMessage(`Notice downloaded for ${values.taxpayerName}.`)
+    } catch (error) {
+      setGenerationError(await downloadErrorMessage(error))
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
+  const generateDelinquencyList = async () => {
+    setIsGenerating(true)
+    setGenerationError('')
+    setDelinquencyRecordMessage('')
+
+    try {
+      const response = await axiosInstance.post('/rpt-delinquency-records/generate', {
+        as_of: delinquencyNotice.computedUntil || currentDateValue(),
+        tax_year: delinquencyNotice.taxYear || undefined,
+        status: delinquencyNotice.status || 'Active',
+      })
+      setDelinquencyRecords(response.data.records || [])
+      setDelinquencyRecordMessage(`${response.data.message} Total taxpayers: ${response.data.summary?.records ?? 0}. Total amount: PHP ${Number(response.data.summary?.totalAmount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}.`)
+      setGeneratedReport(null)
+    } catch (error) {
+      setGenerationError(error.response?.data?.message || 'Unable to generate RPT delinquency list.')
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  const generateFirebirdDelinquencyList = async () => {
+    if (!delinquencyListFilters.asOf) {
+      setGenerationError('Please select an As Of Date for the RPT delinquency list.')
+      return
+    }
+
+    setIsGenerating(true)
+    setGenerationError('')
+    setDelinquencyRecordMessage('')
+
+    try {
+      const response = await axiosInstance.get('/rpt-delinquency-firebird', {
+        params: {
+          as_of: delinquencyListFilters.asOf,
+          barangay_code: delinquencyListFilters.barangayCode.trim(),
+          include_current_year: delinquencyListFilters.includeCurrentYear ? 1 : 0,
+          limit: Number(delinquencyListFilters.limit || 200),
+        },
+      })
+      setFirebirdDelinquencyRows(response.data.rows || [])
+      setFirebirdDelinquencyMeta(response.data)
+      setDelinquencyGeneratedAt(new Date())
+      setGeneratedReport(null)
+      setDelinquencyRecordMessage(
+        'Read-only Firebird list generated. Cut-off year: ' +
+        response.data.cut_off_year +
+        '. Records shown: ' +
+        Number(response.data.count || 0).toLocaleString('en-PH') +
+        '. Total: PHP ' +
+        Number(response.data.total_amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+        '.',
+      )
+    } catch (error) {
+      setFirebirdDelinquencyRows([])
+      setFirebirdDelinquencyMeta(null)
+      setDelinquencyGeneratedAt(null)
+      setGenerationError(error.response?.data?.message || 'Unable to generate the report. Please verify the filters and try again.')
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  const clearFirebirdDelinquencyResults = () => {
+    setFirebirdDelinquencyRows([])
+    setFirebirdDelinquencyMeta(null)
+    setDelinquencyGeneratedAt(null)
+    setDelinquencyRecordMessage('')
+    setGenerationError('')
+  }
+
+  const updateFirebirdDelinquencyFilter = (field, value) => {
+    setDelinquencyListFilters((current) => ({ ...current, [field]: value }))
+    clearFirebirdDelinquencyResults()
+  }
+
+  const clearFirebirdDelinquencyFilters = () => {
+    setSelectedMonth(currentMonth())
+    setDelinquencyListFilters({
+      asOf: currentDateValue(),
+      barangayCode: '',
+      includeCurrentYear: false,
+      limit: '200',
+    })
+    setDelinquencyAmountSort('total_desc')
+    clearFirebirdDelinquencyResults()
+  }
+
+  const exportFirebirdDelinquencyExcel = () => {
+    if (sortedFirebirdDelinquencyRows.length === 0) return
+
+    try {
+      const generatedDate = delinquencyGeneratedAt || new Date()
+      const asOfDate = new Date(delinquencyListFilters.asOf + 'T00:00:00')
+      const barangayName = selectedDelinquencyBarangay?.name || 'All Barangays'
+      const headers = [
+        'Declarant',
+        'Tax Declaration Number',
+        'Lot Number',
+        'Barangay',
+        'Assessed Value',
+        'Start Year',
+        'Basic Tax Due',
+        'Basic Penalty',
+        'SEF Due',
+        'SEF Penalty',
+        'Total Delinquency',
+        'Remarks',
+      ]
+      const dataRows = sortedFirebirdDelinquencyRows.map((record) => ([
+        record.declarant || '',
+        String(record.td_no || ''),
+        String(record.lot_no || ''),
+        delinquencyBarangayNames[String(record.barangay_code)] || record.barangay_code || '',
+        Number(record.assessed_value || 0),
+        Number(record.start_year || 0) || '',
+        Number(record.basic_tax_due || 0),
+        Number(record.basic_penalty || 0),
+        Number(record.sef_due || 0),
+        Number(record.sef_penalty || 0),
+        Number(record.total || 0),
+        record.remarks || '',
+      ]))
+      const monetaryIndexes = [4, 6, 7, 8, 9, 10]
+      const totals = monetaryIndexes.reduce((result, columnIndex) => ({
+        ...result,
+        [columnIndex]: dataRows.reduce((sum, row) => sum + Number(row[columnIndex] || 0), 0),
+      }), {})
+      const informationRows = [
+        ['Report', 'Real Property Tax Delinquencies'],
+        ['Month and Year', range.label],
+        ['As of Date', asOfDate],
+        ['Barangay', barangayName],
+        ['Cut-off Year', firebirdDelinquencyMeta?.cut_off_year || delinquencyCutOffYear],
+        ['Include Current Tax Year', delinquencyListFilters.includeCurrentYear ? 'Yes' : 'No'],
+        ['Generated Date', generatedDate],
+        ['Total Records', sortedFirebirdDelinquencyRows.length],
+        [],
+      ]
+      const totalRow = ['TOTAL', '', '', '', totals[4], '', totals[6], totals[7], totals[8], totals[9], totals[10], '']
+      const worksheet = XLSX.utils.aoa_to_sheet(
+        [...informationRows, headers, ...dataRows, totalRow],
+        { cellDates: true, dateNF: 'mmmm d, yyyy' },
+      )
+      const headerRowNumber = informationRows.length + 1
+      const firstDataRowNumber = headerRowNumber + 1
+      const lastDataRowNumber = headerRowNumber + dataRows.length
+      const totalRowNumber = lastDataRowNumber + 1
+
+      worksheet['!autofilter'] = { ref: 'A' + headerRowNumber + ':L' + lastDataRowNumber }
+      worksheet['!freeze'] = { xSplit: 0, ySplit: headerRowNumber }
+      worksheet['!cols'] = [
+        { wch: 34 },
+        { wch: 24 },
+        { wch: 18 },
+        { wch: 16 },
+        { wch: 17 },
+        { wch: 12 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 19 },
+        { wch: 24 },
+      ]
+
+      headers.forEach((header, columnIndex) => {
+        const cell = worksheet[XLSX.utils.encode_cell({ r: headerRowNumber - 1, c: columnIndex })]
+        if (cell) {
+          cell.s = {
+            font: { bold: true, color: { rgb: 'FFFFFF' } },
+            fill: { fgColor: { rgb: '17345B' } },
+            alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+          }
+        }
+      })
+
+      for (let rowNumber = firstDataRowNumber; rowNumber <= totalRowNumber; rowNumber += 1) {
+        monetaryIndexes.forEach((columnIndex) => {
+          const cell = worksheet[XLSX.utils.encode_cell({ r: rowNumber - 1, c: columnIndex })]
+          if (cell) cell.z = '#,##0.00'
+        })
+      }
+
+      ;['B3', 'B7'].forEach((address) => {
+        if (worksheet[address]) worksheet[address].z = address === 'B7' ? 'mmmm d, yyyy h:mm AM/PM' : 'mmmm d, yyyy'
+      })
+
+      const totalLabelCell = worksheet['A' + totalRowNumber]
+      if (totalLabelCell) totalLabelCell.s = { font: { bold: true } }
+      monetaryIndexes.forEach((columnIndex) => {
+        const cell = worksheet[XLSX.utils.encode_cell({ r: totalRowNumber - 1, c: columnIndex })]
+        if (cell) cell.s = { font: { bold: true } }
+      })
+
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'RPT Delinquencies')
+
+      const barangayToken = selectedDelinquencyBarangay?.name
+        ? '_' + selectedDelinquencyBarangay.name.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+        : ''
+      const filename = 'RPT_Delinquencies' + barangayToken + '_' + delinquencyListFilters.asOf + '.xlsx'
+      XLSX.writeFile(workbook, filename, { cellStyles: true })
+      setDelinquencyRecordMessage('Excel report downloaded successfully.')
+      setGenerationError('')
+    } catch (error) {
+      setGenerationError('Unable to create the Excel file. Please try again.')
+      setDelinquencyRecordMessage('')
+    }
+  }
+  const loadDelinquencyBarangays = async () => {
+    setIsLoadingDelinquencyBarangays(true)
+
+    try {
+      const response = await axiosInstance.get('/rpt-delinquency-firebird/barangays')
+      setDelinquencyBarangays(response.data.barangays || [])
+    } catch (error) {
+      setDelinquencyBarangays([])
+      setGenerationError(error.response?.data?.message || 'Unable to load the barangay list.')
+    } finally {
+      setIsLoadingDelinquencyBarangays(false)
+    }
+  }
+
+  useEffect(() => {
+    if (isDelinquencyNotice) {
+      loadDelinquencyRecords()
+    }
+  }, [isDelinquencyNotice])
+
+  useEffect(() => {
+    if ((isDelinquencyList || isDelinquencyNotice) && delinquencyBarangays.length === 0) {
+      loadDelinquencyBarangays()
+    }
+  }, [isDelinquencyList, isDelinquencyNotice])
+
+  const downloadReport = async (report, period) => {
+    const params = report.number === DELINQUENCY_NOTICE_REPORT_ID
+      ? {
+          taxpayer_name: delinquencyNotice.taxpayerName,
+          tax_year: delinquencyNotice.taxYear,
+          computed_until: delinquencyNotice.computedUntil,
+          tax_dec_no: delinquencyNotice.taxDecNo,
+          property_index_no: delinquencyNotice.propertyIndexNo,
+          lot_no: delinquencyNotice.lotNo,
+          location: delinquencyNotice.location,
+          property_kind: delinquencyNotice.propertyKind,
+          assessed_value: delinquencyNotice.assessedValue,
+          unpaid_years: delinquencyNotice.unpaidYears,
+          unpaid_quarters: delinquencyNotice.unpaidQuarters,
+          total_amount: delinquencyNotice.totalAmount,
+        }
+      : {
+          date_from: period.dateFrom,
+          date_to: period.dateTo,
+        }
     if (report.number === COLLECTOR_REPORT_NUMBER) {
       params.collector = selectedCollector
     }
 
-    const endpoint = report.number === CRAAF_REPORT_ID
-      ? '/rcd/craaf/download'
-      : `/generated-reports/${report.number}/download`
+    const endpoint = report.number === DELINQUENCY_NOTICE_REPORT_ID
+      ? '/reports/rpt-delinquency-notice/download'
+      : report.number === CRAAF_REPORT_ID
+        ? '/rcd/craaf/download'
+        : `/generated-reports/${report.number}/download`
 
     const response = await axiosInstance.get(endpoint, {
       params,
@@ -1019,12 +1627,24 @@ export function ReportsPage({ page, variant = 'reports', user }) {
   const generateReport = async () => {
     const report = findReport(selectedReportNumber)
     if (!report) return
-    const isDownloadOnly = DOWNLOAD_ONLY_REPORT_NUMBERS.has(report.number) || report.number === CRAAF_REPORT_ID
-    const reportPeriod = report.number === DATE_RANGE_REPORT_NUMBER || report.number === COLLECTOR_REPORT_NUMBER || report.number === CRAAF_REPORT_ID
-      ? { dateFrom: dateRange.dateFrom, dateTo: dateRange.dateTo }
-      : report.number === QUARTER_REPORT_NUMBER
-        ? quarterRange
-        : range
+    const isDownloadOnly = DOWNLOAD_ONLY_REPORT_NUMBERS.has(report.number) || report.number === CRAAF_REPORT_ID || report.number === DELINQUENCY_NOTICE_REPORT_ID
+    const reportPeriod = report.number === DELINQUENCY_NOTICE_REPORT_ID
+      ? {}
+      : report.number === DATE_RANGE_REPORT_NUMBER || report.number === COLLECTOR_REPORT_NUMBER || report.number === CRAAF_REPORT_ID
+        ? { dateFrom: dateRange.dateFrom, dateTo: dateRange.dateTo }
+        : report.number === QUARTER_REPORT_NUMBER
+          ? quarterRange
+          : range
+
+    if (report.number === DELINQUENCY_LIST_REPORT_ID) {
+      await generateFirebirdDelinquencyList()
+      return
+    }
+
+    if (report.number === DELINQUENCY_NOTICE_REPORT_ID) {
+      await generateFirebirdDelinquencyList()
+      return
+    }
 
     if (report.number === COLLECTOR_REPORT_NUMBER && !selectedCollector) {
       setGenerationError('Please select a collector for Generate Collection Receipt Per Collector.')
@@ -1116,15 +1736,32 @@ export function ReportsPage({ page, variant = 'reports', user }) {
         </section>
       )}
 
-      <section className="toolbar-panel master-report-panel report-generator-panel">
-        <div className="report-generator-heading">
-          <p className="eyebrow">{isCollectionMonitor ? 'Official Collection Reports' : 'Office of the Municipal Treasurer'}</p>
-          <h2>{isCollectionMonitor ? 'Reports' : page.title}</h2>
-          <p className="toolbar-description">
-            {isCollectionMonitor
-              ? page.description
-              : 'Generate, preview, export, and print official LGU treasury report templates.'}
-          </p>
+      <section className={'toolbar-panel master-report-panel report-generator-panel' + (isDelinquencyList ? ' delinquency-report-generator-panel' : '')}>
+        <div className={'report-generator-heading' + (isDelinquencyList ? ' delinquency-page-heading' : '')}>
+          {isDelinquencyList ? (
+            <>
+              <div>
+                <h2>Real Property Tax Delinquencies</h2>
+                <p className="toolbar-description">Generate, review, and export delinquent real property tax records.</p>
+              </div>
+              {delinquencyGeneratedAt && (
+                <div className="delinquency-heading-meta" aria-label="Last generated report information">
+                  <strong>{firebirdDelinquencyRows.length.toLocaleString('en-PH')} records</strong>
+                  <span>Generated {delinquencyGeneratedAt.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="eyebrow">{isCollectionMonitor ? 'Official Collection Reports' : 'Office of the Municipal Treasurer'}</p>
+              <h2>{isCollectionMonitor ? 'Reports' : page.title}</h2>
+              <p className="toolbar-description">
+                {isCollectionMonitor
+                  ? page.description
+                  : 'Generate, preview, export, and print official LGU treasury report templates.'}
+              </p>
+            </>
+          )}
         </div>
 
         {isCollectionMonitor && (
@@ -1146,8 +1783,8 @@ export function ReportsPage({ page, variant = 'reports', user }) {
           </section>
         )}
 
-        <div className="report-generator-controls">
-          {usesDateRange ? (
+        <div className={'report-generator-controls' + (isDelinquencyList ? ' delinquency-generator-controls' : '')}>
+          {(isDelinquencyNotice || isRptPaymentCard) ? null : usesDateRange ? (
             <>
               <label className="month-filter-field">
                 <span><Calendar size={14} aria-hidden="true" /> Date From</span>
@@ -1212,7 +1849,10 @@ export function ReportsPage({ page, variant = 'reports', user }) {
               <span><Calendar size={14} aria-hidden="true" /> Month and Year</span>
               <input
                 aria-label="Month and year"
-                onChange={(event) => setSelectedMonth(event.target.value)}
+                onChange={(event) => {
+                  setSelectedMonth(event.target.value)
+                  if (isDelinquencyList) clearFirebirdDelinquencyResults()
+                }}
                 type="month"
                 value={selectedMonth}
               />
@@ -1220,7 +1860,7 @@ export function ReportsPage({ page, variant = 'reports', user }) {
           )}
 
           <label className="report-select-field">
-            <span><BookOpen size={14} aria-hidden="true" /> Generate Report</span>
+            <span><BookOpen size={14} aria-hidden="true" /> {isDelinquencyList ? 'Report Type' : 'Generate Report'}</span>
             <select
               aria-label="Generate report"
               onChange={(event) => {
@@ -1240,6 +1880,71 @@ export function ReportsPage({ page, variant = 'reports', user }) {
               </optgroup>
             </select>
           </label>
+
+          {(isDelinquencyList || isDelinquencyNotice) && (
+            <>
+              <label className="month-filter-field">
+                <span><Calendar size={14} aria-hidden="true" /> As of Date</span>
+                <input
+                  aria-label="As of date"
+                  onChange={(event) => updateFirebirdDelinquencyFilter('asOf', event.target.value)}
+                  type="date"
+                  value={delinquencyListFilters.asOf}
+                />
+              </label>
+              <label className="report-select-field">
+                <span>Barangay</span>
+                <select
+                  aria-label="Barangay"
+                  disabled={isLoadingDelinquencyBarangays}
+                  onChange={(event) => updateFirebirdDelinquencyFilter('barangayCode', event.target.value)}
+                  value={delinquencyListFilters.barangayCode}
+                >
+                  <option value="">{isLoadingDelinquencyBarangays ? 'Loading barangays...' : 'All Barangays'}</option>
+                  {delinquencyBarangays.map((barangay) => (
+                    <option key={barangay.code} value={barangay.code}>
+                      {barangay.name ? barangay.code + ' - ' + barangay.name : barangay.code}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="month-filter-field">
+                <span>Cut-off Year</span>
+                <input aria-label="Cut-off year" readOnly type="number" value={delinquencyCutOffYear} />
+              </label>
+              <label className="report-select-field">
+                <span>Maximum Rows</span>
+                <select
+                  aria-label="Maximum rows"
+                  onChange={(event) => updateFirebirdDelinquencyFilter('limit', event.target.value)}
+                  value={delinquencyListFilters.limit}
+                >
+                  <option value="100">100</option>
+                  <option value="200">200</option>
+                  <option value="500">500</option>
+                  <option value="1000">1,000</option>
+                  <option value="1500">1,500</option>
+                  <option value="2000">2,000</option>
+                  <option value="5000">5,000</option>
+                </select>
+              </label>
+              <label className="report-select-field">
+                <span>Sort by Amount</span>
+                <select aria-label="Sort by amount" onChange={(event) => setDelinquencyAmountSort(event.target.value)} value={delinquencyAmountSort}>
+                  <option value="total_desc">Highest to Lowest</option>
+                  <option value="total_asc">Lowest to Highest</option>
+                </select>
+              </label>
+              <label className="delinquency-current-year-toggle">
+                <input
+                  checked={delinquencyListFilters.includeCurrentYear}
+                  onChange={(event) => updateFirebirdDelinquencyFilter('includeCurrentYear', event.target.checked)}
+                  type="checkbox"
+                />
+                <span>Include Current Tax Year</span>
+              </label>
+            </>
+          )}
 
           {requiresCollector && (
             <label className="report-select-field">
@@ -1261,21 +1966,348 @@ export function ReportsPage({ page, variant = 'reports', user }) {
             </label>
           )}
 
-          <button className="primary-button generate-selected-report-button" disabled={!selectedReportNumber || isGenerating || (requiresCollector && !selectedCollector)} onClick={generateReport} type="button">
-            <FileText size={15} aria-hidden="true" />
-            {isGenerating ? 'Generating...' : 'Generate Report'}
-          </button>
+          {!isRptPaymentCard && (
+            <button className="primary-button generate-selected-report-button" disabled={!selectedReportNumber || isGenerating || (requiresCollector && !selectedCollector)} onClick={generateReport} type="button">
+              {isGenerating ? <LoaderCircle className="delinquency-loading-icon" size={16} aria-hidden="true" /> : <FileText size={15} aria-hidden="true" />}
+              {isGenerating ? 'Generating...' : isDelinquencyNotice ? 'Find Delinquent Taxpayers' : 'Generate Report'}
+            </button>
+          )}
+          {(isDelinquencyList || isDelinquencyNotice) && (
+            <button className="secondary-button delinquency-clear-filters-button" disabled={isGenerating} onClick={clearFirebirdDelinquencyFilters} type="button">
+              <Eraser size={15} aria-hidden="true" />
+              Clear Filters
+            </button>
+          )}
         </div>
+
+        {isRptPaymentCard && <RealPropertyTaxPaymentCardReport canPrint={Boolean(user?.permissions?.includes('reports.export'))} />}
+
+        {isDelinquencyList && (
+          <section className="delinquency-firebird-report" aria-label="Real Property Tax Delinquencies results">
+            {firebirdDelinquencyMeta && (
+              <div className="delinquency-summary-strip" aria-label="Generated report summary">
+                <div><span>Barangay</span><strong>{selectedDelinquencyBarangay?.name || firebirdDelinquencyMeta?.barangay_code || 'All barangays'}</strong></div>
+                <div><span>As of</span><strong>{new Date(delinquencyListFilters.asOf + 'T00:00:00').toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })}</strong></div>
+                <div><span>Cut-off year</span><strong>{firebirdDelinquencyMeta.cut_off_year || delinquencyCutOffYear}</strong></div>
+                <div><span>Total records</span><strong>{firebirdDelinquencyRows.length.toLocaleString('en-PH')}</strong></div>
+                <div><span>Total delinquency</span><strong>PHP {Number(firebirdDelinquencyMeta.total_amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
+              </div>
+            )}
+
+            {firebirdDelinquencyRows.length > 0 && (
+              <div className="delinquency-action-toolbar no-print">
+                <span>{firebirdDelinquencyRows.length.toLocaleString('en-PH')} generated records</span>
+                <div>
+                  <button className="delinquency-excel-button" onClick={exportFirebirdDelinquencyExcel} type="button">
+                    <FileSpreadsheet size={16} aria-hidden="true" />
+                    Download Excel
+                  </button>
+                  <button className="secondary-button" disabled={isGenerating} onClick={generateFirebirdDelinquencyList} type="button">
+                    <RefreshCw size={15} aria-hidden="true" />
+                    Regenerate
+                  </button>
+                  <button className="secondary-button" onClick={clearFirebirdDelinquencyResults} type="button">
+                    <Trash2 size={15} aria-hidden="true" />
+                    Clear Results
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div aria-live="polite">
+              {delinquencyRecordMessage && <p className="delinquency-report-message success">{delinquencyRecordMessage}</p>}
+              {generationError && <p className="delinquency-report-message error">{generationError}</p>}
+            </div>
+
+            {isGenerating ? (
+              <div className="delinquency-report-state" role="status">
+                <LoaderCircle className="delinquency-loading-icon" size={24} aria-hidden="true" />
+                <strong>Generating delinquency report...</strong>
+              </div>
+            ) : generationError ? null : firebirdDelinquencyMeta && firebirdDelinquencyRows.length === 0 ? (
+              <div className="delinquency-report-state">
+                <strong>No delinquent real property tax records were found for the selected filters.</strong>
+              </div>
+            ) : firebirdDelinquencyRows.length === 0 ? (
+              <div className="delinquency-report-state">
+                <FileSpreadsheet size={25} aria-hidden="true" />
+                <strong>Select the report filters, then click Generate Report.</strong>
+              </div>
+            ) : (
+              <div className="delinquency-record-table-wrap">
+                <table className="delinquency-record-table delinquency-firebird-table">
+                  <caption>{firebirdDelinquencyRows.length.toLocaleString('en-PH')} generated delinquency records</caption>
+                  <thead>
+                    <tr>
+                      <th>Declarant</th>
+                      <th>Tax Declaration No.</th>
+                      <th>Lot No.</th>
+                      <th>Barangay</th>
+                      <th>Assessed Value</th>
+                      <th>Start Year</th>
+                      <th>Basic Tax Due</th>
+                      <th>Basic Penalty</th>
+                      <th>SEF Due</th>
+                      <th>SEF Penalty</th>
+                      <th>Total Delinquency</th>
+                      <th>Remarks</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedFirebirdDelinquencyRows.map((record, index) => (
+                      <tr key={(record.td_no || 'td') + '-' + index}>
+                        <td><strong>{record.declarant || '-'}</strong></td>
+                        <td>{record.td_no || '-'}</td>
+                        <td>{record.lot_no || '-'}</td>
+                        <td>{delinquencyBarangayNames[String(record.barangay_code)] || record.barangay_code || '-'}</td>
+                        <td>{formatAmount(record.assessed_value)}</td>
+                        <td>{record.start_year || '-'}</td>
+                        <td>{formatAmount(record.basic_tax_due)}</td>
+                        <td>{formatAmount(record.basic_penalty)}</td>
+                        <td>{formatAmount(record.sef_due)}</td>
+                        <td>{formatAmount(record.sef_penalty)}</td>
+                        <td><strong>{formatAmount(record.total)}</strong></td>
+                        <td>{record.remarks || ''}</td>
+                        <td>
+                          <button className="secondary-button" disabled={isDownloading} onClick={() => printFirebirdDelinquencyNotice(record)} type="button">
+                            <Printer size={14} aria-hidden="true" />
+                            Print Notice
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <th colSpan={10}>TOTAL</th>
+                      <th>{formatAmount(firebirdDelinquencyMeta?.total_amount || 0)}</th>
+                      <th colSpan={2} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+        {isDelinquencyNotice && (
+          <div className="delinquency-report-fields" aria-label="Notice of Delinquency fields">
+            <div className="delinquency-record-tools">
+              <label className="treasury-field delinquency-record-picker">
+                <span>Delinquency Records</span>
+                <select
+                  aria-label="Select RPT delinquency record"
+                  disabled={isLoadingDelinquencies}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    setSelectedDelinquencyId(value)
+                    const record = delinquencyRecords.find((item) => String(item.id) === value)
+                    if (record) applyDelinquencyRecord(record)
+                  }}
+                  value={selectedDelinquencyId}
+                >
+                  <option value="">{isLoadingDelinquencies ? 'Loading delinquency records...' : 'Select delinquency record'}</option>
+                  {delinquencyRecords.map((record) => (
+                    <option key={record.id} value={record.id}>
+                      {record.taxpayerName} - {record.taxYear} - PHP {Number(record.totalAmount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="primary-button" disabled={isDownloading || !delinquencyNotice.taxpayerName.trim()} onClick={printCurrentDelinquencyNotice} type="button">
+                <Printer size={14} aria-hidden="true" />
+                Print Notice
+              </button>
+              <button className="secondary-button" disabled={isLoadingDelinquencies} onClick={loadDelinquencyRecords} type="button">Refresh</button>
+              <button className="secondary-button" onClick={resetDelinquencyNotice} type="button">New</button>
+              <button className="primary-button" disabled={isSavingDelinquency} onClick={() => saveDelinquencyRecord('create')} type="button">Save Record</button>
+              <button className="secondary-button" disabled={!selectedDelinquencyId || isSavingDelinquency} onClick={() => saveDelinquencyRecord('update')} type="button">Update</button>
+              <button className="danger-button" disabled={!selectedDelinquencyId || isSavingDelinquency} onClick={deleteDelinquencyRecord} type="button">Delete</button>
+            </div>
+            {delinquencyRecordMessage && <p className="delinquency-record-message">{delinquencyRecordMessage}</p>}
+            <div className="delinquency-record-list notice-firebird-record-list">
+              <div className="delinquency-record-list-heading">
+                <div>
+                  <strong>Delinquent Taxpayers from iTAX</strong>
+                  <span>Read-only Firebird results. Select a taxpayer to prepare or print the official notice.</span>
+                </div>
+                {firebirdDelinquencyMeta && <strong>{firebirdDelinquencyRows.length.toLocaleString('en-PH')} record(s)</strong>}
+              </div>
+              {isGenerating ? (
+                <div className="delinquency-report-state" role="status">
+                  <LoaderCircle className="delinquency-loading-icon" size={22} aria-hidden="true" />
+                  <strong>Finding delinquent taxpayers...</strong>
+                </div>
+              ) : firebirdDelinquencyRows.length === 0 ? (
+                <div className="delinquency-report-state">
+                  <strong>{firebirdDelinquencyMeta ? 'No delinquent taxpayers found for the selected filters.' : 'Set the As of Date and Barangay above, then click Find Delinquent Taxpayers.'}</strong>
+                </div>
+              ) : (
+                <div className="delinquency-record-table-wrap">
+                  <table className="delinquency-record-table delinquency-notice-source-table">
+                    <thead>
+                      <tr>
+                        <th>Taxpayer</th>
+                        <th>Tax Dec.</th>
+                        <th>Lot No.</th>
+                        <th>Barangay</th>
+                        <th>Unpaid Years</th>
+                        <th>Assessed Value</th>
+                        <th>Total</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedFirebirdDelinquencyRows.map((record, index) => {
+                        const noticeValues = firebirdNoticeValues(record)
+                        return (
+                          <tr key={(record.td_no || 'notice') + '-' + index}>
+                            <td><strong>{record.declarant || '-'}</strong></td>
+                            <td>{record.td_no || '-'}</td>
+                            <td>{record.lot_no || '-'}</td>
+                            <td>{noticeValues.location || '-'}</td>
+                            <td>{noticeValues.unpaidYears || '-'}</td>
+                            <td>{formatAmount(record.assessed_value)}</td>
+                            <td><strong>{formatAmount(record.total)}</strong></td>
+                            <td>
+                              <div className="delinquency-row-actions">
+                                <button className="secondary-button" onClick={() => applyFirebirdDelinquencyRecord(record)} type="button">Use Record</button>
+                                <button className="primary-button" disabled={isDownloading} onClick={() => printFirebirdDelinquencyNotice(record)} type="button">
+                                  <Printer size={14} aria-hidden="true" />
+                                  Print Notice
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <label className="treasury-field">
+              <span>Taxpayer Name</span>
+              <input aria-label="Taxpayer name" onChange={(event) => updateDelinquencyNotice('taxpayerName', event.target.value)} placeholder="Taxpayer / owner name" value={delinquencyNotice.taxpayerName} />
+            </label>
+            <label className="treasury-field">
+              <span>Tax Year</span>
+              <input aria-label="Tax year" maxLength={4} onChange={(event) => updateDelinquencyNotice('taxYear', event.target.value)} placeholder="2026" value={delinquencyNotice.taxYear} />
+            </label>
+            <label className="treasury-field">
+              <span>Computed Until</span>
+              <input aria-label="Computed until" onChange={(event) => updateDelinquencyNotice('computedUntil', event.target.value)} type="date" value={delinquencyNotice.computedUntil} />
+            </label>
+            <label className="treasury-field">
+              <span>Total Amount</span>
+              <input aria-label="Total amount" min="0" onChange={(event) => updateDelinquencyNotice('totalAmount', event.target.value)} placeholder="0.00" step="0.01" type="number" value={delinquencyNotice.totalAmount} />
+            </label>
+            <label className="treasury-field">
+              <span>Tax Dec. No.</span>
+              <input aria-label="Tax declaration number" onChange={(event) => updateDelinquencyNotice('taxDecNo', event.target.value)} placeholder="Tax Dec. No." value={delinquencyNotice.taxDecNo} />
+            </label>
+            <label className="treasury-field">
+              <span>Property Index No.</span>
+              <input aria-label="Property index number" onChange={(event) => updateDelinquencyNotice('propertyIndexNo', event.target.value)} placeholder="Property Index #" value={delinquencyNotice.propertyIndexNo} />
+            </label>
+            <label className="treasury-field">
+              <span>Lot No.</span>
+              <input aria-label="Lot number" onChange={(event) => updateDelinquencyNotice('lotNo', event.target.value)} placeholder="Lot No." value={delinquencyNotice.lotNo} />
+            </label>
+            <label className="treasury-field">
+              <span>Location</span>
+              <input aria-label="Property location" onChange={(event) => updateDelinquencyNotice('location', event.target.value)} placeholder="Property location" value={delinquencyNotice.location} />
+            </label>
+            <label className="treasury-field">
+              <span>Kind of Property</span>
+              <input aria-label="Kind of property" onChange={(event) => updateDelinquencyNotice('propertyKind', event.target.value)} placeholder="Residential / Agricultural / etc." value={delinquencyNotice.propertyKind} />
+            </label>
+            <label className="treasury-field">
+              <span>Assessed Value</span>
+              <input aria-label="Assessed value" min="0" onChange={(event) => updateDelinquencyNotice('assessedValue', event.target.value)} placeholder="0.00" step="0.01" type="number" value={delinquencyNotice.assessedValue} />
+            </label>
+            <label className="treasury-field">
+              <span>Year Unpaid</span>
+              <input aria-label="Year unpaid" onChange={(event) => updateDelinquencyNotice('unpaidYears', event.target.value)} placeholder="Year unpaid" value={delinquencyNotice.unpaidYears} />
+            </label>
+            <label className="treasury-field">
+              <span>Unpaid Qtrs.</span>
+              <input aria-label="Unpaid quarters" onChange={(event) => updateDelinquencyNotice('unpaidQuarters', event.target.value)} placeholder="Qtrs." value={delinquencyNotice.unpaidQuarters} />
+            </label>
+            <label className="treasury-field">
+              <span>Status</span>
+              <select aria-label="Delinquency status" onChange={(event) => updateDelinquencyNotice('status', event.target.value)} value={delinquencyNotice.status || 'Active'}>
+                <option value="Active">Active</option>
+                <option value="Resolved">Resolved</option>
+              </select>
+            </label>
+            <label className="treasury-field delinquency-remarks-field">
+              <span>Remarks</span>
+              <input aria-label="Delinquency remarks" onChange={(event) => updateDelinquencyNotice('remarks', event.target.value)} placeholder="Remarks" value={delinquencyNotice.remarks || ''} />
+            </label>
+            <div className="delinquency-record-list">
+              <div className="delinquency-record-list-heading">
+                <div>
+                  <strong>Saved Notice Records (Excel)</strong>
+                  <span>{delinquencyRecords.length} taxpayer record(s)</span>
+                </div>
+              </div>
+              <div className="delinquency-record-table-wrap">
+                <table className="delinquency-record-table">
+                  <thead>
+                    <tr>
+                      <th>Taxpayer</th>
+                      <th>Tax Year</th>
+                      <th>Tax Dec.</th>
+                      <th>Location</th>
+                      <th>Total</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {delinquencyRecords.length === 0 ? (
+                      <tr>
+                        <td colSpan={7}>No RPT delinquency records yet. Encode and save a record above; it will be stored in the Excel file.</td>
+                      </tr>
+                    ) : delinquencyRecords.map((record) => (
+                      <tr key={record.id}>
+                        <td>
+                          <strong>{record.taxpayerName}</strong>
+                          <span>{record.propertyIndexNo || '-'}</span>
+                        </td>
+                        <td>{record.taxYear}</td>
+                        <td>{record.taxDecNo || '-'}</td>
+                        <td>{record.location || '-'}</td>
+                        <td>PHP {Number(record.totalAmount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
+                        <td><span className={`status-pill ${record.status === 'Resolved' ? 'status-resolved' : 'status-active'}`}>{record.status || 'Active'}</span></td>
+                        <td>
+                          <div className="delinquency-row-actions">
+                            <button className="secondary-button" onClick={() => { setSelectedDelinquencyId(String(record.id)); applyDelinquencyRecord(record) }} type="button">Load</button>
+                            <button className="primary-button" disabled={isDownloading} onClick={() => printDelinquencyRecord(record)} type="button">
+                              <Printer size={14} aria-hidden="true" />
+                              Print Notice
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="report-generator-helper">
           <Info size={18} aria-hidden="true" />
           <div>
             <strong>Report Scope</strong>
-            <p>Choose a report template and date scope. Generate Collection Receipt Per Collector, Report 37, and CRAAF use Date From and Date To, while Report 38 uses Quarter and Year. Reports are generated from the read-only Firebird bridge, BPLS workbook sources, MySQL RCD/accountable forms data, and uploaded Excel templates.</p>
+            <p>Choose a report template and date scope. Generate Collection Receipt Per Collector, Report 37, and CRAAF use Date From and Date To, while Report 38 uses Quarter and Year. The List of Real Property Tax Delinquencies reads the open BSC/SEF ledger from Firebird in read-only mode using the selected cut-off year and barangay. The Real Property Tax Payment Card looks up ownership, assessment, and payment history from Firebird in read-only mode. The Notice of Delinquency can be printed directly for each taxpayer returned by the read-only Firebird delinquency list, with optional Excel saving for corrections and record keeping.</p>
           </div>
         </div>
 
-        {generationError && <p className="report-generation-error">{generationError}</p>}
+        {generationError && !isDelinquencyList && <p className="report-generation-error">{generationError}</p>}
       </section>
 
       {generatedReport && (
@@ -1303,3 +2335,4 @@ export function ReportsPage({ page, variant = 'reports', user }) {
     </div>
   )
 }
+

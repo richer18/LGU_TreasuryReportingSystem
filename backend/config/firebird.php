@@ -25,5 +25,7 @@ return [
     'report_excel_script' => base_path('../runner/report_excel_export_readonly.py'),
     'receipt_exceptions_script' => base_path('../runner/receipt_exceptions_readonly.py'),
     'calendar_summary_script' => base_path('../runner/calendar_summary_readonly.py'),
+    'rpt_delinquency_script' => base_path('../runner/rpt_delinquency_readonly.py'),
+    'rpt_payment_card_script' => base_path('../runner/rpt_payment_card_readonly.py'),
     'allow_receipt_update' => env('FIREBIRD_ALLOW_RECEIPT_UPDATE', false),
 ];

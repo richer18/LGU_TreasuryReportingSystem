@@ -1,0 +1,312 @@
+.rpt-payment-card-module {
+  display: grid;
+  gap: 16px;
+  grid-column: 1 / -1;
+}
+
+.rpt-card-toolbar,
+.rpt-card-toolbar-actions,
+.rpt-card-toolbar-heading {
+  display: flex;
+  align-items: center;
+}
+
+.rpt-card-toolbar {
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid #d9dee7;
+  padding-top: 18px;
+}
+
+.rpt-card-toolbar-heading {
+  gap: 10px;
+}
+
+.rpt-card-toolbar-heading h3,
+.rpt-card-toolbar-heading p {
+  margin: 0;
+}
+
+.rpt-card-toolbar-heading h3 {
+  font-size: 18px;
+}
+
+.rpt-card-toolbar-heading p {
+  color: #667085;
+  font-size: 13px;
+  margin-top: 3px;
+}
+
+.rpt-card-toolbar-actions {
+  gap: 8px;
+}
+
+.rpt-card-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 12px;
+  align-items: end;
+  background: #f7f9fc;
+  border: 1px solid #d9e0ea;
+  padding: 16px;
+}
+
+.rpt-card-owner-filter {
+  grid-column: span 2;
+}
+
+.rpt-card-generate {
+  min-height: 44px;
+}
+
+.rpt-card-match-picker {
+  max-width: 760px;
+}
+
+.rpt-card-message,
+.rpt-card-empty {
+  border: 1px solid #bed7f4;
+  background: #edf6ff;
+  color: #174b78;
+  padding: 12px 14px;
+}
+
+.rpt-card-message-error {
+  border-color: #efb5b5;
+  background: #fff1f1;
+  color: #a61b1b;
+}
+
+.rpt-card-mobile-note {
+  display: none;
+  margin: 0;
+  color: #667085;
+  font-size: 13px;
+}
+
+.rpt-card-preview-shell {
+  overflow-x: auto;
+  background: #e9edf2;
+  padding: 24px;
+}
+
+.rpt-card-print-area {
+  width: 1120px;
+  min-height: 760px;
+  margin: 0 auto;
+  background: #fff;
+  color: #111;
+  font-family: Arial, Helvetica, sans-serif;
+  padding: 28px;
+  box-shadow: 0 4px 18px rgb(16 24 40 / 12%);
+}
+
+.rpt-card-print-area h2 {
+  margin: 0;
+  border: 1px solid #111;
+  border-bottom: 0;
+  padding: 8px;
+  text-align: center;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+.rpt-card-top-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  border: 1px solid #111;
+}
+
+.rpt-card-print-area table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.rpt-card-print-area caption {
+  caption-side: top;
+  border-bottom: 1px solid #111;
+  padding: 6px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.rpt-card-print-area th,
+.rpt-card-print-area td {
+  border: 1px solid #111;
+  padding: 4px 5px;
+  font-size: 9px;
+  line-height: 1.2;
+  vertical-align: middle;
+}
+
+.rpt-card-ownership-table {
+  border-right: 1px solid #111;
+}
+
+.rpt-card-ownership-table caption {
+  font-size: 15px;
+}
+
+.rpt-card-ownership-table th {
+  font-size: 10px;
+}
+
+.rpt-card-ownership-table th:nth-child(1) { width: 46%; }
+.rpt-card-ownership-table th:nth-child(2) { width: 34%; }
+.rpt-card-ownership-table th:nth-child(3) { width: 20%; }
+
+.rpt-card-ownership-table td {
+  height: 25px;
+}
+
+.rpt-card-property-location {
+  padding: 30px 28px 12px;
+}
+
+.rpt-card-property-location h3 {
+  margin: 0 0 14px;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.rpt-card-property-location dl,
+.rpt-card-property-location dd {
+  margin: 0;
+}
+
+.rpt-card-property-location dl {
+  display: grid;
+  gap: 8px;
+}
+
+.rpt-card-property-location dl div {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  align-items: end;
+}
+
+.rpt-card-property-location dt {
+  font-size: 10px;
+}
+
+.rpt-card-property-location dd {
+  min-height: 15px;
+  border-bottom: 1px solid #111;
+  padding: 0 3px 2px;
+  font-size: 10px;
+}
+
+.rpt-card-payment-table {
+  margin-top: 22px;
+  border: 1px solid #111;
+}
+
+.rpt-card-payment-table caption {
+  border: 1px solid #111;
+  border-bottom: 0;
+  font-size: 15px;
+}
+
+.rpt-card-payment-table thead {
+  display: table-header-group;
+}
+
+.rpt-card-payment-table th {
+  text-align: center;
+  font-size: 8px;
+}
+
+.rpt-card-payment-table td {
+  height: 22px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.rpt-card-payment-table td.amount {
+  text-align: right;
+}
+
+.rpt-card-payment-table th:nth-child(1) { width: 16%; }
+.rpt-card-payment-table th:nth-child(5) { width: 7%; }
+.rpt-card-payment-table th:nth-child(10) { width: 9%; }
+.rpt-card-payment-table th:nth-child(11) { width: 8%; }
+.rpt-card-payment-table th:nth-child(12) { width: 8%; }
+
+@media (max-width: 1100px) {
+  .rpt-card-filters {
+    grid-template-columns: repeat(2, minmax(160px, 1fr));
+  }
+
+  .rpt-card-owner-filter {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .rpt-card-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .rpt-card-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .rpt-card-toolbar-actions,
+  .rpt-card-toolbar-actions button,
+  .rpt-card-generate {
+    width: 100%;
+  }
+
+  .rpt-card-mobile-note {
+    display: block;
+  }
+
+  .rpt-card-preview-shell {
+    padding: 10px;
+  }
+}
+
+
+@media print {
+  body.rpt-payment-card-printing * {
+    visibility: hidden !important;
+  }
+
+  body.rpt-payment-card-printing .rpt-card-print-area,
+  body.rpt-payment-card-printing .rpt-card-print-area * {
+    visibility: visible !important;
+  }
+
+  body.rpt-payment-card-printing .rpt-card-print-area {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    background: #fff;
+  }
+
+  body.rpt-payment-card-printing .rpt-card-preview-shell {
+    overflow: visible;
+    padding: 0;
+    background: #fff;
+  }
+
+  .rpt-card-payment-table tr {
+    break-inside: avoid;
+  }
+
+  .rpt-card-payment-table thead {
+    display: table-header-group;
+  }
+
+  .rpt-card-print-area {
+    color: #000;
+  }
+}

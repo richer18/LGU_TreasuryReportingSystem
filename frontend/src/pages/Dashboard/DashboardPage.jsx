@@ -1,13 +1,15 @@
-﻿import { useEffect, useMemo, useState } from 'react'
-import { Paper } from '@mui/material'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
   CalendarDays,
-  Landmark,
+  Info,
   ListChecks,
+  Menu,
   RefreshCcw,
   Target,
+  TrendingDown,
   TrendingUp,
+  WalletCards,
 } from 'lucide-react'
 import axiosInstance from '../../axiosinstance/axiosInstance'
 import { formatMoney } from '../GeneralFund/utils/generalFundFormat'
@@ -32,7 +34,6 @@ const getPeriod = (year) => {
 
   return {
     dateTo: toLocalDate(dateTo),
-    fullYearTo: toLocalDate(yearEnd),
     month: dateTo.getMonth() + 1,
     monthFrom: toLocalDate(monthStart),
     monthName: dateTo.toLocaleString('en-PH', { month: 'long' }),
@@ -46,26 +47,21 @@ const findTotalRow = (rows = []) =>
   rows.find((row) => row.total || String(row.source || '').toUpperCase() === 'TOTAL') || {}
 
 const getCollectionTotal = (payload) => Number(findTotalRow(payload?.rows).total_collections || 0)
-
 const normalizeName = (value) => String(value || '').trim().toLowerCase()
 
 const sourceAmount = (rows, names) => {
   const lookup = new Set(names.map(normalizeName))
-  return (rows || []).reduce((total, row) => {
-    if (lookup.has(normalizeName(row.source))) {
-      return total + Number(row.total_collections || 0)
-    }
-    return total
-  }, 0)
+  return (rows || []).reduce((total, row) => (
+    lookup.has(normalizeName(row.source))
+      ? total + Number(row.total_collections || 0)
+      : total
+  ), 0)
 }
 
 const rptSharingMunicipalShareAmount = (payload) => {
   const rows = payload?.rows || []
   const grandTotal = rows.find((row) => row.grand_total)
-
-  if (grandTotal) {
-    return Number(grandTotal.municipal_share_40 || 0)
-  }
+  if (grandTotal) return Number(grandTotal.municipal_share_40 || 0)
 
   return rows
     .filter((row) => row.total && ['Land', 'Building'].includes(row.property_group))
@@ -111,8 +107,15 @@ const formatPercent = (value) =>
   }).format(Number(value || 0))
 
 const clamp = (value, min = 0, max = 100) => Math.min(max, Math.max(min, Number(value || 0)))
+const compactMoney = (value) =>
+  new Intl.NumberFormat('en-PH', {
+    currency: 'PHP',
+    maximumFractionDigits: 1,
+    notation: 'compact',
+    style: 'currency',
+  }).format(Number(value || 0))
 
-const dashboardColors = ['#2563eb', '#60a5fa', '#22c55e', '#f59e0b', '#f97316', '#94a3b8']
+const dashboardColors = ['#1687f8', '#38a3ff', '#22c55e', '#f59e0b', '#f97316', '#94a3b8']
 
 const categoryConfig = [
   {
@@ -132,7 +135,7 @@ const categoryConfig = [
     label: 'Regulatory Fees and Charges',
     target: (rows) => targetAmount(rows, (name) => name.startsWith('REGULATORY FEES')),
     actual: (rows) => sourceAmount(rows, [
-      'Mayor\'s Permit',
+      "Mayor's Permit",
       'Weights & Measures',
       'Tricycle Permit Fee',
       'Occupation Tax',
@@ -147,7 +150,7 @@ const categoryConfig = [
   },
   {
     key: 'economic',
-    label: 'Receipt from Economic Enterprise',
+    label: 'Receipts from Economic Enterprise',
     target: (rows) => targetAmount(rows, (name) => name.startsWith('RECEIPTS FROM ECONOMIC ENTERPRISES')),
     actual: (rows) => sourceAmount(rows, [
       'Water Fee',
@@ -194,44 +197,34 @@ const categoryConfig = [
 ]
 
 const statusForRate = (rate, target = 0) => {
-  if (Number(target || 0) <= 0) return { label: 'Unavailable', tone: 'neutral' }
+  if (Number(target || 0) <= 0) return { label: 'No data', tone: 'neutral' }
   if (rate >= 100) return { label: 'On track', tone: 'good' }
-  if (rate >= 70) return { label: 'Keep an eye on this', tone: 'warning' }
+  if (rate >= 70) return { label: 'Watch', tone: 'warning' }
   return { label: 'Needs attention', tone: 'critical' }
 }
 
-const normalizeRoleLabel = (role) =>
-  String(role || 'Treasury user')
-    .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
-
 const initialsFromName = (name) => {
-  const parts = String(name || 'U')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-
+  const parts = String(name || 'U').trim().split(/\s+/).filter(Boolean)
   if (!parts.length) return 'U'
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
 const reconciliationMessage = (reconciliation = {}) => {
   const difference = Number(reconciliation.difference || 0)
   const absolute = formatMoney(Math.abs(difference))
-
-  if (Math.abs(difference) <= 0.01) {
-    return 'Collector totals match the overall paid collections.'
-  }
-
-  if (difference > 0) {
-    return `Collector totals are ${absolute} lower than overall paid collections.`
-  }
-
-  return `Collector totals are ${absolute} higher than overall paid collections.`
+  if (Math.abs(difference) <= 0.01) return 'Collector totals match overall paid collections.'
+  if (difference > 0) return `Collector totals are ${absolute} lower than overall paid collections.`
+  return `Collector totals exceed overall paid collections by ${absolute}.`
 }
 
-export function DashboardPage({ user, connectionClass, connectionLabel }) {
+const navigateTo = (path) => {
+  if (typeof window === 'undefined') return
+  window.history.pushState({}, '', path)
+  window.dispatchEvent(new PopStateEvent('popstate'))
+}
+
+export function DashboardPage({ user, connectionClass, connectionLabel, onOpenMenu }) {
   const [year, setYear] = useState(String(new Date().getFullYear()))
   const [dashboardData, setDashboardData] = useState(emptyDashboardData)
   const [cacheMeta, setCacheMeta] = useState(null)
@@ -248,59 +241,35 @@ export function DashboardPage({ user, connectionClass, connectionLabel }) {
 
     try {
       const response = await axiosInstance.get('/dashboard/summary', {
-        params: {
-          year: targetYear,
-          month: nextPeriod.month,
-        },
+        params: { year: targetYear, month: nextPeriod.month },
       })
-
       setCacheMeta(response.data)
-
       if (!response.data.success) {
         setDashboardData(emptyDashboardData)
-        setError(response.data.message || 'Dashboard cache not found. Please refresh dashboard data first.')
+        setError(response.data.message || 'Dashboard cache not found. Refresh dashboard data first.')
         return
       }
-
       setDashboardData(mapDashboardCachePayload(response.data.payload))
     } catch (requestError) {
       setDashboardData(emptyDashboardData)
       setCacheMeta(null)
-      setError(getDashboardError(requestError, 'Unable to load collection target dashboard.'))
+      setError(getDashboardError(requestError, 'Unable to load collection dashboard.'))
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    let isActive = true
-
-    loadDashboard(year).finally(() => {
-      if (!isActive) return
-    })
-
-    return () => {
-      isActive = false
-    }
+    loadDashboard(year)
   }, [year])
-
-  const handleYearChange = (event) => {
-    setLoading(true)
-    setError('')
-    setYear(event.target.value)
-  }
 
   const refreshDashboardData = async () => {
     const nextPeriod = getPeriod(year)
     setRefreshing(true)
     setError('')
-
     try {
       await axiosInstance.post('/dashboard/summary/refresh', null, {
-        params: {
-          year,
-          month: nextPeriod.month,
-        },
+        params: { year, month: nextPeriod.month },
       })
       await loadDashboard(year)
     } catch (requestError) {
@@ -316,12 +285,10 @@ export function DashboardPage({ user, connectionClass, connectionLabel }) {
     const monthTotal = getCollectionTotal(dashboardData.monthCollections)
     const ytdTotal = Number(ytdRow.total_collections || 0)
     const localTarget = Number(summary.local_sources || 0)
-    const grandTarget = Number(summary.grand_total || 0)
     const targetToDate = localTarget * period.elapsedRatio
     const monthlyTarget = localTarget / 12
     const annualRate = localTarget > 0 ? (ytdTotal / localTarget) * 100 : 0
     const expectedRate = period.elapsedRatio * 100
-    const ytdPaceRate = targetToDate > 0 ? (ytdTotal / targetToDate) * 100 : 0
     const monthRate = monthlyTarget > 0 ? (monthTotal / monthlyTarget) * 100 : 0
     const remaining = Math.max(0, localTarget - ytdTotal)
     const varianceToDate = ytdTotal - targetToDate
@@ -329,7 +296,6 @@ export function DashboardPage({ user, connectionClass, connectionLabel }) {
     return {
       annualRate,
       expectedRate,
-      grandTarget,
       localTarget,
       monthRate,
       monthTotal,
@@ -337,7 +303,6 @@ export function DashboardPage({ user, connectionClass, connectionLabel }) {
       remaining,
       targetToDate,
       varianceToDate,
-      ytdPaceRate,
       ytdRow,
       ytdTotal,
     }
@@ -346,18 +311,11 @@ export function DashboardPage({ user, connectionClass, connectionLabel }) {
   const categoryRows = useMemo(() => {
     const targetRows = dashboardData.incomeTarget?.rows || []
     const collectionRows = dashboardData.ytdCollections?.rows || []
-
     return categoryConfig.map((item) => {
       const target = item.target(targetRows)
       const actual = item.actual(collectionRows, dashboardData)
       const rate = target > 0 ? (actual / target) * 100 : 0
-      return {
-        ...item,
-        actual,
-        rate,
-        target,
-        variance: actual - target,
-      }
+      return { ...item, actual, rate, target, variance: actual - target }
     })
   }, [dashboardData])
 
@@ -367,32 +325,28 @@ export function DashboardPage({ user, connectionClass, connectionLabel }) {
     [allCollectorRows],
   )
   const topCollectorRows = useMemo(() => allCollectorRows.slice(0, 5), [allCollectorRows])
-  const collectorReconciliation = dashboardData.collectorsReconciliation || {}
-
+  const reconciliation = dashboardData.collectorsReconciliation || {}
   const diveTickets = dashboardData.diveTickets || {}
-  const topDiveBuyers = useMemo(
-    () => dashboardData.diveTicketsYear?.top_buyers || [],
-    [dashboardData.diveTicketsYear],
-  )
+  const topDiveBuyers = dashboardData.diveTicketsYear?.top_buyers || []
   const topDiveBuyer = topDiveBuyers[0] || null
 
   const collectionShareRows = useMemo(() => {
-    const ytdRow = collectionModel.ytdRow
+    const row = collectionModel.ytdRow
     return [
-      { label: 'Municipal GF', value: Number(ytdRow.municipal_general_fund || 0), color: dashboardColors[0] },
-      { label: 'Municipal SEF', value: Number(ytdRow.municipal_sef || 0), color: dashboardColors[1] },
-      { label: 'Municipal TF', value: Number(ytdRow.municipal_trust_fund || 0), color: dashboardColors[2] },
-      { label: 'Provincial', value: Number(ytdRow.provincial_total || 0), color: dashboardColors[3] },
-      { label: 'National', value: Number(ytdRow.national || 0), color: dashboardColors[4] },
+      { label: 'Municipal GF', value: Number(row.municipal_general_fund || 0), color: dashboardColors[0] },
+      { label: 'Municipal SEF', value: Number(row.municipal_sef || 0), color: dashboardColors[1] },
+      { label: 'Municipal TF', value: Number(row.municipal_trust_fund || 0), color: dashboardColors[2] },
+      { label: 'Provincial', value: Number(row.provincial_total || 0), color: dashboardColors[3] },
+      { label: 'National', value: Number(row.national || 0), color: dashboardColors[4] },
       {
         label: 'Barangay/Fisheries',
-        value: Number(ytdRow.barangay_share || 0) + Number(ytdRow.fisheries || 0),
+        value: Number(row.barangay_share || 0) + Number(row.fisheries || 0),
         color: dashboardColors[5],
       },
     ]
   }, [collectionModel.ytdRow])
 
-  const recentPaymentLogs = useMemo(
+  const recentPayments = useMemo(
     () => (dashboardData.recentPayments || [])
       .filter((row) => String(row.collection_status || 'Paid') === 'Paid')
       .sort((a, b) => {
@@ -404,459 +358,458 @@ export function DashboardPage({ user, connectionClass, connectionLabel }) {
     [dashboardData.recentPayments],
   )
 
-  const paceStatus = collectionModel.varianceToDate > 0
-    ? 'On track'
-    : collectionModel.varianceToDate < 0
-      ? 'Needs attention'
-      : 'On pace'
-  const paceTone = collectionModel.varianceToDate >= 0 ? 'good' : 'warning'
-  const paceMessage = collectionModel.varianceToDate > 0
-    ? `You're ahead of the expected pace by ${formatMoney(collectionModel.varianceToDate)}.`
-    : collectionModel.varianceToDate < 0
-      ? `You're behind the expected pace by ${formatMoney(Math.abs(collectionModel.varianceToDate))}.`
-      : 'Collections are exactly on the expected pace.'
-  const userRoleLabel = normalizeRoleLabel(user?.role)
-  const userName = user?.name || 'Treasury user'
-  const dashboardViewModel = useMemo(() => ({
-    summary: collectionModel,
-    collectionShare: collectionShareRows,
-    collectors: {
-      all: allCollectorRows,
-      topFive: topCollectorRows,
-      total: collectorTotal,
-    },
-    sourceGroups: categoryRows,
-    reconciliation: collectorReconciliation,
-    diveTickets: {
-      currentMonth: diveTickets,
-      topBuyer: topDiveBuyer,
-      topBuyers: topDiveBuyers,
-    },
-    recentReceipts: recentPaymentLogs,
-    currentMonth: {
-      name: period.monthName,
-      total: collectionModel.monthTotal,
-      target: collectionModel.monthlyTarget,
-      rate: collectionModel.monthRate,
-    },
-    metadata: cacheMeta,
-  }), [
-    allCollectorRows,
-    cacheMeta,
-    categoryRows,
-    collectionModel,
-    collectionShareRows,
-    collectorReconciliation,
-    collectorTotal,
-    diveTickets,
-    period.monthName,
-    recentPaymentLogs,
-    topCollectorRows,
-    topDiveBuyer,
-    topDiveBuyers,
-  ])
+  const dataReady = Boolean(dashboardData.ytdCollections && dashboardData.incomeTarget)
+  const variancePositive = collectionModel.varianceToDate >= 0
+  const paceLabel = variancePositive ? 'Ahead of pace' : 'Behind pace'
+  const canReviewReconciliation = Boolean(user?.permissions?.includes('aco_dashboard.view'))
+  const paceMessage = variancePositive
+    ? `Collections are ${formatMoney(collectionModel.varianceToDate)} ahead of expected pace.`
+    : `Collections are ${formatMoney(Math.abs(collectionModel.varianceToDate))} below expected pace.`
 
   return (
-    <div className="page-stack dashboard-decision-page">
-      <section className="dashboard-hero dashboard-hero-compact dashboard-welcome-header">
-        <div className="dashboard-hero-main">
-          <p className="eyebrow">Municipality of Zamboanguita</p>
-          <h2>Revenue Collection Dashboard</h2>
-          <span>Here's how collections are performing for the selected year.</span>
-          <div className="dashboard-user-meta">
-            <span>{userName}</span>
-            <span>{userRoleLabel}</span>
+    <div className="revenue-bi">
+      <header className="revenue-bi-topbar">
+        <div className="revenue-bi-heading">
+          <button aria-label="Open navigation" className="revenue-bi-mobile-menu" onClick={onOpenMenu} type="button">
+            <Menu size={20} aria-hidden="true" />
+          </button>
+          <div>
+            <div className="revenue-bi-breadcrumb"><span>Dashboard</span><b>/</b><span>Revenue</span></div>
+            <div className="revenue-bi-title-line">
+              <h1>Revenue Overview</h1>
+              <button
+                aria-label="Dashboard methodology"
+                className="revenue-bi-info"
+                title="Figures use generated paid Report 21 collections, Report 27 municipal share where applicable, and configured income-target records."
+                type="button"
+              >
+                <Info size={16} aria-hidden="true" />
+              </button>
+            </div>
+            <p>Municipal collection performance for the selected year</p>
           </div>
         </div>
-        <div className="dashboard-year-actions dashboard-toolbar-actions">
-          <label className="treasury-field dashboard-year-field">
-            <span><CalendarDays size={14} aria-hidden="true" /> Year</span>
+
+        <div className="revenue-bi-toolbar">
+          <label>
+            <span><CalendarDays size={13} aria-hidden="true" /> Year</span>
             <input
               aria-label="Dashboard year"
               max="2100"
               min="2000"
-              onChange={handleYearChange}
+              onChange={(event) => setYear(event.target.value)}
               type="number"
               value={year}
             />
           </label>
-          {cacheMeta?.generated_at && (
-            <span className="dashboard-cache-updated">Updated {cacheMeta.generated_at}</span>
-          )}
-          <span className={`dashboard-connection-pill ${connectionClass || (cacheMeta?.success ? 'is-good' : 'is-warning')}`}>
-            {connectionLabel || (cacheMeta?.success ? 'Cache ready' : 'Needs refresh')}
+          <div className="revenue-bi-updated">
+            <span>Last updated</span>
+            <strong>{cacheMeta?.generated_at || 'Not available'}</strong>
+          </div>
+          <span className={`revenue-bi-connection ${connectionClass || ''}`}>
+            <i aria-hidden="true" />
+            {connectionLabel || (cacheMeta?.success ? 'Connected' : 'Unavailable')}
           </span>
           <button
-            aria-label="Refresh dashboard data"
-            className="primary-button dashboard-refresh-button"
+            className="revenue-bi-refresh"
             disabled={loading || refreshing}
             onClick={refreshDashboardData}
             type="button"
           >
-            <RefreshCcw size={16} aria-hidden="true" />
-            {refreshing ? 'Refreshing...' : 'Refresh'}
+            <RefreshCcw className={refreshing ? 'is-spinning' : ''} size={16} aria-hidden="true" />
+            {refreshing ? 'Refreshing' : 'Refresh'}
           </button>
         </div>
-      </section>
+      </header>
 
-      {error && (
-        <section className="inline-alert" role="alert">
-          <AlertCircle size={18} aria-hidden="true" />
-          {error}
-        </section>
-      )}
-
-      {loading && !error && (
-        <section className="inline-alert is-info" role="status">
-          <RefreshCcw size={18} aria-hidden="true" />
-          Loading dashboard data...
-        </section>
-      )}
-
-      <section className="dashboard-summary-grid" aria-label="Executive collection metrics">
-        <CollectionProgressCard
-          achievement={dashboardViewModel.summary.annualRate}
-          collected={dashboardViewModel.summary.ytdTotal}
-          helper={`Annual local target: ${formatMoney(dashboardViewModel.summary.localTarget)}`}
-          status={paceStatus}
-          statusMessage={paceMessage}
-          tone={paceTone}
-        />
-        <div className="dashboard-support-card-grid">
-          <ExecutiveKpi icon={Target} label="Annual target" value={formatMoney(dashboardViewModel.summary.localTarget)} helper="Approved local sources target" />
-          <ExecutiveKpi icon={CalendarDays} label="Expected to date" value={formatMoney(dashboardViewModel.summary.targetToDate)} helper={`${formatPercent(dashboardViewModel.summary.expectedRate)}% of year elapsed`} />
-          <ExecutiveKpi icon={Landmark} label="Remaining to target" value={formatMoney(dashboardViewModel.summary.remaining)} helper="Balance to reach local target" />
-        </div>
-      </section>
-
-      <section className="dashboard-analysis-grid" aria-label="Primary dashboard analysis">
-        <Paper className="dashboard-table-card dashboard-source-card" elevation={0} variant="outlined">
-          <ChartHeader
-            title="Source Group Performance"
-            subtitle="Report 21 paid collections, Report 27 RPT municipal share, and income target rows."
-          />
-          <SourcePerformanceTable rows={dashboardViewModel.sourceGroups} />
-        </Paper>
-
-        <div className="dashboard-side-stack">
-          <Paper className="dashboard-chart-card dashboard-share-card" elevation={0} variant="outlined">
-            <ChartHeader title="Collection share" subtitle="YTD distribution from Report 21" />
-            <DonutChart centerLabel={formatMoney(dashboardViewModel.summary.ytdTotal)} rows={dashboardViewModel.collectionShare} />
-          </Paper>
-
-          <ReconciliationAlert reconciliation={dashboardViewModel.reconciliation} />
-
-          <Paper className="dashboard-compact-card" elevation={0} variant="outlined">
-            <p className="label">{dashboardViewModel.currentMonth.name} collections</p>
-            <strong>{formatMoney(dashboardViewModel.currentMonth.total)}</strong>
-            <span>{formatPercent(dashboardViewModel.currentMonth.rate)}% of monthly target pace</span>
-          </Paper>
-        </div>
-      </section>
-
-      <section className="dashboard-performance-grid" aria-label="Collector and operational summaries">
-        <TopCollectors rows={dashboardViewModel.collectors.topFive} allRows={dashboardViewModel.collectors.all} total={dashboardViewModel.collectors.total} />
-        <DiveTicketsSummary period={period} summary={dashboardViewModel.diveTickets.currentMonth} topBuyer={dashboardViewModel.diveTickets.topBuyer} topBuyers={dashboardViewModel.diveTickets.topBuyers} />
-      </section>
-
-      <section className="dashboard-operations-grid" aria-label="Recent activity and notes">
-        <RecentReceipts rows={dashboardViewModel.recentReceipts} />
-        <Paper className="dashboard-method-card" elevation={0} variant="outlined">
-          <ChartHeader title="Methodology Note" subtitle="Source of displayed values" />
-          <div className="dashboard-note-list">
-            <span>Collection totals use the existing dashboard summary cache.</span>
-            <span>Report 21 is paid collections only.</span>
-            <span>RPT local GF uses Report 27 municipal share where generated.</span>
-            <span>LGU Grand Income Target is kept separate from Local Sources Annual Target.</span>
-          </div>
-        </Paper>
-      </section>
-    </div>
-  )
-}
-
-function CollectionProgressCard({ achievement, collected, helper, status, statusMessage, tone }) {
-  return (
-    <Paper className="dashboard-progress-card" elevation={0} variant="outlined">
-      <div className="dashboard-progress-card-top">
-        <div>
-          <span>Collection progress</span>
-          <strong>{formatMoney(collected)}</strong>
-          <p>{formatPercent(achievement)}% of the annual local target</p>
-        </div>
-        <StatusPill tone={tone}>{status}</StatusPill>
-      </div>
-      <ProgressBar label="Annual collection achievement" percent={achievement} tone={tone} />
-      <div className={`dashboard-progress-message ${tone}`}>
-        <TrendingUp size={18} aria-hidden="true" />
-        <span>{statusMessage}</span>
-      </div>
-      <small>{helper}</small>
-    </Paper>
-  )
-}
-
-function ExecutiveKpi({ icon: Icon, label, value, helper, tone = 'neutral' }) {
-  return (
-    <Paper className={`dashboard-kpi-card ${tone}`} elevation={0} variant="outlined">
-      <div className="dashboard-kpi-icon"><Icon size={18} aria-hidden="true" /></div>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{helper}</small>
-    </Paper>
-  )
-}
-
-function ChartHeader({ title, subtitle }) {
-  return (
-    <div className="dashboard-chart-header">
-      <div>
-        <h3>{title}</h3>
-        <span>{subtitle}</span>
-      </div>
-    </div>
-  )
-}
-
-function ProgressBar({ percent, color, label, tone = 'neutral' }) {
-  return (
-    <div className={`dashboard-progress ${tone}`} aria-label={label} role="img" title={`${formatPercent(percent)}%`}>
-      <span style={{ '--progress-width': `${clamp(percent)}%`, '--progress-color': color || undefined }} />
-    </div>
-  )
-}
-
-function SourcePerformanceTable({ rows }) {
-  if (!rows.length) {
-    return <div className="empty-row">No source-group data for the selected period.</div>
-  }
-
-  return (
-    <div className="dashboard-source-table" role="table" aria-label="Source group performance">
-      <div className="dashboard-source-head" role="row">
-        <span role="columnheader">Source group</span>
-        <span role="columnheader">Actual</span>
-        <span role="columnheader">Target</span>
-        <span role="columnheader">Achievement</span>
-        <span role="columnheader">Variance</span>
-        <span role="columnheader">Progress</span>
-        <span role="columnheader">Status</span>
-      </div>
-      {rows.map((row, index) => {
-        const status = statusForRate(row.rate, row.target)
-        return (
-          <div className={`dashboard-source-row ${status.tone}`} key={row.key} role="row">
-            <strong role="cell">{row.label}</strong>
-            <span role="cell">{formatMoney(row.actual)}</span>
-            <span role="cell">{formatMoney(row.target)}</span>
-            <span role="cell">{formatPercent(row.rate)}%</span>
-            <span className={row.variance >= 0 ? 'is-positive' : 'is-negative'} role="cell">{formatMoney(row.variance)}</span>
-            <span role="cell"><ProgressBar label={`${row.label} progress`} percent={row.rate} tone={status.tone} /></span>
-            <span role="cell"><StatusPill tone={status.tone}>{status.label}</StatusPill></span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function StatusPill({ children, tone = 'neutral' }) {
-  return <span className={`dashboard-status-pill ${tone}`}>{children}</span>
-}
-
-function ReconciliationAlert({ reconciliation }) {
-  const hasData = reconciliation.overall_total_collection !== undefined
-  const isMatched = Boolean(reconciliation.is_matched)
-  const tone = isMatched ? 'good' : 'warning'
-
-  return (
-    <Paper className={`dashboard-reconciliation-alert ${tone}`} elevation={0} variant="outlined">
-      <div className="dashboard-alert-heading">
-        <AlertCircle size={18} aria-hidden="true" />
-        <div>
-          <h3>Reconciliation</h3>
-          <span>{hasData ? reconciliationMessage(reconciliation) : 'No reconciliation data loaded.'}</span>
-        </div>
-      </div>
-      {hasData ? (
+      {error && <StateBanner message={error} tone="error" />}
+      {loading && !error && <DashboardSkeleton />}
+      {!loading && !error && (
         <>
-          <dl>
-            <div><dt>Overall collections</dt><dd>{formatMoney(reconciliation.overall_total_collection || 0)}</dd></div>
-            <div><dt>Collector total</dt><dd>{formatMoney(reconciliation.collector_summary_total || 0)}</dd></div>
-            <div><dt>Difference</dt><dd>{formatMoney(reconciliation.difference || 0)}</dd></div>
-            <div><dt>Status</dt><dd>{isMatched ? 'Matched' : 'Needs review'}</dd></div>
-          </dl>
-          <button className="dashboard-link-button" type="button">
-            <ListChecks size={16} aria-hidden="true" />
-            Review reconciliation
-          </button>
+          <section className="revenue-bi-section">
+            <SectionHeading title="Overview" />
+            <div className="revenue-bi-kpis">
+              <MetricCard
+                icon={WalletCards}
+                label="Collected YTD"
+                value={dataReady ? formatMoney(collectionModel.ytdTotal) : null}
+                detail={dataReady ? `${formatPercent(collectionModel.annualRate)}% of annual local target` : null}
+                percent={collectionModel.annualRate}
+                tone="blue"
+              />
+              <MetricCard
+                icon={Target}
+                label="Annual target"
+                value={dataReady ? formatMoney(collectionModel.localTarget) : null}
+                detail={dataReady ? `${formatMoney(collectionModel.remaining)} remaining` : null}
+                percent={collectionModel.annualRate}
+                tone="slate"
+              />
+              <MetricCard
+                icon={CalendarDays}
+                label="Expected pace"
+                value={dataReady ? formatMoney(collectionModel.targetToDate) : null}
+                detail={dataReady ? `${formatPercent(collectionModel.expectedRate)}% of year elapsed` : null}
+                percent={collectionModel.expectedRate}
+                tone="cyan"
+              />
+              <MetricCard
+                icon={variancePositive ? TrendingUp : TrendingDown}
+                label="Variance to pace"
+                value={dataReady ? formatMoney(collectionModel.varianceToDate) : null}
+                detail={dataReady ? paceMessage : null}
+                percent={collectionModel.annualRate - collectionModel.expectedRate}
+                status={dataReady ? paceLabel : null}
+                tone={variancePositive ? 'good' : 'warning'}
+              />
+            </div>
+          </section>
+
+          <section className="revenue-bi-analytics" aria-label="Revenue analytics">
+            <AnalyticsCard title="Collection performance" subtitle="Actual and expected collections for the selected year">
+              {dataReady ? (
+                <ComparisonChart
+                  ariaLabel="YTD actual collections compared with expected pace and annual target"
+                  values={[
+                    { label: 'Collected YTD', value: collectionModel.ytdTotal, tone: 'actual' },
+                    { label: 'Expected to date', value: collectionModel.targetToDate, tone: 'expected' },
+                    { label: 'Annual target', value: collectionModel.localTarget, tone: 'target' },
+                  ]}
+                />
+              ) : <EmptyState message="No collection performance data is available for the selected year." />}
+            </AnalyticsCard>
+
+            <AnalyticsCard title="Monthly collections" subtitle={`${period.monthName} actual collection versus target pace`}>
+              {dashboardData.monthCollections && dashboardData.incomeTarget ? (
+                <ComparisonChart
+                  ariaLabel={`${period.monthName} actual collection compared with monthly target pace`}
+                  values={[
+                    { label: period.monthName + ' actual', value: collectionModel.monthTotal, tone: 'actual' },
+                    { label: 'Monthly target', value: collectionModel.monthlyTarget, tone: 'expected' },
+                  ]}
+                />
+              ) : <EmptyState message="No monthly collection data is available for the selected year." />}
+            </AnalyticsCard>
+          </section>
+
+          <section className="revenue-bi-section">
+            <SectionHeading title="Revenue details" />
+            <div className="revenue-bi-details">
+              <RevenueSourceTable available={dataReady} rows={categoryRows} />
+              <aside className="revenue-bi-insights" aria-label="Revenue insights">
+                <CollectionMixCard rows={collectionShareRows} total={collectionModel.ytdTotal} />
+                <ReconciliationCard onReview={canReviewReconciliation ? () => navigateTo('/aco-dashboard') : null} reconciliation={reconciliation} />
+                <CurrentMonthCard available={Boolean(dashboardData.monthCollections && dashboardData.incomeTarget)} model={collectionModel} monthName={period.monthName} />
+                <DiveTicketCard available={Boolean(dashboardData.diveTickets)} summary={diveTickets} topBuyer={topDiveBuyer} />
+              </aside>
+            </div>
+          </section>
+
+          <section className="revenue-bi-section">
+            <SectionHeading title="Operations" />
+            <div className="revenue-bi-operations">
+              <TopCollectors rows={topCollectorRows} total={collectorTotal} />
+              <RecentReceipts rows={recentPayments} />
+            </div>
+          </section>
+
+          <p className="revenue-bi-methodology">
+            <Info size={14} aria-hidden="true" />
+            Figures use generated paid Report 21 collections, Report 27 municipal share where applicable, and configured income-target records.
+          </p>
         </>
-      ) : (
-        <p>No reconciliation values are available for this dashboard cache.</p>
       )}
-    </Paper>
+    </div>
   )
 }
 
-function TopCollectors({ rows, allRows, total }) {
+function SectionHeading({ title }) {
+  return <div className="revenue-bi-section-heading"><h2>{title}</h2></div>
+}
+
+function StateBanner({ message, tone }) {
   return (
-    <Paper className="dashboard-table-card" elevation={0} variant="outlined">
-      <ChartHeader title="Top collectors" subtitle="Top 5 only; complete generated list is expandable below." />
-      <div className="dashboard-rank-list">
-        {rows.map((row, index) => {
-          const value = Number(row.total_amount || 0)
-          const share = total > 0 ? (value / total) * 100 : 0
+    <div className={`revenue-bi-state-banner ${tone}`} role={tone === 'error' ? 'alert' : 'status'}>
+      <AlertCircle size={18} aria-hidden="true" />
+      <span>{message}</span>
+    </div>
+  )
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="revenue-bi-skeleton" aria-label="Loading dashboard data" role="status">
+      <div className="revenue-bi-skeleton-row">
+        {[1, 2, 3, 4].map((item) => <span key={item} />)}
+      </div>
+      <div className="revenue-bi-skeleton-charts"><span /><span /></div>
+      <em>Loading generated revenue data...</em>
+    </div>
+  )
+}
+
+function MetricCard({ detail, icon: Icon, label, percent, status, tone, value }) {
+  const barValue = tone === 'warning' ? Math.abs(percent) : percent
+  return (
+    <article className={`revenue-bi-metric ${tone}`}>
+      <div className="revenue-bi-metric-top">
+        <span className="revenue-bi-metric-icon"><Icon size={17} aria-hidden="true" /></span>
+        {status && <StatusChip tone={tone}>{status}</StatusChip>}
+      </div>
+      <span className="revenue-bi-metric-label">{label}</span>
+      <strong>{value || 'Not available'}</strong>
+      <small>{detail || 'Generated data is unavailable.'}</small>
+      <div className="revenue-bi-mini-progress" aria-label={label + ' progress'} role="img">
+        <span style={{ '--metric-width': clamp(Math.abs(barValue)) + '%' }} />
+      </div>
+    </article>
+  )
+}
+
+function AnalyticsCard({ children, subtitle, title }) {
+  return (
+    <article className="revenue-bi-card revenue-bi-chart-card">
+      <CardHeader subtitle={subtitle} title={title} />
+      {children}
+    </article>
+  )
+}
+
+function CardHeader({ action, subtitle, title }) {
+  return (
+    <div className="revenue-bi-card-header">
+      <div><h3>{title}</h3>{subtitle && <p>{subtitle}</p>}</div>
+      {action}
+    </div>
+  )
+}
+
+function ComparisonChart({ ariaLabel, values }) {
+  const maxValue = Math.max(...values.map((item) => Number(item.value || 0)), 1)
+  return (
+    <div className="revenue-bi-comparison" aria-label={ariaLabel} role="img">
+      <div className="revenue-bi-chart-gridlines" aria-hidden="true"><i /><i /><i /><i /></div>
+      <div className="revenue-bi-chart-bars">
+        {values.map((item) => {
+          const height = Math.max(4, (Number(item.value || 0) / maxValue) * 100)
           return (
-            <div className="dashboard-rank-row" key={`${row.collector}-${index}`}>
-              <div className="dashboard-rank-avatar" aria-hidden="true">{initialsFromName(row.collector)}</div>
-              <div>
-                <strong>{index + 1}. {row.collector || 'Unspecified'}</strong>
-                <span>{Number(row.receipt_count || 0).toLocaleString('en-PH')} receipts - {formatPercent(share)}% share</span>
-              </div>
-              <em>{formatMoney(value)}</em>
-              <ProgressBar label={`${row.collector || 'Collector'} share`} percent={share} tone="blue" />
+            <div className="revenue-bi-chart-column" key={item.label}>
+              <span className={`revenue-bi-chart-value ${item.tone}`}>{compactMoney(item.value)}</span>
+              <div className={`revenue-bi-bar ${item.tone}`} style={{ '--bar-height': height + '%' }} title={formatMoney(item.value)} />
+              <strong>{item.label}</strong>
             </div>
           )
         })}
-        {!rows.length && <div className="empty-row">No collector totals for the selected period.</div>}
       </div>
-      {allRows.length > rows.length && (
-        <details className="dashboard-expander">
-          <summary>View all collectors</summary>
-          <div className="dashboard-detail-list">
-            {allRows.map((row, index) => (
-              <div key={`${row.collector}-${index}`}>
-                <span>{row.collector || 'Unspecified'}</span>
-                <strong>{formatMoney(row.total_amount || 0)}</strong>
-                <em>{Number(row.receipt_count || 0)} receipts</em>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
-    </Paper>
+    </div>
   )
 }
 
-function DiveTicketsSummary({ period, summary, topBuyer, topBuyers }) {
-  const receiptCount = Number(summary.receipt_count || 0)
-  const totalAmount = Number(summary.total_amount || 0)
-  const averageTicketValue = receiptCount > 0 ? totalAmount / receiptCount : 0
+function EmptyState({ message }) {
+  return <div className="revenue-bi-empty"><ListChecks size={20} aria-hidden="true" /><span>{message}</span></div>
+}
+
+function RevenueSourceTable({ available, rows }) {
+  return (
+    <article className="revenue-bi-card revenue-bi-source-card">
+      <CardHeader subtitle="Generated collection performance against configured income targets" title="Revenue sources" />
+      {!available || !rows.length ? <EmptyState message="No source-group records are available." /> : (
+        <div className="revenue-bi-table-scroll">
+          <div className="revenue-bi-source-table" role="table" aria-label="Revenue source performance">
+            <div className="revenue-bi-source-head" role="row">
+              <span role="columnheader">Source group</span>
+              <span role="columnheader">Status</span>
+              <span role="columnheader">Actual</span>
+              <span role="columnheader">Target</span>
+              <span role="columnheader">Achievement</span>
+              <span role="columnheader">Variance</span>
+              <span role="columnheader">Trend</span>
+            </div>
+            {rows.map((row) => {
+              const status = statusForRate(row.rate, row.target)
+              return (
+                <div className="revenue-bi-source-row" key={row.key} role="row">
+                  <strong role="cell">{row.label}</strong>
+                  <span role="cell"><StatusChip tone={status.tone}>{status.label}</StatusChip></span>
+                  <span role="cell">{formatMoney(row.actual)}</span>
+                  <span role="cell">{formatMoney(row.target)}</span>
+                  <span role="cell">{formatPercent(row.rate)}%</span>
+                  <span className={row.variance >= 0 ? 'positive' : 'negative'} role="cell">{formatMoney(row.variance)}</span>
+                  <span role="cell"><ProgressLine percent={row.rate} tone={status.tone} /></span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </article>
+  )
+}
+
+function StatusChip({ children, tone = 'neutral' }) {
+  return <span className={`revenue-bi-chip ${tone}`}>{children}</span>
+}
+
+function ProgressLine({ percent, tone = 'blue' }) {
+  return <span className={`revenue-bi-progress ${tone}`}><i style={{ '--progress-width': clamp(percent) + '%' }} /></span>
+}
+
+function CollectionMixCard({ rows, total }) {
+  const mixTotal = rows.reduce((sum, row) => sum + Number(row.value || 0), 0)
+  let cursor = 0
+  const gradient = mixTotal > 0
+    ? rows.filter((row) => row.value > 0).map((row) => {
+      const start = cursor
+      cursor += (Number(row.value) / mixTotal) * 100
+      return row.color + ' ' + start + '% ' + cursor + '%'
+    }).join(', ')
+    : '#263244 0% 100%'
 
   return (
-    <Paper className="dashboard-table-card" elevation={0} variant="outlined">
-      <ChartHeader title="Dive Tickets" subtitle={`${period.monthName} summary and top annual buyer`} />
-      <div className="dashboard-ticket-summary">
-        <div>
-          <span>Current-month total</span>
-          <strong>{formatMoney(totalAmount)}</strong>
-        </div>
-        <div>
-          <span>Receipts</span>
-          <strong>{receiptCount.toLocaleString('en-PH')}</strong>
-        </div>
-        <div>
-          <span>Buyers</span>
-          <strong>{Number(summary.buyer_count || 0)}</strong>
-        </div>
-        <div>
-          <span>Top buyer</span>
-          <strong>{topBuyer?.taxpayer || 'No buyer yet'}</strong>
-          <small>{topBuyer ? `${formatMoney(topBuyer.total_amount)} | ${topBuyer.receipt_count} receipts` : period.selectedYear}</small>
-        </div>
-        <div>
-          <span>Average ticket value</span>
-          <strong>{receiptCount > 0 ? formatMoney(averageTicketValue) : formatMoney(0)}</strong>
-          <small>Derived from total divided by receipt count</small>
-        </div>
-      </div>
-      {topBuyers.length > 0 && (
-        <details className="dashboard-expander">
-          <summary>View dive-ticket details</summary>
-          <div className="dashboard-detail-list">
-            {topBuyers.map((buyer, index) => (
-              <div key={`${buyer.taxpayer}-${index}`}>
-                <span>{buyer.taxpayer || 'Unspecified'}</span>
-                <strong>{formatMoney(buyer.total_amount || 0)}</strong>
-                <em>{Number(buyer.receipt_count || 0)} receipts</em>
-              </div>
-            ))}
+    <article className="revenue-bi-card revenue-bi-mix-card">
+      <CardHeader subtitle="YTD distribution from Report 21" title="Collection mix" />
+      {mixTotal <= 0 ? <EmptyState message="No collection-share data is available." /> : (
+        <>
+          <div className="revenue-bi-donut" style={{ background: `conic-gradient(${gradient})` }}>
+            <div><strong>{compactMoney(total)}</strong><span>Total</span></div>
           </div>
-        </details>
+          <div className="revenue-bi-mix-list">
+            {rows.map((row) => {
+              const percent = mixTotal > 0 ? (Number(row.value || 0) / mixTotal) * 100 : 0
+              return (
+                <div key={row.label} title={row.label + ': ' + formatMoney(row.value)}>
+                  <i style={{ background: row.color }} />
+                  <span>{row.label}</span>
+                  <em>{formatPercent(percent)}%</em>
+                  <strong>{compactMoney(row.value)}</strong>
+                </div>
+              )
+            })}
+          </div>
+        </>
       )}
-    </Paper>
+    </article>
+  )
+}
+
+function ReconciliationCard({ onReview, reconciliation }) {
+  const hasData = reconciliation.overall_total_collection !== undefined
+  const isMatched = Boolean(reconciliation.is_matched)
+  return (
+    <article className={`revenue-bi-card revenue-bi-reconciliation ${isMatched ? 'good' : 'warning'}`}>
+      <CardHeader
+        action={<StatusChip tone={hasData ? (isMatched ? 'good' : 'warning') : 'neutral'}>{hasData ? (isMatched ? 'Matched' : 'Review') : 'No data'}</StatusChip>}
+        title="Reconciliation"
+      />
+      {!hasData ? <EmptyState message="No reconciliation data is available." /> : (
+        <>
+          <p>{reconciliationMessage(reconciliation)}</p>
+          <dl>
+            <div><dt>Overall paid</dt><dd>{formatMoney(reconciliation.overall_total_collection || 0)}</dd></div>
+            <div><dt>Collector total</dt><dd>{formatMoney(reconciliation.collector_summary_total || 0)}</dd></div>
+            <div><dt>Difference</dt><dd>{formatMoney(reconciliation.difference || 0)}</dd></div>
+          </dl>
+          <button disabled={!onReview} onClick={onReview || undefined} title={onReview ? 'Open ACO reconciliation' : 'Your role cannot open ACO reconciliation'} type="button"><ListChecks size={15} aria-hidden="true" /> Review discrepancy</button>
+        </>
+      )}
+    </article>
+  )
+}
+
+function CurrentMonthCard({ available, model, monthName }) {
+  const remaining = Math.max(0, model.monthlyTarget - model.monthTotal)
+  return (
+    <article className="revenue-bi-card revenue-bi-current-month">
+      <CardHeader subtitle="Performance against monthly target pace" title={monthName + ' collections'} />
+      {!available ? <EmptyState message="No current-month collection data is available." /> : <>
+      <strong>{formatMoney(model.monthTotal)}</strong>
+      <div className="revenue-bi-current-grid">
+        <span>Target pace <b>{formatMoney(model.monthlyTarget)}</b></span>
+        <span>Achievement <b>{formatPercent(model.monthRate)}%</b></span>
+        <span>Remaining <b>{formatMoney(remaining)}</b></span>
+      </div>
+      <ProgressLine percent={model.monthRate} tone={model.monthRate >= 100 ? 'good' : 'blue'} />
+      </>}
+    </article>
+  )
+}
+
+function DiveTicketCard({ available, summary, topBuyer }) {
+  const receipts = Number(summary.receipt_count || 0)
+  const total = Number(summary.total_amount || 0)
+  const average = receipts > 0 ? total / receipts : 0
+  return (
+    <article className="revenue-bi-card revenue-bi-dive-card">
+      <CardHeader subtitle="Current-month operating summary" title="Dive tickets" />
+      {!available ? <EmptyState message="No dive-ticket data is available." /> : <>
+      <div className="revenue-bi-dive-grid">
+        <span>Total <b>{formatMoney(total)}</b></span>
+        <span>Receipts <b>{receipts.toLocaleString('en-PH')}</b></span>
+        <span>Buyers <b>{Number(summary.buyer_count || 0).toLocaleString('en-PH')}</b></span>
+        <span>Average <b>{formatMoney(average)}</b></span>
+      </div>
+      <div className="revenue-bi-top-buyer"><span>Top buyer</span><strong>{topBuyer?.taxpayer || 'Not available'}</strong></div>
+      </>}
+    </article>
+  )
+}
+
+function TopCollectors({ rows, total }) {
+  return (
+    <article className="revenue-bi-card">
+      <CardHeader
+        action={<button className="revenue-bi-text-action" onClick={() => navigateTo('/reports')} type="button">View collector report</button>}
+        subtitle="Top five generated collector totals"
+        title="Top collectors"
+      />
+      {!rows.length ? <EmptyState message="No collector totals are available." /> : (
+        <div className="revenue-bi-collector-list">
+          {rows.map((row, index) => {
+            const amount = Number(row.total_amount || 0)
+            const share = total > 0 ? (amount / total) * 100 : 0
+            return (
+              <div className="revenue-bi-collector-row" key={(row.collector || 'collector') + index}>
+                <span className="revenue-bi-rank">{index + 1}</span>
+                <span className="revenue-bi-avatar" aria-hidden="true">{initialsFromName(row.collector)}</span>
+                <div>
+                  <strong>{row.collector || 'Unspecified'}</strong>
+                  <small>{Number(row.receipt_count || 0).toLocaleString('en-PH')} receipts | {formatPercent(share)}% share</small>
+                  <ProgressLine percent={share} tone="blue" />
+                </div>
+                <em>{formatMoney(amount)}</em>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </article>
   )
 }
 
 function RecentReceipts({ rows }) {
   return (
-    <Paper className="dashboard-table-card" elevation={0} variant="outlined">
-      <ChartHeader title="Recent Paid Receipts" subtitle="Five latest paid receipt logs from the generated cache." />
-      <div className="payment-log-list dashboard-payment-list">
-        {rows.map((row) => (
-          <div className="payment-log-row" key={`${row.payment_id}-${row.receipt_no}`}>
-            <div>
-              <strong>{row.taxpayer || 'UNSPECIFIED'}</strong>
-              <span>OR {row.receipt_no || '-'} | {row.collection_date || '-'} | {row.collector || 'Unassigned'}</span>
-            </div>
-            <em>{formatMoney(row.total_amount || 0)}</em>
+    <article className="revenue-bi-card">
+      <CardHeader
+        action={<button className="revenue-bi-text-action" onClick={() => navigateTo('/search-receipt')} type="button">View all transactions</button>}
+        subtitle="Five latest paid receipt logs"
+        title="Recent paid receipts"
+      />
+      {!rows.length ? <EmptyState message="No recent paid receipts are available." /> : (
+        <div className="revenue-bi-receipts-scroll">
+          <div className="revenue-bi-receipts" role="table" aria-label="Recent paid receipts">
+            <div role="row"><span>Payor</span><span>OR number</span><span>Date</span><span>Collector</span><span>Amount</span></div>
+            {rows.map((row) => (
+              <div key={(row.payment_id || '') + '-' + (row.receipt_no || '')} role="row">
+                <strong role="cell" title={row.taxpayer || 'Unspecified'}>{row.taxpayer || 'Unspecified'}</strong>
+                <span role="cell">{row.receipt_no || '-'}</span>
+                <span role="cell">{row.collection_date || '-'}</span>
+                <span role="cell" title={row.collector || 'Unassigned'}>{row.collector || 'Unassigned'}</span>
+                <em role="cell">{formatMoney(row.total_amount || 0)}</em>
+              </div>
+            ))}
           </div>
-        ))}
-        {!rows.length && (
-          <div className="payment-log-empty">
-            <ListChecks size={18} aria-hidden="true" />
-            <span>No recent paid receipt logs for the selected year.</span>
-          </div>
-        )}
-      </div>
-      <details className="dashboard-expander dashboard-action-expander">
-        <summary>View all activity</summary>
-        <p>Open the existing General Fund, Reports, or Search Receipt page for the full receipt history.</p>
-      </details>
-    </Paper>
-  )
-}
-
-function DonutChart({ centerLabel, rows }) {
-  const total = rows.reduce((sum, row) => sum + Number(row.value || 0), 0)
-  let cursor = 0
-  const gradient = total > 0
-    ? rows
-      .filter((row) => Number(row.value || 0) > 0)
-      .map((row) => {
-        const start = cursor
-        const width = (Number(row.value || 0) / total) * 100
-        cursor += width
-        return `${row.color} ${start}% ${cursor}%`
-      })
-      .join(', ')
-    : '#e4eaf0 0% 100%'
-
-  return (
-    <div className="donut-chart-layout dashboard-share-layout">
-      <div className="donut-chart" style={{ '--donut-delay': '120ms', background: `conic-gradient(${gradient})` }}>
-        <div>
-          <strong title={centerLabel}>{centerLabel}</strong>
-          <span>Total</span>
         </div>
-      </div>
-      <div className="chart-legend">
-        {rows.map((row, index) => {
-          const percent = total > 0 ? (Number(row.value || 0) / total) * 100 : 0
-          return (
-            <div key={row.label} style={{ '--legend-delay': `${180 + index * 60}ms` }}>
-              <i style={{ backgroundColor: row.color }} />
-              <span>{row.label}</span>
-              <em>{formatPercent(percent)}%</em>
-              <strong>{formatMoney(row.value)}</strong>
-            </div>
-          )
-        })}
-      </div>
-    </div>
+      )}
+    </article>
   )
 }
-
-
-
-

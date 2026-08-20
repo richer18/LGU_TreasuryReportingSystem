@@ -5,6 +5,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import * as XLSX from "xlsx";
 import {
+  Alert,
   Autocomplete,
   Box,
   Button,
@@ -260,6 +261,10 @@ function MtoPermitsPage() {
   const [openDownloadDialog, setOpenDownloadDialog] = useState(false);
   const [downloadType, setDownloadType] = useState("Renew");
   const [openRenewDialog, setOpenRenewDialog] = useState(false);
+  const [openDropDialog, setOpenDropDialog] = useState(false);
+  const [dropCaseNo, setDropCaseNo] = useState("");
+  const [dropDate, setDropDate] = useState(dayjs().format("YYYY-MM-DD"));
+  const [dropError, setDropError] = useState("");
   const [renewRecordId, setRenewRecordId] = useState(null);
   const [renewForm, setRenewForm] = useState({
     MCH_NO: null,
@@ -476,14 +481,11 @@ function MtoPermitsPage() {
     if (record) callback(record);
   };
 
-  const handlePrint = async (type) => {
-    const record = selectedRecord;
-    handleMenuClose();
-    if (!record) return;
-
+  const downloadPrintDocument = async (type, record, params = {}) => {
     try {
       const response = await axiosInstance.get(`/mto-permits/print/${type}/${record.ID}`, {
         responseType: "blob",
+        params,
       });
       const disposition = response.headers?.["content-disposition"] || "";
       const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
@@ -499,9 +501,67 @@ function MtoPermitsPage() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
+      return true;
     } catch (error) {
       console.error("Failed to download MTO print document:", error);
       alert(error?.response?.data?.message || error?.message || "Unable to download MTO print document.");
+      return false;
+    }
+  };
+
+  const handlePrint = async (type) => {
+    const record = selectedRecord;
+    handleMenuClose();
+    if (!record) return;
+
+    await downloadPrintDocument(type, record);
+  };
+
+  const handleOpenDropDialog = () => {
+    setDropCaseNo("");
+    setDropDate(dayjs().format("YYYY-MM-DD"));
+    setDropError("");
+    setOpenDropDialog(true);
+  };
+
+  const handleCloseDropDialog = () => {
+    setOpenDropDialog(false);
+    setDropError("");
+  };
+
+  const selectedDropRecord = useMemo(() => {
+    const target = String(dropCaseNo || "").trim().toLowerCase();
+    if (!target) return null;
+
+    return records.find((record) => String(record.FRANCHISE_NO || "").trim().toLowerCase() === target) || null;
+  }, [dropCaseNo, records]);
+
+  const dropCaseOptions = useMemo(
+    () =>
+      records
+        .filter((record) => record.FRANCHISE_NO)
+        .map((record) => ({
+          label: `${record.FRANCHISE_NO} - ${record.FNAME || ""} ${record.LNAME || ""}`.trim(),
+          caseNo: String(record.FRANCHISE_NO || ""),
+        })),
+    [records]
+  );
+
+  const handleDropPrint = async () => {
+    if (!selectedDropRecord) {
+      setDropError("Please enter a valid Case No. from the MTO records.");
+      return;
+    }
+
+    if (!dropDate) {
+      setDropError("Please enter the Order of Dropping date.");
+      return;
+    }
+
+    setDropError("");
+    const success = await downloadPrintDocument("dropping", selectedDropRecord, { date: dropDate });
+    if (success) {
+      handleCloseDropDialog();
     }
   };
 
@@ -850,10 +910,11 @@ function MtoPermitsPage() {
               </Button>
             </Tooltip>
 
-            <Tooltip title="Generate Receipt Report" arrow>
+            <Tooltip title="Create Order of Dropping" arrow>
               <Button
                 variant="outlined"
                 sx={{ minHeight: 42, borderRadius: "8px", px: 2, textTransform: "none", fontWeight: 800 }}
+                onClick={handleOpenDropDialog}
               >
                 Drop
               </Button>
@@ -1244,6 +1305,95 @@ function MtoPermitsPage() {
       <BPLODialogPopupRENEW open={openTotalRenew} onClose={() => setOpenTotalRenew(false)} />
       <BPLODialogPopupEXPIRY open={openTotalExpiry} onClose={() => setOpenTotalExpiry(false)} />
       <BPLODialogPopupEXPIRE open={openTotalExpire} onClose={() => setOpenTotalExpire(false)} />
+
+      <Dialog open={openDropDialog} onClose={handleCloseDropDialog} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: "bold" }}>
+          Order of Dropping
+          <IconButton
+            aria-label="close"
+            onClick={handleCloseDropDialog}
+            sx={{ position: "absolute", right: 8, top: 8 }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+
+        <DialogContent dividers>
+          <Box sx={{ display: "grid", gap: 2, pt: 1 }}>
+            {dropError && <Alert severity="warning">{dropError}</Alert>}
+
+            <Autocomplete
+              freeSolo
+              disablePortal
+              options={dropCaseOptions}
+              value={dropCaseNo}
+              inputValue={dropCaseNo}
+              onInputChange={(event, newValue) => {
+                setDropCaseNo(newValue || "");
+                setDropError("");
+              }}
+              onChange={(event, newValue) => {
+                const value = typeof newValue === "string" ? newValue : newValue?.caseNo || "";
+                setDropCaseNo(value);
+                setDropError("");
+              }}
+              getOptionLabel={(option) => (typeof option === "string" ? option : option.label || "")}
+              renderInput={(params) => (
+                <TextField {...params} label="Case No." placeholder="Enter valid case no." variant="outlined" />
+              )}
+            />
+
+            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 2 }}>
+              <TextField
+                label="Applicant name"
+                value={selectedDropRecord ? `${selectedDropRecord.FNAME || ""} ${selectedDropRecord.MNAME || ""} ${selectedDropRecord.LNAME || ""}`.replace(/\s+/g, " ").trim() : ""}
+                InputLabelProps={DATE_FIELD_LABEL_PROPS}
+                disabled
+                fullWidth
+              />
+              <TextField
+                label="Make"
+                value={selectedDropRecord?.MAKE || ""}
+                InputLabelProps={DATE_FIELD_LABEL_PROPS}
+                disabled
+                fullWidth
+              />
+              <TextField
+                label="Motor No."
+                value={selectedDropRecord?.MOTOR_NO || ""}
+                InputLabelProps={DATE_FIELD_LABEL_PROPS}
+                disabled
+                fullWidth
+              />
+              <TextField
+                label="Chassis No."
+                value={selectedDropRecord?.CHASSIS_NO || ""}
+                InputLabelProps={DATE_FIELD_LABEL_PROPS}
+                disabled
+                fullWidth
+              />
+              <TextField
+                label="Date"
+                type="date"
+                value={dropDate}
+                onChange={(event) => setDropDate(event.target.value)}
+                InputLabelProps={DATE_FIELD_LABEL_PROPS}
+                slotProps={DATE_FIELD_SLOT_PROPS}
+                fullWidth
+              />
+            </Box>
+          </Box>
+        </DialogContent>
+
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={handleCloseDropDialog} variant="outlined" color="secondary">
+            Cancel
+          </Button>
+          <Button onClick={handleDropPrint} variant="contained" color="primary" disabled={!selectedDropRecord || !dropDate}>
+            Print
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={openDownloadDialog} onClose={handleCloseDownloadDialog} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: "bold" }}>

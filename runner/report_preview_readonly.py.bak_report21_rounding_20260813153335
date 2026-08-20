@@ -205,10 +205,6 @@ def classify_summary_source(itaxtype, source_id, source_ct):
     return None
 
 
-def money_round(value):
-    value = value or Decimal("0")
-    return Decimal(value).quantize(Decimal("0.01"))
-
 def empty_summary_row(source):
     return {
         "source": normalize_source_name(source),
@@ -227,30 +223,34 @@ def empty_summary_row(source):
 
 
 def split_summary_amount(name, amount):
-    amount = money_round(amount)
+    amount = amount or Decimal("0")
     row = empty_summary_row(name)
-    row["total_collections"] = amount
 
     if name == "Cockpit Share":
-        row["provincial_general_fund"] = money_round(amount * Decimal("0.50"))
+        row["total_collections"] = amount
+        row["provincial_general_fund"] = amount * Decimal("0.50")
         row["provincial_total"] = row["provincial_general_fund"]
-        row["municipal_general_fund"] = amount - row["provincial_total"]
+        row["municipal_general_fund"] = amount * Decimal("0.50")
         row["municipal_total"] = row["municipal_general_fund"]
     elif name == "Building Permit Fee":
-        row["national"] = money_round(amount * Decimal("0.05"))
-        row["municipal_general_fund"] = money_round(amount * Decimal("0.80"))
-        row["municipal_trust_fund"] = amount - row["national"] - row["municipal_general_fund"]
+        row["total_collections"] = amount
+        row["national"] = amount * Decimal("0.05")
+        row["municipal_general_fund"] = amount * Decimal("0.80")
+        row["municipal_trust_fund"] = amount * Decimal("0.15")
         row["municipal_total"] = row["municipal_general_fund"] + row["municipal_trust_fund"]
     elif name == "Livestock":
-        row["national"] = money_round(amount * Decimal("0.20"))
-        row["municipal_general_fund"] = amount - row["national"]
+        row["total_collections"] = amount
+        row["national"] = amount * Decimal("0.20")
+        row["municipal_general_fund"] = amount * Decimal("0.80")
         row["municipal_total"] = row["municipal_general_fund"]
     elif name == "Diving Fee":
-        row["municipal_general_fund"] = money_round(amount * Decimal("0.40"))
+        row["total_collections"] = amount
+        row["municipal_general_fund"] = amount * Decimal("0.40")
         row["municipal_total"] = row["municipal_general_fund"]
-        row["barangay_share"] = money_round(amount * Decimal("0.30"))
-        row["fisheries"] = amount - row["municipal_total"] - row["barangay_share"]
+        row["barangay_share"] = amount * Decimal("0.30")
+        row["fisheries"] = amount * Decimal("0.30")
     else:
+        row["total_collections"] = amount
         row["municipal_general_fund"] = amount
         row["municipal_total"] = amount
 
@@ -352,19 +352,19 @@ def fetch_rpt_buckets(date_from, date_to):
 
 def rpt_summary_row(label, amount, tax_type):
     row = empty_summary_row(label)
-    amount = money_round(amount)
+    amount = amount or Decimal("0")
     row["total_collections"] = amount
 
     if tax_type == "BSC":
-        row["provincial_general_fund"] = money_round(amount * Decimal("0.35"))
+        row["provincial_general_fund"] = amount * Decimal("0.35")
         row["provincial_total"] = row["provincial_general_fund"]
-        row["municipal_general_fund"] = money_round(amount * Decimal("0.40"))
+        row["municipal_general_fund"] = amount * Decimal("0.40")
         row["municipal_total"] = row["municipal_general_fund"]
-        row["barangay_share"] = amount - row["provincial_total"] - row["municipal_total"]
+        row["barangay_share"] = amount * Decimal("0.25")
     else:
-        row["provincial_sef"] = money_round(amount * Decimal("0.50"))
+        row["provincial_sef"] = amount * Decimal("0.50")
         row["provincial_total"] = row["provincial_sef"]
-        row["municipal_sef"] = amount - row["provincial_total"]
+        row["municipal_sef"] = amount * Decimal("0.50")
         row["municipal_total"] = row["municipal_sef"]
 
     return row

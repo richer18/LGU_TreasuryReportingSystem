@@ -12,6 +12,7 @@ import {
   ClipboardList,
   Target,
   SearchCheck,
+  FileSearch,
   FileBarChart,
   Settings,
   LogOut,
@@ -25,6 +26,7 @@ import axiosInstance from './axiosinstance/axiosInstance'
 import { useAuth } from './auth/useAuth'
 import { fundPages } from './data/reportCatalog'
 import { AcoDashboardPage } from './pages/AcoDashboard/AcoDashboardPage'
+import { BusinessPermitsPage } from './pages/BusinessPermits/BusinessPermitsPage'
 import { CalendarPage } from './pages/Calendar/CalendarPage'
 import { CashTicketsPage } from './pages/CashTickets/CashTicketsPage'
 import { DashboardPage } from './pages/Dashboard/DashboardPage'
@@ -35,6 +37,7 @@ import MtoPermitsPage from './pages/MtoPermits/MtoPermitsPage'
 import { ReportsPage } from './pages/Reports/ReportsPage'
 import RcdPage from './pages/Rcd/RcdPage'
 import { SearchReceiptPage } from './pages/SearchReceipt/SearchReceiptPage'
+import { SearchTdNoPage } from './pages/SearchTdNo/SearchTdNoPage'
 import { SettingsPage } from './pages/Settings/SettingsPage'
 import { UserAccountsPage } from './pages/UserAccounts/UserAccountsPage'
 import { getFirebirdError, initialStatus } from './utils/firebirdStatus'
@@ -55,6 +58,7 @@ const navItems = [
 { id: 'acoDashboard', label: 'ACO Collector', icon: ShieldCheck, permission: 'aco_dashboard.view' },
 { id: 'incometarget', label: 'Income Target', icon: Target, permission: 'income_target.view' },
 { id: 'searchreceipt', label: 'Search Receipt', icon: SearchCheck, permission: 'search_receipts.view' },
+{ id: 'searchtdno', label: 'Search TD No.', icon: FileSearch, permission: 'search_receipts.view' },
 { id: 'userAccounts', label: "User's Accounts", icon: UsersRound, permission: ['users.manage', 'users.self'] },
 { id: 'reports', label: 'Reports', icon: FileBarChart, permission: 'reports.view' },
 { id: 'settings', label: 'Settings', icon: Settings, permission: 'settings.view' },
@@ -80,6 +84,7 @@ const pagePaths = {
   acoDashboard: '/aco-dashboard',
   incometarget: '/income-target',
   searchreceipt: '/search-receipt',
+  searchtdno: '/search-td-no',
   userAccounts: '/user-accounts',
   reports: '/reports',
   settings: '/settings',
@@ -106,6 +111,7 @@ const hiddenTopbarPages = new Set([
   'acoDashboard',
   'incometarget',
   'searchreceipt',
+  'searchtdno',
   'userAccounts',
   'reports',
 ])
@@ -349,6 +355,8 @@ function App() {
 
         {activePage === 'cashtickets' && <CashTicketsPage user={user} />}
 
+        {activePage === 'businesspermit' && <BusinessPermitsPage user={user} />}
+
         {activePage === 'motorcylefranchise' && <MtoPermitsPage user={user} />}
 
         {collectionMonitorPages[activePage] && (
@@ -363,13 +371,15 @@ function App() {
 
         {activePage === 'searchreceipt' && <SearchReceiptPage user={user} />}
 
+        {activePage === 'searchtdno' && <SearchTdNoPage user={user} />}
+
         {activePage === 'userAccounts' && <UserAccountsPage user={user} />}
 
         {activePage === 'rcd' && <RcdPage user={user} />}
 
         {activePage === 'acoDashboard' && (String(user?.role || '').toLowerCase() === 'collector' ? <RcdPage user={user} workflow="acoCollector" /> : <AcoDashboardPage user={user} />)}
 
-        {activePage !== 'generalFund' && activePage !== 'calendar' && activePage !== 'cashtickets' && activePage !== 'motorcylefranchise' && !collectionMonitorPages[activePage] && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'userAccounts' && activePage !== 'rcd' && activePage !== 'acoDashboard' && fundPages[activePage] && (
+        {activePage !== 'generalFund' && activePage !== 'calendar' && activePage !== 'cashtickets' && activePage !== 'businesspermit' && activePage !== 'motorcylefranchise' && !collectionMonitorPages[activePage] && activePage !== 'incometarget' && activePage !== 'searchreceipt' && activePage !== 'searchtdno' && activePage !== 'userAccounts' && activePage !== 'rcd' && activePage !== 'acoDashboard' && fundPages[activePage] && (
           <ReportsPage page={fundPages[activePage]} user={user} />
         )}
 

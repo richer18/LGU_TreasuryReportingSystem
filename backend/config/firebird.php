@@ -17,6 +17,7 @@ return [
     'general_fund_receipt_pdf_script' => base_path('../runner/general_fund_receipt_pdf.py'),
     'general_fund_receipt_template' => base_path('../receipt/itax_receipt_continuous.jpg'),
     'search_receipt_script' => base_path('../runner/search_receipt.py'),
+    'search_td_no_script' => base_path('../runner/search_td_no.py'),
     'rcd_access_script' => base_path('../runner/rcd_access_store.py'),
     'rcd_generate_or_script' => base_path('../runner/rcd_generate_or_readonly.py'),
     'income_target_script' => base_path('../runner/income_target_readonly.py'),

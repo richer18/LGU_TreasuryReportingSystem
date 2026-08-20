@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\BploRecord;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use PhpOffice\PhpWord\TemplateProcessor;
 
@@ -15,9 +16,10 @@ class MtoPermitPrintController extends Controller
         'certification' => ['template' => 'CERTIFICATION_TEMPLATE.docx', 'label' => 'Certification'],
         'order' => ['template' => 'ORDER_TEMPLATE.docx', 'label' => 'Order'],
         'pnp' => ['template' => 'PNP_MOTOR_VEHICLE_CLEARANCE_CERTIFICATION_CLASS_B_TEMPLATE.docx', 'label' => 'PNP_Clearance'],
+        'dropping' => ['template' => 'ORDER_OF_DROPPING_TEMPLATE.docx', 'label' => 'Order_Of_Dropping'],
     ];
 
-    public function show(string $type, int|string $id)
+    public function show(Request $request, string $type, int|string $id)
     {
         if (! isset(self::DOCUMENTS[$type])) {
             abort(404, 'Print document type not found.');
@@ -49,7 +51,14 @@ class MtoPermitPrintController extends Controller
         $filename = sprintf('%s_%s_%s_%s.docx', $cleanName, $document['label'], $mchNo, $timestamp);
         $outputPath = $outputDir . DIRECTORY_SEPARATOR . $filename;
 
-        $this->generateDocx($templatePath, $outputPath, $this->templateValues($record, $operatorName));
+        $values = $this->templateValues($record, $operatorName, $request);
+
+        if ($type === 'dropping') {
+            $this->generateDroppingDocx($templatePath, $outputPath, $values);
+            $this->logDroppingPrint($record, $operatorName, $values, $filename);
+        } else {
+            $this->generateDocx($templatePath, $outputPath, $values);
+        }
 
         return response()
             ->download($outputPath, $filename, [
@@ -58,14 +67,16 @@ class MtoPermitPrintController extends Controller
             ->deleteFileAfterSend(true);
     }
 
-    private function templateValues(BploRecord $record, string $operatorName): array
+    private function templateValues(BploRecord $record, string $operatorName, ?Request $request = null): array
     {
         $date = $this->safeCarbon($record->PAYMENT_DATE);
+        $droppingDate = $this->safeCarbon($request?->query('date') ?: now());
         $paymentDate = $date->format('F j, Y');
         $day = $date->format('j');
 
         return [
             'operator_name' => $operatorName,
+            'case_no' => $this->stringValue($record->FRANCHISE_NO),
             'franchise_no' => $this->stringValue($record->FRANCHISE_NO),
             'mch_no' => $this->stringValue($record->MCH_NO),
             'barangay' => strtoupper($this->stringValue($record->BARANGAY)),
@@ -91,7 +102,105 @@ class MtoPermitPrintController extends Controller
             'lto_certificate_registration' => strtoupper($this->stringValue($record->LTO_CERTIFICATE_REGISTRATION)),
             'mv_file_no' => strtoupper($this->stringValue($record->LTO_MV_FILE_NO)),
             'amount' => $this->stringValue($record->AMOUNT),
+            'dropping_date' => $droppingDate->format('F j, Y'),
+            'dropping_date_raw' => $droppingDate->toDateString(),
         ];
+    }
+
+    private function generateDroppingDocx(string $templatePath, string $outputPath, array $values): void
+    {
+        if (! copy($templatePath, $outputPath)) {
+            abort(500, 'Unable to copy Order of Dropping template.');
+        }
+
+        if (! class_exists(\ZipArchive::class)) {
+            abort(500, 'PHP ZipArchive extension is required for Order of Dropping generation.');
+        }
+
+        $zip = new \ZipArchive();
+        if ($zip->open($outputPath) !== true) {
+            abort(500, 'Unable to open generated Order of Dropping document.');
+        }
+
+        $xml = $zip->getFromName('word/document.xml');
+        if ($xml === false) {
+            $zip->close();
+            abort(500, 'Order of Dropping document body was not found.');
+        }
+
+        $document = new \DOMDocument('1.0', 'UTF-8');
+        $document->preserveWhiteSpace = true;
+        $document->formatOutput = false;
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadXML($xml);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if (! $loaded) {
+            $zip->close();
+            abort(500, 'Unable to parse Order of Dropping template.');
+        }
+
+        $xpath = new \DOMXPath($document);
+        $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
+
+        $replacements = [
+            'CASE NO: __________' => 'CASE NO: ' . $values['case_no'],
+            'APPLICANT: _____________________' => 'APPLICANT: ' . $values['operator_name'],
+            'MAKEMOTOR NO.CHASSIS NO.' => 'MAKE: ' . $values['make'] . '     MOTOR NO.: ' . $values['motor_no'] . '     CHASSIS NO.: ' . $values['chassis_no'],
+            'Zamboanguita, Negros Oriental, Philippines __________________' => 'Zamboanguita, Negros Oriental, Philippines ' . $values['dropping_date'],
+            'Applicant: ______________________' => 'Applicant: ' . $values['operator_name'],
+        ];
+
+        foreach ($xpath->query('//w:p') as $paragraph) {
+            $textNodes = $xpath->query('.//w:t', $paragraph);
+            if ($textNodes->length === 0) {
+                continue;
+            }
+
+            $fullText = '';
+            foreach ($textNodes as $node) {
+                $fullText .= $node->nodeValue;
+            }
+            $normalized = preg_replace('/\s+/', ' ', trim($fullText));
+
+            if (! isset($replacements[$normalized])) {
+                continue;
+            }
+
+            $textNodes->item(0)->nodeValue = $replacements[$normalized];
+            $textNodes->item(0)->setAttribute('xml:space', 'preserve');
+
+            for ($index = 1; $index < $textNodes->length; $index++) {
+                $textNodes->item($index)->nodeValue = '';
+            }
+        }
+
+        $zip->addFromString('word/document.xml', $document->saveXML());
+        $zip->close();
+
+        if (! is_file($outputPath)) {
+            abort(500, 'Generated Order of Dropping document was not created.');
+        }
+    }
+
+    private function logDroppingPrint(BploRecord $record, string $operatorName, array $values, string $filename): void
+    {
+        $entry = [
+            'printed_at' => now()->toDateTimeString(),
+            'document' => 'Order of Dropping',
+            'filename' => $filename,
+            'record_id' => $record->ID,
+            'case_no' => $values['case_no'],
+            'applicant' => $operatorName,
+            'make' => $values['make'],
+            'motor_no' => $values['motor_no'],
+            'chassis_no' => $values['chassis_no'],
+            'date' => $values['dropping_date_raw'],
+        ];
+
+        file_put_contents(storage_path('logs/mto_dropping_prints.log'), json_encode($entry, JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
+        Log::info('MTO Order of Dropping printed.', $entry);
     }
 
     private function generateDocx(string $templatePath, string $outputPath, array $values): void

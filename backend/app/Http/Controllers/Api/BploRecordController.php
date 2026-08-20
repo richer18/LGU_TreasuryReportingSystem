@@ -8,12 +8,21 @@ use App\Models\BploRecord;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Throwable;
 
 class BploRecordController extends Controller
 {
     public function index(): JsonResponse
     {
-        return response()->json(BploRecord::query()->orderByDesc('ID')->get());
+        try {
+            return response()->json(BploRecord::query()->orderByDesc('ID')->get());
+        } catch (Throwable $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Business permits database is unavailable. Please check the business_permit_license MySQL connection.',
+                'error' => $exception->getMessage(),
+            ], 503);
+        }
     }
 
     public function store(Request $request): JsonResponse

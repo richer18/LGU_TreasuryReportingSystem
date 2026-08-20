@@ -17,7 +17,7 @@ class GeneratedReportController extends Controller
 
     public function preview(Request $request, int $number): JsonResponse
     {
-        abort_if($number < 1 || $number > 38 || $number === 24, 404, 'Report not found.');
+        abort_if($number < 1 || $number > 39 || $number === 24, 404, 'Report not found.');
 
         $filters = $request->validate([
             'date_from' => ['nullable', 'date'],
@@ -40,7 +40,7 @@ class GeneratedReportController extends Controller
 
     public function download(Request $request, int $number): JsonResponse|BinaryFileResponse
     {
-        abort_if($number < 1 || $number > 38 || $number === 24, 404, 'Report not found.');
+        abort_if($number < 1 || $number > 39 || $number === 24, 404, 'Report not found.');
 
         $filters = $request->validate([
             'date_from' => ['nullable', 'date'],

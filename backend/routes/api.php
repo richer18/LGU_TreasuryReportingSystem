@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BploRecordController;
+use App\Http\Controllers\Api\BusinessPermitReportController;
 use App\Http\Controllers\Api\TotalExpiredController;
 use App\Http\Controllers\Api\TotalExpiryController;
 use App\Http\Controllers\Api\TotalRegisteredController;
@@ -25,6 +26,7 @@ use App\Http\Controllers\Api\ReceiptExceptionsController;
 use App\Http\Controllers\Api\RcdAccessController;
 use App\Http\Controllers\Api\RcdGenerateOrController;
 use App\Http\Controllers\Api\SearchReceiptController;
+use App\Http\Controllers\Api\SearchTdNoController;
 use App\Http\Controllers\Api\UserAccountController;
 use Illuminate\Support\Facades\Route;
 
@@ -99,13 +101,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/receipt-exceptions/not-remitted', [ReceiptExceptionsController::class, 'notRemitted']);
 
     Route::get('/search-receipts', [SearchReceiptController::class, 'index']);
+    Route::get('/search-td-no', [SearchTdNoController::class, 'index'])
+        ->middleware('permission:search_receipts.view');
     Route::get('/search-receipts/{paymentId}', [SearchReceiptController::class, 'show']);
     Route::patch('/search-receipts/{paymentId}', [SearchReceiptController::class, 'update'])
         ->middleware('permission:search_receipts.edit');
 
     Route::get('/income-target', [IncomeTargetController::class, 'show']);
+    Route::get('/business-permits/report-data', [BusinessPermitReportController::class, 'index'])
+        ->middleware('permission:business_permits.view');
 
-    Route::middleware('permission:mto_permits.view')->group(function () {
+    Route::middleware('permission:mto_permits.view,business_permits.view')->group(function () {
         Route::get('/bplo/makes', [BploRecordController::class, 'makes']);
         Route::get('/bplo/registered-mch', [BploRecordController::class, 'registeredMch']);
         Route::get('/bplo/total-revenue/yearly', [TotalRevenueController::class, 'yearly']);

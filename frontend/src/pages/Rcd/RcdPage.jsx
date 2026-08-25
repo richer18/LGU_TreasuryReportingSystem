@@ -17,6 +17,8 @@ import {
   Menu,
   MenuItem,
   Paper,
+  Radio,
+  RadioGroup,
   Table,
   TableBody,
   TableCell,
@@ -372,7 +374,9 @@ function RcdPage({ user, workflow = 'rcd' }) {
   const [search, setSearch] = useState('')
   const [entryDialogOpen, setEntryDialogOpen] = useState(false)
   const [generateMessage, setGenerateMessage] = useState('')
+  const [validationMessage, setValidationMessage] = useState('')
   const [generatingOr, setGeneratingOr] = useState(false)
+  const [fdbValidationEnabled, setFdbValidationEnabled] = useState(true)
   const [batches, setBatches] = useState([])
   const [savingAction, setSavingAction] = useState('')
   const savingRef = useRef(false)
@@ -526,12 +530,12 @@ function RcdPage({ user, workflow = 'rcd' }) {
       }))
 
     if (linesToValidate.length === 0) {
-      setGenerateMessage('Please enter at least one OR line with Type/Form No., OR From, OR To, and Collector Amount.')
+      setValidationMessage('Please enter at least one OR line with Type/Form No., OR From, OR To, and Collector Amount.')
       return
     }
 
     setGeneratingOr(true)
-    setGenerateMessage('')
+    setValidationMessage('')
 
     try {
       const response = await axiosInstance.post('/rcd/generate-or', {
@@ -563,14 +567,14 @@ function RcdPage({ user, workflow = 'rcd' }) {
       setCollectionLines(rows.length ? rows : [emptyLine()])
       const hasProblem = rows.some((row) => !['Paid', 'Void', 'Cancelled'].includes(row.validationStatus))
       if (rows.length === 0) {
-        setGenerateMessage(`No matching OR records found in Firebird .FDB for ${form.collector} on ${form.collectionDate}.`)
+        setValidationMessage(`No matching OR records found in Firebird .FDB for ${form.collector} on ${form.collectionDate}.`)
       } else if (hasProblem) {
-        setGenerateMessage('Validation completed. Please review lines with mismatch or not found status.')
+        setValidationMessage('Validation completed. Please review lines with mismatch or not found status.')
       } else {
-        setGenerateMessage(`Validated ${rows.length} collector-entered line(s) against Firebird .FDB.`)
+        setValidationMessage(`Validated ${rows.length} collector-entered line(s) against Firebird .FDB.`)
       }
     } catch (error) {
-      setGenerateMessage(error.response?.data?.error || error.response?.data?.message || error.message || 'Unable to validate Firebird OR records.')
+      setValidationMessage(error.response?.data?.error || error.response?.data?.message || error.message || 'Unable to validate Firebird OR records.')
     } finally {
       setGeneratingOr(false)
     }
@@ -822,6 +826,7 @@ function RcdPage({ user, workflow = 'rcd' }) {
     setLiquidatingRows([emptyLiquidatingOfficerLine()])
     setManualAccountabilityLines([emptyManualAccountabilityLine()])
     setGenerateMessage('')
+    setValidationMessage('')
   }
 
   const openNewEntry = () => {
@@ -1085,6 +1090,7 @@ function RcdPage({ user, workflow = 'rcd' }) {
       }))
       setManualAccountabilityLines((savedAccountabilityRows.length ? savedAccountabilityRows : derivedAccountabilityRows).map((line) => ({ ...emptyManualAccountabilityLine(), ...line, id: makeClientId() })))
       setGenerateMessage('')
+      setValidationMessage('')
       setEntryDialogOpen(true)
     } catch (error) {
       setAccessError(error.response?.data?.error || error.response?.data?.message || error.message || 'Unable to load RCD for update.')
@@ -1337,7 +1343,6 @@ function RcdPage({ user, workflow = 'rcd' }) {
         { key: 'overview', label: 'Overview', icon: <AccountBalanceIcon /> },
         { key: 'entries', label: 'Daily Entries', icon: <ReceiptLongIcon /> },
         // { key: 'generate-rcd', label: 'Generate RCD', icon: <LocalPrintshopIcon /> },
-        // { key: 'review-queue', label: 'Review Queue', icon: <FactCheckIcon /> },
         // { key: 'deposit-queue', label: 'Deposit Queue', icon: <PaidIcon /> },
         ...(canManageAccountableForms ? [{ key: 'accountability', label: 'Accountable Forms', icon: <Inventory2Icon /> }] : []),
       ]
@@ -1371,8 +1376,8 @@ function RcdPage({ user, workflow = 'rcd' }) {
     if (collectionLines.length === 0) {
       return (
         <TableRow>
-          <TableCell align="center" colSpan={10} sx={{ color: uiColors.steel, fontWeight: 800, py: 4 }}>
-            Enter OR lines, then validate against Firebird .FDB.
+          <TableCell align="center" colSpan={fdbValidationEnabled ? 10 : 6} sx={{ color: uiColors.steel, fontWeight: 800, py: 4 }}>
+            {fdbValidationEnabled ? 'Enter OR lines, then validate against Firebird .FDB.' : 'Add an OR line to enter collection details.'}
           </TableCell>
         </TableRow>
       )
@@ -1393,10 +1398,14 @@ function RcdPage({ user, workflow = 'rcd' }) {
           <TableCell><TextField onChange={(event) => updateLine(line.id, 'receiptTo', event.target.value.replace(/\D/g, ''))} size="small" sx={{ minWidth: 120 }} value={line.receiptTo} /></TableCell>
           <TableCell align="center" sx={{ fontWeight: 800 }}>{receiptCount || '-'}</TableCell>
           <TableCell><TextField slotProps={{ htmlInput: { inputMode: 'decimal' } }} onChange={(event) => updateLine(line.id, 'collectorAmount', event.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))} size="small" value={line.collectorAmount ?? ''} /></TableCell>
-          <TableCell align="right" sx={{ fontWeight: 800 }}>{line.validated ? formatPeso(line.fdbAmount) : 'Validate'}</TableCell>
-          <TableCell align="right" sx={{ color: Math.abs(difference) < 0.005 ? 'var(--color-success-dark)' : 'var(--color-danger-dark)', fontWeight: 900 }}>{line.validated ? formatPeso(difference) : '-'}</TableCell>
-          <TableCell sx={{ color: mismatch === 'Matched' ? 'var(--color-success-dark)' : uiColors.steel, fontSize: 12, fontWeight: 800, minWidth: 220 }}>{mismatch}</TableCell>
-          <TableCell align="center"><StatusChip value={line.validationStatus} /></TableCell>
+          {fdbValidationEnabled && (
+            <>
+              <TableCell align="right" sx={{ fontWeight: 800 }}>{line.validated ? formatPeso(line.fdbAmount) : 'Validate'}</TableCell>
+              <TableCell align="right" sx={{ color: Math.abs(difference) < 0.005 ? 'var(--color-success-dark)' : 'var(--color-danger-dark)', fontWeight: 900 }}>{line.validated ? formatPeso(difference) : '-'}</TableCell>
+              <TableCell sx={{ color: mismatch === 'Matched' ? 'var(--color-success-dark)' : uiColors.steel, fontSize: 12, fontWeight: 800, minWidth: 220 }}>{mismatch}</TableCell>
+              <TableCell align="center"><StatusChip value={line.validationStatus} /></TableCell>
+            </>
+          )}
           <TableCell align="center"><Button color="error" onClick={() => removeCollectionLine(line.id)} size="small">Remove</Button></TableCell>
         </TableRow>
       )
@@ -1580,29 +1589,54 @@ function RcdPage({ user, workflow = 'rcd' }) {
         <Box sx={{ alignItems: 'center', background: `linear-gradient(135deg, ${uiColors.navy} 0%, ${uiColors.teal} 100%)`, color: '#fff', display: 'flex', gap: 2, justifyContent: 'space-between', p: 3 }}>
           <Box>
             <Typography variant="h6" sx={{ fontWeight: 900 }}>A. Collections</Typography>
-            <Typography variant="body2" sx={{ opacity: 0.9 }}>Collector enters sold OR ranges, form type, and amount. System validates against Firebird .FDB.</Typography>
+            <Typography variant="body2" sx={{ opacity: 0.9 }}>
+              {fdbValidationEnabled
+                ? 'Collector enters sold OR ranges, form type, and amount. System validates against Firebird .FDB.'
+                : 'Enter sold OR ranges, form type, and collector amount.'}
+            </Typography>
           </Box>
-          <Chip label={`${totals.receiptCount} receipts`} sx={{ bgcolor: 'rgba(255,255,255,0.18)', color: '#fff', fontWeight: 900 }} />
+          <Box sx={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'flex-end' }}>
+            <Box sx={{ alignItems: 'center', bgcolor: 'rgba(255,255,255,0.14)', borderRadius: 2, display: 'flex', pl: 1.5 }}>
+              <Typography sx={{ fontSize: 12, fontWeight: 900, whiteSpace: 'nowrap' }}>FDB Validation:</Typography>
+              <RadioGroup
+                onChange={(event) => setFdbValidationEnabled(event.target.value === 'on')}
+                row
+                value={fdbValidationEnabled ? 'on' : 'off'}
+              >
+                {['On', 'Off'].map((option) => (
+                  <FormControlLabel
+                    control={<Radio disabled={generatingOr} size="small" sx={{ color: 'rgba(255,255,255,0.72)', '&.Mui-checked': { color: '#fff' } }} />}
+                    key={option}
+                    label={option}
+                    sx={{ ml: 0, mr: 1, '& .MuiFormControlLabel-label': { fontSize: 12, fontWeight: 800 } }}
+                    value={option.toLowerCase()}
+                  />
+                ))}
+              </RadioGroup>
+            </Box>
+            <Chip label={`${totals.receiptCount} receipts`} sx={{ bgcolor: 'rgba(255,255,255,0.18)', color: '#fff', fontWeight: 900 }} />
+          </Box>
         </Box>
 
         <Box sx={{ display: 'grid', gap: 2.5, p: 3 }}>
-          <Box sx={{ alignItems: 'center', display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr auto' } }}>
+          <Box sx={{ alignItems: 'center', display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: fdbValidationEnabled ? '1fr 1fr 1fr auto' : '1fr 1fr 1fr' } }}>
             <TextField fullWidth label="Report No." onChange={(event) => updateForm('reportNo', event.target.value)} placeholder="Manual RCD no." value={form.reportNo} />
             <TextField fullWidth slotProps={{ inputLabel: { shrink: true } }} label="Collection Date" onChange={(event) => updateForm('collectionDate', event.target.value)} type="date" value={form.collectionDate} />
             <TextField disabled={Boolean(lockedCollectorValue)} fullWidth label="Collector" onChange={(event) => updateForm('collector', event.target.value)} select value={form.collector}>
               {!lockedCollectorValue && <MenuItem value="">Select Collector</MenuItem>}
               {entryCollectorOptions.map((collector) => <MenuItem key={collector.value} value={collector.value}>{collector.label}</MenuItem>)}
             </TextField>
-            <Button disabled={generatingOr} onClick={validateCollectorLines} startIcon={generatingOr ? <CircularProgress color={'inherit'} size={18} /> : <FactCheckIcon />} sx={toolbarButtonSx(uiColors.teal, uiColors.tealHover)} variant={'contained'}>{generatingOr ? 'Validating' : 'Validate in .FDB'}</Button>
+            {fdbValidationEnabled && <Button disabled={generatingOr} onClick={validateCollectorLines} startIcon={generatingOr ? <CircularProgress color={'inherit'} size={18} /> : <FactCheckIcon />} sx={toolbarButtonSx(uiColors.teal, uiColors.tealHover)} variant={'contained'}>{generatingOr ? 'Validating' : 'Validate in .FDB'}</Button>}
           </Box>
 
           <Alert severity="info" sx={{ borderRadius: 3 }}>
             Report No. is manual and may be left blank until the remittance receiver assigns it. Download/Print will generate one workbook with both 100_GF and 200_SEF template sheets.
           </Alert>
-          {generateMessage && <Alert severity={generateMessage.startsWith('Validated') ? 'success' : generateMessage.startsWith('Validation completed') || generateMessage.startsWith('No matching') || generateMessage.startsWith('Please enter') ? 'warning' : 'error'} sx={{ borderRadius: 3 }}>{generateMessage}</Alert>}
+          {generateMessage && <Alert severity={generateMessage.startsWith('Please') ? 'warning' : 'error'} sx={{ borderRadius: 3 }}>{generateMessage}</Alert>}
+          {fdbValidationEnabled && validationMessage && <Alert severity={validationMessage.startsWith('Validated') ? 'success' : validationMessage.startsWith('Validation completed') || validationMessage.startsWith('No matching') || validationMessage.startsWith('Please enter') ? 'warning' : 'error'} sx={{ borderRadius: 3 }}>{validationMessage}</Alert>}
 
           <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3 }}>
-            <Table size="small" sx={{ minWidth: 1200 }}>
+            <Table size="small" sx={{ minWidth: fdbValidationEnabled ? 1200 : 800 }}>
               <TableHead>
                 <TableRow sx={{ '& th': { bgcolor: '#f7f9fc', color: uiColors.navy, fontWeight: 900, textAlign: 'center', textTransform: 'uppercase' } }}>
                   <TableCell>Type / Form No.</TableCell>
@@ -1610,10 +1644,14 @@ function RcdPage({ user, workflow = 'rcd' }) {
                   <TableCell>OR To</TableCell>
                   <TableCell>Receipts</TableCell>
                   <TableCell>Collector Amount</TableCell>
-                  <TableCell>.FDB Amount</TableCell>
-                  <TableCell>Difference</TableCell>
-                  <TableCell>Mismatch</TableCell>
-                  <TableCell>Status</TableCell>
+                  {fdbValidationEnabled && (
+                    <>
+                      <TableCell>.FDB Amount</TableCell>
+                      <TableCell>Difference</TableCell>
+                      <TableCell>Mismatch</TableCell>
+                      <TableCell>Status</TableCell>
+                    </>
+                  )}
                   <TableCell>Action</TableCell>
 
                 </TableRow>
@@ -1624,9 +1662,13 @@ function RcdPage({ user, workflow = 'rcd' }) {
                   <TableCell colSpan={3}>PHP Total Collections</TableCell>
                   <TableCell align="center">{totals.receiptCount}</TableCell>
                   <TableCell align="right">{formatPeso(totals.collectorTotal)}</TableCell>
-                  <TableCell align="right">{formatPeso(totals.fdbTotal)}</TableCell>
-                  <TableCell align="right" sx={{ color: totals.difference === 0 ? 'var(--color-success-dark)' : 'var(--color-danger-dark)' }}>{formatPeso(totals.difference)}</TableCell>
-                  <TableCell colSpan={3} />
+                  {fdbValidationEnabled ? (
+                    <>
+                      <TableCell align="right">{formatPeso(totals.fdbTotal)}</TableCell>
+                      <TableCell align="right" sx={{ color: totals.difference === 0 ? 'var(--color-success-dark)' : 'var(--color-danger-dark)', fontWeight: 900 }}>{formatPeso(totals.difference)}</TableCell>
+                      <TableCell colSpan={3} />
+                    </>
+                  ) : <TableCell />}
                 </TableRow>
               </TableBody>
             </Table>

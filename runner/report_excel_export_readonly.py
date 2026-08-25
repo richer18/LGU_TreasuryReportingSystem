@@ -10,6 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from firebird_probe import connect
+from manual_rpt_payments_access import default_db_path as manual_rpt_db_path, list_rows as list_manual_rpt_rows
 from report_preview_readonly import (
     PAID_PAYMENT_SQL,
     SUMMARY_COLUMNS,
@@ -1665,6 +1666,80 @@ def add_rpt_record_amount(record, tax_type, case_type, taxyear, amount, current_
             record[f"{tax_prefix}_prior"] += amount
 
 
+def manual_rpt_record_rows(date_from, date_to, current_taxyear):
+    try:
+        manual_rows = list_manual_rpt_rows(
+            manual_rpt_db_path(),
+            date_from=date_from,
+            date_to=date_to,
+            limit=10000,
+        )
+    except Exception:
+        return []
+
+    rows = []
+    for row in manual_rows:
+        tax_year = row.get("taxyear")
+        try:
+            tax_year_int = int(tax_year) if tax_year not in (None, "") else None
+        except (TypeError, ValueError):
+            tax_year_int = None
+        basic_tax = Decimal(str(row.get("basic_tax") or 0))
+        basic_penalty = Decimal(str(row.get("basic_penalty") or 0))
+        sef_tax = Decimal(str(row.get("sef_tax") or 0))
+        sef_penalty = Decimal(str(row.get("sef_penalty") or 0))
+        basic_current = basic_tax if tax_year_int == current_taxyear else Decimal("0")
+        basic_prior = Decimal("0") if tax_year_int == current_taxyear else basic_tax
+        basic_pen_current = basic_penalty if tax_year_int == current_taxyear else Decimal("0")
+        basic_pen_prior = Decimal("0") if tax_year_int == current_taxyear else basic_penalty
+        sef_current = sef_tax if tax_year_int == current_taxyear else Decimal("0")
+        sef_prior = Decimal("0") if tax_year_int == current_taxyear else sef_tax
+        sef_pen_current = sef_penalty if tax_year_int == current_taxyear else Decimal("0")
+        sef_pen_prior = Decimal("0") if tax_year_int == current_taxyear else sef_penalty
+        basic_gross = basic_current + basic_prior + basic_pen_current + basic_pen_prior
+        sef_gross = sef_current + sef_prior + sef_pen_current + sef_pen_prior
+        grand_gross = basic_gross + sef_gross
+        rows.append([
+            row.get("payment_date"),
+            row.get("paid_by"),
+            row.get("declared_owner") or row.get("paid_by"),
+            str(tax_year or ""),
+            "",
+            row.get("receipt_no"),
+            row.get("td_no"),
+            "",
+            basic_current,
+            Decimal("0"),
+            basic_prior,
+            basic_pen_current,
+            Decimal("0"),
+            basic_pen_prior,
+            basic_gross,
+            basic_gross,
+            sef_current,
+            Decimal("0"),
+            sef_prior,
+            sef_pen_current,
+            Decimal("0"),
+            sef_pen_prior,
+            sef_gross,
+            sef_gross,
+            grand_gross,
+            Decimal(str(row.get("total_amount") or grand_gross)),
+            basic_gross * Decimal("0.25"),
+            "Manual RPT",
+            "Manual RPT Payment",
+            row.get("collector"),
+            "MANUAL",
+            0,
+            Decimal(str(row.get("total_amount") or grand_gross)),
+            row.get("rcd_number"),
+            0,
+            1,
+        ])
+    return rows
+
+
 def build_rpt_record_rows_from_fdb(date_from, date_to, user, password):
     current_taxyear = datetime.strptime(date_from, "%Y-%m-%d").year
     sql = """
@@ -1839,6 +1914,7 @@ def build_rpt_record_rows_from_fdb(date_from, date_to, user, password):
             record["is_void"],
             record["include_in_report"],
         ])
+    rows.extend(manual_rpt_record_rows(date_from, date_to, current_taxyear))
     return rows
 
 

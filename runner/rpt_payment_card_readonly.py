@@ -194,6 +194,98 @@ def payments(cursor, taxtrans_id, args):
     return rows
 
 
+def delinquencies(cursor, taxtrans_id):
+    as_of_date = date.today()
+    cursor.execute(
+        """
+        WITH RECURSIVE
+        roots(current_taxtrans_id, local_tin) AS (
+            SELECT DISTINCT a.TAXTRANS_ID, ta.LOCAL_TIN
+            FROM RPTASSESSMENT a
+            JOIN TPACCOUNT ta ON ta.TAXTRANS_ID = a.TAXTRANS_ID
+            WHERE a.TAXTRANS_ID = ?
+              AND ta.EARMARK_CT IN ('OPN', 'PBL')
+              AND (ta.CANCELLED_BV = 0 OR ta.CANCELLED_BV IS NULL)
+        ),
+        chain(current_taxtrans_id, local_tin, taxtrans_id, depth) AS (
+            SELECT current_taxtrans_id, local_tin, current_taxtrans_id, 0
+            FROM roots
+
+            UNION ALL
+
+            SELECT c.current_taxtrans_id, c.local_tin, previous.TAXTRANS_ID, c.depth + 1
+            FROM chain c
+            JOIN RPTASSESSMENT current_assessment
+              ON current_assessment.TAXTRANS_ID = c.taxtrans_id
+            JOIN RPTASSESSMENT previous
+              ON previous.TAXTRANS_ID = current_assessment.PREVTAXTRANS_ID
+            WHERE c.depth < 25
+              AND previous.TAXTRANS_ID <> c.taxtrans_id
+              AND EXISTS (
+                  SELECT 1
+                  FROM TPACCOUNT previous_ledger
+                  WHERE previous_ledger.TAXTRANS_ID = previous.TAXTRANS_ID
+                    AND previous_ledger.LOCAL_TIN = c.local_tin
+                    AND previous_ledger.EARMARK_CT IN ('OPN', 'PBL')
+                    AND previous_ledger.CANCELLED_BV <> 1
+                    AND previous_ledger.CANCELLED_BV IS NOT NULL
+                    AND previous_ledger.ITAXTYPE_CT IN ('BSC', 'SEF')
+                    AND previous_ledger.TAXYEAR <= ?
+                    AND previous_ledger.EVENTOBJECT_CT NOT IN ('PAY', 'CPA')
+                    AND previous_ledger.CASETYPE_CT <> 'CPA'
+              )
+        ),
+        ledger_by_year AS (
+            SELECT
+                TRIM(a.TDNO) AS TAX_DECLARATION_NUMBER,
+                ta.TAXYEAR AS TAX_YEAR,
+                ta.ITAXTYPE_CT,
+                SUM(CASE WHEN ta.CASETYPE_CT = 'REG' THEN COALESCE(ta.DEBITAMOUNT, 0) ELSE 0 END) AS REGULAR_BALANCE,
+                SUM(CASE WHEN ta.CASETYPE_CT IN ('PEN', 'DED') THEN COALESCE(ta.DEBITAMOUNT, 0) ELSE 0 END) AS PENALTY_BALANCE
+            FROM chain c
+            JOIN RPTASSESSMENT a ON a.TAXTRANS_ID = c.taxtrans_id
+            JOIN TPACCOUNT ta
+              ON ta.TAXTRANS_ID = c.taxtrans_id
+             AND ta.LOCAL_TIN = c.local_tin
+            WHERE ta.EARMARK_CT IN ('OPN', 'PBL')
+              AND ta.TAXYEAR <= ?
+              AND ta.VALUEDATE <= ?
+              AND ta.EVENTOBJECT_CT NOT IN ('PAY', 'CPA')
+              AND ta.CASETYPE_CT <> 'CPA'
+              AND ta.CANCELLED_BV <> 1
+              AND ta.CANCELLED_BV IS NOT NULL
+              AND ta.ITAXTYPE_CT IN ('BSC', 'SEF')
+              AND ta.CASETYPE_CT IN ('REG', 'PEN', 'DED')
+            GROUP BY a.TDNO, ta.TAXYEAR, ta.ITAXTYPE_CT
+        ),
+        balances AS (
+            SELECT
+                TAX_DECLARATION_NUMBER,
+                TAX_YEAR,
+                SUM(CASE WHEN ITAXTYPE_CT = 'BSC' AND REGULAR_BALANCE > 0 THEN REGULAR_BALANCE ELSE 0 END) AS BASIC_TAX_DUE,
+                SUM(CASE WHEN ITAXTYPE_CT = 'BSC' THEN PENALTY_BALANCE ELSE 0 END) AS BASIC_PENALTY,
+                SUM(CASE WHEN ITAXTYPE_CT = 'SEF' AND REGULAR_BALANCE > 0 THEN REGULAR_BALANCE ELSE 0 END) AS SEF_DUE,
+                SUM(CASE WHEN ITAXTYPE_CT = 'SEF' THEN PENALTY_BALANCE ELSE 0 END) AS SEF_PENALTY
+            FROM ledger_by_year
+            GROUP BY TAX_DECLARATION_NUMBER, TAX_YEAR
+        )
+        SELECT
+            TAX_DECLARATION_NUMBER,
+            TAX_YEAR,
+            BASIC_TAX_DUE,
+            BASIC_PENALTY,
+            SEF_DUE,
+            SEF_PENALTY,
+            (BASIC_TAX_DUE + BASIC_PENALTY + SEF_DUE + SEF_PENALTY) AS TOTAL
+        FROM balances
+        WHERE (BASIC_TAX_DUE + BASIC_PENALTY + SEF_DUE + SEF_PENALTY) > 0
+        ORDER BY TAX_YEAR, TAX_DECLARATION_NUMBER
+        """,
+        [taxtrans_id, as_of_date.year, as_of_date.year, as_of_date],
+    )
+    return mapped(cursor, cursor.fetchall())
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--taxtrans-id", default="")
@@ -235,6 +327,8 @@ def main():
                     "property": prop,
                     "ownership": ownership(cursor, prop["prop_id"]),
                     "payments": payments(cursor, selected, args),
+                    "delinquency_as_of": date.today().isoformat(),
+                    "delinquencies": delinquencies(cursor, selected),
                 }
         connection.rollback()
         connection.close()

@@ -51,7 +51,10 @@ def search_td_no(cursor, td_no, limit):
                 '-'
             ) AS DECLARED_OWNER,
             COALESCE(NULLIF(TRIM(prop.LOTNO), ''), TRIM(prop.CADASTRALLOTNO), '-') AS LOT_NO,
+            TRIM(prop.PINNO) AS PIN,
+            TRIM(prop.NEWPINNO) AS NEW_PIN,
             TRIM(prop.BARANGAY_CT) AS BARANGAY_CODE,
+            COALESCE(NULLIF(TRIM(brgy.DESCRIPTION), ''), TRIM(prop.BARANGAY_CT), '-') AS BARANGAY_NAME,
             pcd.TAXYEAR,
             SUM(CASE WHEN pcd.ITAXTYPE_CT = 'BSC' AND pcd.CASETYPE_CT = 'REG' THEN COALESCE(pcd.AMOUNT, 0) ELSE 0 END) AS BASIC_TAX,
             SUM(CASE WHEN pcd.ITAXTYPE_CT = 'BSC' AND pcd.CASETYPE_CT = 'PEN' THEN COALESCE(pcd.AMOUNT, 0) ELSE 0 END) AS BASIC_PENALTY,
@@ -62,6 +65,10 @@ def search_td_no(cursor, td_no, limit):
         JOIN PAYMENT p ON p.PAYMENT_ID = pcd.PAYMENT_ID
         JOIN RPTASSESSMENT ra ON ra.TAXTRANS_ID = pcd.TAXTRANS_ID
         LEFT JOIN PROPERTY prop ON prop.PROP_ID = ra.PROP_ID
+        LEFT JOIN T_BARANGAY brgy
+               ON brgy.CODE = prop.BARANGAY_CT
+              AND brgy.MUNICIPAL_ID = prop.MUNICIPAL_ID
+              AND brgy.PROVINCE_CT = prop.PROVINCE_CT
         WHERE COALESCE(pcd.CANCELLED_BV, 0) = 0
           AND COALESCE(p.VOID_BV, 0) = 0
           AND COALESCE(TRIM(p.STATUS_CT), '') NOT IN ('CAN', 'CNC', 'CNL', 'CANCEL', 'CANCELLED', 'VOID', 'VOI')
@@ -86,7 +93,10 @@ def search_td_no(cursor, td_no, limit):
             TRIM(ra.TDNOFORGR),
             prop.PROP_ID,
             COALESCE(NULLIF(TRIM(prop.LOTNO), ''), TRIM(prop.CADASTRALLOTNO), '-'),
+            TRIM(prop.PINNO),
+            TRIM(prop.NEWPINNO),
             TRIM(prop.BARANGAY_CT),
+            COALESCE(NULLIF(TRIM(brgy.DESCRIPTION), ''), TRIM(prop.BARANGAY_CT), '-'),
             pcd.TAXYEAR
         ORDER BY CAST(p.PAYMENTDATE AS DATE) DESC, TRIM(p.RECEIPTNO) DESC, pcd.TAXYEAR DESC
         """,
@@ -96,6 +106,7 @@ def search_td_no(cursor, td_no, limit):
     result = rows(cursor)
     for item in result:
         item["collection_status"] = "Paid"
+        item["period_covered"] = str(item.get("taxyear") or "")
     return result
 
 

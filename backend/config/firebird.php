@@ -9,15 +9,17 @@ return [
     'password' => env('FIREBIRD_PASSWORD', ''),
     'charset' => env('FIREBIRD_CHARSET', 'UTF8'),
     'client_library' => env('FIREBIRD_CLIENT_LIBRARY', 'C:\Program Files\Firebird\Firebird_2_5\bin\fbclient.dll'),
-    'python' => is_file('C:\Python314\python.exe')
-        ? 'C:\Python314\python.exe'
-        : (is_file('C:\Python313\python.exe') ? 'C:\Python313\python.exe' : env('PYTHON_BINARY', 'python')),
+    'python' => is_file('C:\Python313\python.exe')
+        ? 'C:\Python313\python.exe'
+        : (env('PYTHON_BINARY') ?: (is_file('C:\Python314\python.exe') ? 'C:\Python314\python.exe' : 'python')),
     'probe_script' => base_path('../runner/firebird_probe.py'),
     'general_fund_script' => base_path('../runner/general_fund_readonly.py'),
     'general_fund_receipt_pdf_script' => base_path('../runner/general_fund_receipt_pdf.py'),
     'general_fund_receipt_template' => base_path('../receipt/itax_receipt_continuous.jpg'),
     'search_receipt_script' => base_path('../runner/search_receipt.py'),
     'search_td_no_script' => base_path('../runner/search_td_no.py'),
+    'manual_rpt_access_script' => base_path('../runner/manual_rpt_payments_access.py'),
+    'manual_rpt_access_db' => env('MANUAL_RPT_ACCESS_DB', base_path('../RPT_MANUAL_PAYMENTS/manual_rpt_payments.accdb')),
     'rcd_access_script' => base_path('../runner/rcd_access_store.py'),
     'rcd_generate_or_script' => base_path('../runner/rcd_generate_or_readonly.py'),
     'income_target_script' => base_path('../runner/income_target_readonly.py'),

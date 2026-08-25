@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from firebird_probe import connect, resolve_db_path
+from manual_rpt_payments_access import default_db_path as manual_rpt_db_path, list_rows as list_manual_rpt_rows
 
 
 TRUST_ABSTRACT_NAMES = {
@@ -290,6 +291,51 @@ def fetch_general_details(cursor, args, include_void=False):
     return details
 
 
+def manual_rpt_details(args):
+    details = []
+    try:
+        manual_rows = list_manual_rpt_rows(
+            manual_rpt_db_path(),
+            date_from=args.date_from,
+            date_to=args.date_to,
+            limit=10000,
+        )
+    except Exception:
+        return details
+
+    for row in manual_rows:
+        amount = float(row.get("total_amount") or 0)
+        payment_id = row.get("payment_id") or f"manual-{row.get('manual_id')}"
+        details.append({
+            "payment_id": payment_id,
+            "collection_date": row.get("payment_date"),
+            "receipt_no": row.get("receipt_no") or payment_id,
+            "taxpayer": row.get("paid_by") or row.get("declared_owner") or "MANUAL RPT PAYMENT",
+            "collector": normalize_collector(row.get("collector")) or "manual",
+            "receipt_type": "Manual RPT",
+            "rcd_number": row.get("rcd_number"),
+            "paygroup": "RPT",
+            "void_bv": 0,
+            "payment_status_code": "MANUAL",
+            "payment_status_description": "Manual",
+            "paymentdetail_id": payment_id,
+            "source_code": "RPT-MANUAL",
+            "detail_status_code": "",
+            "description": row.get("remarks") or "Manual Real Property Tax",
+            "child_description": row.get("td_no") or "Manual Real Property Tax",
+            "source_id": None,
+            "source_ct": "RPT",
+            "amount": amount,
+            "source_name": "Real Property Tax",
+            "parent_description": "Real Property Tax",
+            "category": "Real Property Tax",
+            "collection_status": "Manual",
+            "manual_id": row.get("manual_id"),
+            "td_no": row.get("td_no"),
+        })
+    return details
+
+
 def fetch_rpt_details(cursor, args):
     cursor.execute(
         f"""
@@ -335,6 +381,8 @@ def fetch_rpt_details(cursor, args):
         row["category"] = "Real Property Tax"
         row["collection_status"] = collection_status(row)
         details.append(row)
+    details.extend(manual_rpt_details(args))
+    details.sort(key=lambda row: (str(row.get("collection_date") or ""), str(row.get("receipt_no") or ""), str(row.get("payment_id") or "")))
     return details
 
 

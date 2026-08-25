@@ -103,6 +103,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/search-receipts', [SearchReceiptController::class, 'index']);
     Route::get('/search-td-no', [SearchTdNoController::class, 'index'])
         ->middleware('permission:search_receipts.view');
+    Route::post('/search-td-no/manual-payments', [SearchTdNoController::class, 'storeManualPayment'])
+        ->middleware('permission:search_receipts.edit');
+    Route::delete('/search-td-no/manual-payments/{payment}', [SearchTdNoController::class, 'destroyManualPayment'])
+        ->middleware('permission:search_receipts.edit');
     Route::get('/search-receipts/{paymentId}', [SearchReceiptController::class, 'show']);
     Route::patch('/search-receipts/{paymentId}', [SearchReceiptController::class, 'update'])
         ->middleware('permission:search_receipts.edit');

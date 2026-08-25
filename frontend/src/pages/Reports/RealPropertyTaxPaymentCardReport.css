@@ -235,6 +235,78 @@
 .rpt-card-payment-table th:nth-child(11) { width: 8%; }
 .rpt-card-payment-table th:nth-child(12) { width: 8%; }
 
+.rpt-card-delinquency-section {
+  margin-top: 22px;
+}
+
+.rpt-card-delinquency-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #111;
+  border-bottom: 0;
+  padding: 6px 8px;
+}
+
+.rpt-card-delinquency-heading h3,
+.rpt-card-delinquency-heading p {
+  margin: 0;
+}
+
+.rpt-card-delinquency-heading h3 {
+  font-size: 13px;
+}
+
+.rpt-card-delinquency-heading p {
+  margin-top: 2px;
+  font-size: 8px;
+}
+
+.rpt-card-delinquency-heading strong {
+  white-space: nowrap;
+  font-size: 10px;
+}
+
+.rpt-card-delinquency-table {
+  border: 1px solid #111;
+}
+
+.rpt-card-delinquency-table thead {
+  display: table-header-group;
+}
+
+.rpt-card-delinquency-table th {
+  text-align: center;
+  font-size: 8px;
+}
+
+.rpt-card-delinquency-table td {
+  height: 22px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.rpt-card-delinquency-table td.amount {
+  text-align: right;
+}
+
+.rpt-card-delinquency-table .rpt-card-delinquency-total {
+  font-weight: 700;
+}
+
+.rpt-card-delinquency-table .rpt-card-no-delinquency {
+  padding: 10px;
+  color: #315c43;
+  font-weight: 700;
+  text-align: center;
+}
+
+.rpt-card-delinquency-table th:nth-child(1) { width: 17%; }
+.rpt-card-delinquency-table th:nth-child(2) { width: 10%; }
+.rpt-card-delinquency-table th:nth-child(3) { width: 8%; }
+.rpt-card-delinquency-table th:nth-child(8) { width: 13%; }
+
 @media (max-width: 1100px) {
   .rpt-card-filters {
     grid-template-columns: repeat(2, minmax(160px, 1fr));
@@ -298,12 +370,18 @@
     background: #fff;
   }
 
-  .rpt-card-payment-table tr {
+  .rpt-card-payment-table tr,
+  .rpt-card-delinquency-table tr {
     break-inside: avoid;
   }
 
-  .rpt-card-payment-table thead {
+  .rpt-card-payment-table thead,
+  .rpt-card-delinquency-table thead {
     display: table-header-group;
+  }
+
+  .rpt-card-delinquency-section {
+    break-before: auto;
   }
 
   .rpt-card-print-area {

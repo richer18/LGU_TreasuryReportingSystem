@@ -8295,3 +8295,232 @@ summary:focus-visible,
     grid-template-columns: 1fr;
   }
 }
+
+.manual-rpt-payment-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.manual-rpt-payment-form textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.manual-rpt-remarks {
+  grid-column: 1 / -1;
+}
+
+.manual-rpt-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.text-danger-button {
+  border: 0;
+  background: transparent;
+  color: #b42318;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 800;
+}
+
+.status-badge.warning {
+  background: #fff2cc;
+  color: #7a4d00;
+}
+
+.search-td-header-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.manual-rpt-dialog {
+  max-width: min(1040px, calc(100vw - 32px));
+  width: 100%;
+}
+
+.manual-rpt-dialog-body {
+  display: grid;
+  gap: 0;
+  grid-template-columns: 290px minmax(0, 1fr);
+}
+
+.manual-rpt-reference-panel {
+  background: #f8fbff;
+  border-right: 1px solid #dbe3ee;
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+}
+
+.manual-rpt-reference-panel h3 {
+  color: var(--color-text-strong);
+  font-size: 1.25rem;
+  font-weight: 950;
+  margin: 0;
+}
+
+.manual-rpt-reference-panel dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.manual-rpt-reference-panel div {
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 8px;
+}
+
+.manual-rpt-reference-panel dt {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.manual-rpt-reference-panel dd {
+  color: var(--color-text-strong);
+  font-weight: 800;
+  margin: 3px 0 0;
+}
+
+.manual-rpt-total-card {
+  background: #ecfdf3;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.manual-rpt-total-card span {
+  align-items: center;
+  color: #166534;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 900;
+  gap: 6px;
+  text-transform: uppercase;
+}
+
+.manual-rpt-total-card strong {
+  color: #052e16;
+  font-size: 1.6rem;
+  font-weight: 950;
+}
+
+.manual-rpt-payment-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 22px;
+}
+
+.manual-rpt-dialog-message {
+  grid-column: 1 / -1;
+}
+
+.manual-rpt-dialog-actions {
+  align-items: center;
+  border-top: 1px solid #dbe3ee;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  padding: 16px 22px;
+}
+
+@media (max-width: 940px) {
+  .manual-rpt-dialog-body {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-rpt-reference-panel {
+    border-bottom: 1px solid #dbe3ee;
+    border-right: 0;
+  }
+
+  .manual-rpt-payment-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .manual-rpt-payment-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-rpt-dialog-actions,
+  .search-td-header-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+.manual-td-search-form {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.manual-td-search-form .treasury-field {
+  min-width: 0;
+}
+
+.manual-reference-table-wrap {
+  background: #ffffff;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  grid-column: 1 / -1;
+  overflow: hidden;
+}
+
+.manual-reference-table-heading {
+  align-items: center;
+  border-bottom: 1px solid #dbe3ee;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.manual-reference-table-heading strong {
+  color: var(--color-text-strong);
+  font-weight: 950;
+}
+
+.manual-reference-table-heading span {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.manual-reference-table {
+  border: 0;
+  border-radius: 0;
+  min-width: 980px;
+}
+
+.manual-reference-table th,
+.manual-reference-table td {
+  font-size: 12px;
+  padding: 9px 10px;
+  vertical-align: top;
+}
+
+@media (max-width: 640px) {
+  .manual-td-search-form {
+    grid-template-columns: 1fr;
+  }
+}
+

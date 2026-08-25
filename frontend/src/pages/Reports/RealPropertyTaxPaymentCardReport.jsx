@@ -138,6 +138,8 @@ export function RealPropertyTaxPaymentCardReport({ canPrint = false }) {
   while (owners.length < 3) owners.push(null)
   const property = card?.property || {}
   const payments = card?.payments || []
+  const delinquencies = card?.delinquencies || []
+  const delinquencyTotal = delinquencies.reduce((sum, row) => sum + Number(row.total || 0), 0)
 
   return (
     <section className="rpt-payment-card-module" aria-label="Real Property Tax Payment Card">
@@ -292,6 +294,48 @@ export function RealPropertyTaxPaymentCardReport({ canPrint = false }) {
                 ))}
               </tbody>
             </table>
+
+            <section className="rpt-card-delinquency-section">
+              <div className="rpt-card-delinquency-heading">
+                <div>
+                  <h3>UNPAID / DELINQUENT TAXES</h3>
+                  <p>Outstanding open BSC and SEF ledger balances as of {displayDate(card.delinquency_as_of)}.</p>
+                </div>
+                <strong>TOTAL: PHP {money(delinquencyTotal)}</strong>
+              </div>
+              <table className="rpt-card-delinquency-table">
+                <thead>
+                  <tr>
+                    <th>TAX DECLARATION NUMBER</th>
+                    <th>LOT NUMBER</th>
+                    <th>UNPAID YEAR</th>
+                    <th>BASIC DUE</th>
+                    <th>BASIC PENALTY / ADJUSTMENT</th>
+                    <th>SEF DUE</th>
+                    <th>SEF PENALTY / ADJUSTMENT</th>
+                    <th>TOTAL DELINQUENCY</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {delinquencies.length === 0 ? (
+                    <tr>
+                      <td className="rpt-card-no-delinquency" colSpan={8}>No outstanding delinquent tax balance was found for this property.</td>
+                    </tr>
+                  ) : delinquencies.map((row, index) => (
+                    <tr key={`${row.tax_declaration_number}-${row.tax_year}-${index}`}>
+                      <td>{row.tax_declaration_number || property.tax_declaration_number || ''}</td>
+                      <td>{property.lot_number || ''}</td>
+                      <td>{row.tax_year || ''}</td>
+                      <td className="amount">{money(row.basic_tax_due)}</td>
+                      <td className="amount">{money(row.basic_penalty)}</td>
+                      <td className="amount">{money(row.sef_due)}</td>
+                      <td className="amount">{money(row.sef_penalty)}</td>
+                      <td className="amount rpt-card-delinquency-total">{money(row.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
           </article>
         </div>
       )}

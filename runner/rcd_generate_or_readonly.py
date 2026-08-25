@@ -146,6 +146,14 @@ def validation_message(status, expected_count, fdb_count, collector_amount, fdb_
         statuses = sorted(set(row.get("collection_status") or "Paid" for row in matches))
         details.append("Mixed receipt statuses: " + ", ".join(statuses))
 
+    cancelled_or_void = [
+        receipt_label(row)
+        for row in coverage_matches
+        if (row.get("collection_status") or "Paid") in {"Cancelled", "Void"}
+    ]
+    if cancelled_or_void:
+        details.append(f"Cancelled/void OR accounted for: {compact_receipt_list(cancelled_or_void)}")
+
     return " | ".join(details) if details else "Matched"
 
 
@@ -325,7 +333,13 @@ def validate_lines(input_lines, payments):
 
         coverage_matches = [
             row for row in payments
-            if normalize_form(row.get("form_type")) == form and receipt_in_range(row, receipt_from, receipt_to)
+            if receipt_in_range(row, receipt_from, receipt_to)
+            and (
+                normalize_form(row.get("form_type")) == form
+                # Cancelled/void OR headers can retain an incorrect AFTYPE in Firebird.
+                # Their serial still accounts for range coverage, but contributes no amount.
+                or is_cancelled(row)
+            )
         ]
         matches = [row for row in coverage_matches if (row.get("collection_status") or "Paid") == "Paid"]
         fdb_amount = round(sum(float(row.get("amount_for_rcd") or 0) for row in matches), 2)

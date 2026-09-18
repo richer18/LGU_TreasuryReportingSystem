@@ -147,7 +147,6 @@ class MtoPermitPrintController extends Controller
         $replacements = [
             'CASE NO: __________' => 'CASE NO: ' . $values['case_no'],
             'APPLICANT: _____________________' => 'APPLICANT: ' . $values['operator_name'],
-            'MAKEMOTOR NO.CHASSIS NO.' => 'MAKE: ' . $values['make'] . '     MOTOR NO.: ' . $values['motor_no'] . '     CHASSIS NO.: ' . $values['chassis_no'],
             'Zamboanguita, Negros Oriental, Philippines __________________' => 'Zamboanguita, Negros Oriental, Philippines ' . $values['dropping_date'],
             'Applicant: ______________________' => 'Applicant: ' . $values['operator_name'],
         ];
@@ -163,6 +162,15 @@ class MtoPermitPrintController extends Controller
                 $fullText .= $node->nodeValue;
             }
             $normalized = preg_replace('/\s+/', ' ', trim($fullText));
+
+            if ($normalized === 'MAKEMOTOR NO.CHASSIS NO.') {
+                $valueParagraph = $xpath->query('following-sibling::w:p[.//w:t or .//w:tab][1]', $paragraph)->item(0);
+                if ($valueParagraph instanceof \DOMElement) {
+                    $this->writeDroppingUnitValues($document, $xpath, $valueParagraph, $values);
+                }
+
+                continue;
+            }
 
             if (! isset($replacements[$normalized])) {
                 continue;
@@ -181,6 +189,61 @@ class MtoPermitPrintController extends Controller
 
         if (! is_file($outputPath)) {
             abort(500, 'Generated Order of Dropping document was not created.');
+        }
+    }
+
+    private function writeDroppingUnitValues(
+        \DOMDocument $document,
+        \DOMXPath $xpath,
+        \DOMElement $paragraph,
+        array $values
+    ): void {
+        $wordNamespace = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+        $paragraphProperties = $xpath->query('./w:pPr', $paragraph)->item(0);
+
+        if (! $paragraphProperties instanceof \DOMElement) {
+            $paragraphProperties = $document->createElementNS($wordNamespace, 'w:pPr');
+            $paragraph->insertBefore($paragraphProperties, $paragraph->firstChild);
+        }
+
+        foreach (iterator_to_array($paragraph->childNodes) as $child) {
+            if ($child !== $paragraphProperties) {
+                $paragraph->removeChild($child);
+            }
+        }
+
+        foreach (iterator_to_array($xpath->query('./w:tabs', $paragraphProperties)) as $existingTabs) {
+            $paragraphProperties->removeChild($existingTabs);
+        }
+
+        $tabs = $document->createElementNS($wordNamespace, 'w:tabs');
+        foreach ([1120, 4320, 7980] as $position) {
+            $tabStop = $document->createElementNS($wordNamespace, 'w:tab');
+            $tabStop->setAttributeNS($wordNamespace, 'w:val', 'center');
+            $tabStop->setAttributeNS($wordNamespace, 'w:pos', (string) $position);
+            $tabs->appendChild($tabStop);
+        }
+        $paragraphProperties->insertBefore($tabs, $paragraphProperties->firstChild);
+
+        foreach ([$values['make'], $values['motor_no'], $values['chassis_no']] as $value) {
+            $run = $document->createElementNS($wordNamespace, 'w:r');
+            $runProperties = $document->createElementNS($wordNamespace, 'w:rPr');
+            $fonts = $document->createElementNS($wordNamespace, 'w:rFonts');
+            $fonts->setAttributeNS($wordNamespace, 'w:ascii', 'Arial');
+            $fonts->setAttributeNS($wordNamespace, 'w:hAnsi', 'Arial');
+            $fonts->setAttributeNS($wordNamespace, 'w:cs', 'Arial');
+            $runProperties->appendChild($fonts);
+            $runProperties->appendChild($document->createElementNS($wordNamespace, 'w:b'));
+            $size = $document->createElementNS($wordNamespace, 'w:sz');
+            $size->setAttributeNS($wordNamespace, 'w:val', '20');
+            $runProperties->appendChild($size);
+            $complexSize = $document->createElementNS($wordNamespace, 'w:szCs');
+            $complexSize->setAttributeNS($wordNamespace, 'w:val', '20');
+            $runProperties->appendChild($complexSize);
+            $run->appendChild($runProperties);
+            $run->appendChild($document->createElementNS($wordNamespace, 'w:tab'));
+            $run->appendChild($document->createElementNS($wordNamespace, 'w:t', (string) $value));
+            $paragraph->appendChild($run);
         }
     }
 

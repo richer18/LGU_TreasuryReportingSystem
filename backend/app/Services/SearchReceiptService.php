@@ -15,9 +15,9 @@ class SearchReceiptService
         return $this->run(['detail', '--payment-id', $paymentId]);
     }
 
-    public function update(string $paymentId, string $collector, string $receiptNo): array
+    public function update(string $paymentId, string $collector, string $receiptNo, ?string $collectionStatus = null): array
     {
-        return $this->run([
+        $arguments = [
             'update',
             '--payment-id',
             $paymentId,
@@ -25,7 +25,14 @@ class SearchReceiptService
             $collector,
             '--new-receipt-no',
             $receiptNo,
-        ]);
+        ];
+
+        if ($collectionStatus !== null && trim($collectionStatus) !== '') {
+            $arguments[] = '--collection-status';
+            $arguments[] = $collectionStatus;
+        }
+
+        return $this->run($arguments);
     }
 
     private function run(array $arguments): array

@@ -4,6 +4,19 @@ This folder is reserved for Python scripts that support the Laravel/React report
 
 Project rule: all Python scripts for this system must be saved in this `runner/` folder.
 
+Report generation must use scripts in this project's `runner/` folder. The exporter must not call or depend on `ESRE_REPORT/run_collection_query.py`.
+
+
+## Local Report Exporters
+
+```text
+Report 26: report_26_advance_rpt_readonly.py
+Report 27: report_27_summary_sharing_readonly.py
+Report 31: report_31_full_collections_readonly.py
+Report 32: report_32_cmci_annex_readonly.py
+Report 33: report_33_tax_business_readonly.py
+```
+
 Do not place Python scripts in `backend/`, `frontend/`, `docs/`, `server_runner/`, or the repository root unless there is a future approved reason.
 
 ## Intended Jobs

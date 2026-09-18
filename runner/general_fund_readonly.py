@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from firebird_probe import connect, resolve_db_path
 from manual_rpt_payments_access import default_db_path as manual_rpt_db_path, list_rows as list_manual_rpt_rows
+from payment_deduplication import include_inactive_payment_filter, reportable_payment_filter
 
 
 TRUST_ABSTRACT_NAMES = {
@@ -41,11 +42,7 @@ COLLECTOR_ALIASES = {
 
 
 def paid_payment_filter(alias="p"):
-    return (
-        f"AND COALESCE({alias}.VOID_BV, 0) = 0 "
-        f"AND COALESCE(TRIM({alias}.STATUS_CT), '') NOT IN "
-        "('CNL', 'CAN', 'CNC', 'CANCEL', 'CANCELLED', 'VOID', 'VOI')"
-    )
+    return reportable_payment_filter(alias)
 
 
 def normalize_collector(value):
@@ -227,7 +224,7 @@ def collection_status(row):
 
 
 def fetch_general_details(cursor, args, include_void=False):
-    status_filter = "" if include_void else paid_payment_filter("p")
+    status_filter = include_inactive_payment_filter("p") if include_void else paid_payment_filter("p")
     fund_scope = getattr(args, "fund_scope", "general")
 
     cursor.execute(
@@ -395,7 +392,7 @@ def fetch_details(cursor, args, include_void=False):
     return fetch_general_details(cursor, args, include_void=include_void)
 
 
-def payment_groups(details):
+def payment_groups(details, group_by_payment=False):
     grouped = {}
     for row in details:
         group_key = (
@@ -404,6 +401,8 @@ def payment_groups(details):
             row["taxpayer"],
             row["collector"],
         )
+        if group_by_payment:
+            group_key += (row["payment_id"],)
         payment = grouped.setdefault(
             group_key,
             {
@@ -665,7 +664,7 @@ def collections(cursor, args):
 
 
 def receipt_report(cursor, args):
-    payments = payment_groups(fetch_details(cursor, args, include_void=True))
+    payments = payment_groups(fetch_details(cursor, args, include_void=True), group_by_payment=True)
     if args.collector:
         collector = normalize_collector(args.collector)
         payments = [row for row in payments if (row["collector"] or "").upper() == collector.upper()]
@@ -673,7 +672,12 @@ def receipt_report(cursor, args):
         payments = [row for row in payments if str(row.get("receipt_no") or "") >= args.receipt_from]
     if args.receipt_to:
         payments = [row for row in payments if str(row.get("receipt_no") or "") <= args.receipt_to]
-    payments.sort(key=lambda row: (row["collection_date"], str(row.get("receipt_no") or "")))
+    payments.sort(key=lambda row: (
+        row["collection_date"],
+        str(row.get("receipt_no") or ""),
+        0 if str(row.get("collection_status") or "").lower() in {"cancelled", "void"} else 1,
+        str(row.get("payment_id") or ""),
+    ))
     return payments[: args.limit]
 
 

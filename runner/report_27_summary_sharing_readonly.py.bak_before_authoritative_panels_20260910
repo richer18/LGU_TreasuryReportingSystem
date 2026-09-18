@@ -1,0 +1,56 @@
+from datetime import datetime
+
+from local_report_export_common import (
+    TEMPLATE_DIR,
+    excel_value,
+    output_path,
+    run_cli,
+    save_workbook,
+)
+from report_preview_readonly import build_report
+
+
+REPORT_NUMBER = 27
+
+
+def export_report(date_from, date_to, output_dir):
+    from openpyxl import load_workbook
+
+    payload = build_report(REPORT_NUMBER, date_from, date_to)
+    workbook = load_workbook(TEMPLATE_DIR / "SUMMARY_REPORT_SHARING_TEMPLATE.xlsx")
+    sheet = workbook.active
+    start = datetime.strptime(date_from, "%Y-%m-%d")
+    end = datetime.strptime(date_to, "%Y-%m-%d")
+    sheet["F3"] = start.strftime("%B") if start.month == end.month else f"{start.strftime('%B')} to {end.strftime('%B')}"
+    sheet["F4"] = str(start.day) if date_from == date_to else f"{start.day}-{end.day}"
+    sheet["F5"] = str(end.year)
+
+    for item in payload.get("template_cells", []):
+        cell = sheet.cell(int(item["row"]), int(item["column"]))
+        cell.value = excel_value(item.get("value"))
+        cell.number_format = "#,##0.00"
+
+    formula_updates = {
+        "J36": "=J15-K15", "K36": "=(J15-K15)*0.5", "L36": "=(J15-K15)*0.5",
+        "J37": "=L15", "K37": "=L15*0.5", "L37": "=L15*0.5",
+        "J38": "=SUM(M15:N15)", "K38": "=SUM(M15:N15)*0.5", "L38": "=SUM(M15:N15)*0.5",
+        "J46": "=J27-K27", "K46": "=(J27-K27)*0.5", "L46": "=(J27-K27)*0.5",
+        "J47": "=L27", "K47": "=L27*0.5", "L47": "=L27*0.5",
+        "J48": "=SUM(M27:N27)", "K48": "=SUM(M27:N27)*0.5", "L48": "=SUM(M27:N27)*0.5",
+        "C51": "=SUM(D49:F49)",
+    }
+    for address, formula in formula_updates.items():
+        sheet[address] = formula
+    sheet["C45"] = "BUILDING"
+    sheet["J45"] = "BUILDING"
+    sheet["B26"] = "BLDG-INDUS/SPECIAL"
+    sheet["I26"] = "BLDG-INDUS/SPECIAL"
+    sheet["I51"] = "BUILDING SHARING TOTAL"
+    workbook.calculation.fullCalcOnLoad = True
+    workbook.calculation.forceFullCalc = True
+    path = save_workbook(workbook, output_path(output_dir, REPORT_NUMBER, date_from, date_to))
+    return path, len(payload.get("template_cells", []))
+
+
+if __name__ == "__main__":
+    raise SystemExit(run_cli(REPORT_NUMBER, export_report))

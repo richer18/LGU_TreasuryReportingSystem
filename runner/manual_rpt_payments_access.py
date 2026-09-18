@@ -77,7 +77,6 @@ FIELDS = [
     "collector",
     "payment_status_ct",
     "is_cancelled",
-    "payment_total_amount",
     "booking_reference",
     "is_void",
     "include_in_report",

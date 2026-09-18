@@ -9,6 +9,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from firebird_probe import connection_mode, open_odbc_connection
+from payment_deduplication import reportable_payment_predicate
 
 
 def value(item):
@@ -133,8 +134,7 @@ def ownership(cursor, prop_id):
 def payments(cursor, taxtrans_id, args):
     filters = [
         "p.PAYGROUP_CT = 'RPT'",
-        "COALESCE(p.VOID_BV, 0) = 0",
-        "COALESCE(TRIM(p.STATUS_CT), '') NOT IN ('CNL','CAN','CNC','CANCEL','CANCELLED','VOID','VOI')",
+        reportable_payment_predicate("p"),
         "COALESCE(d.CANCELLED_BV, 0) = 0",
     ]
     params = [taxtrans_id]

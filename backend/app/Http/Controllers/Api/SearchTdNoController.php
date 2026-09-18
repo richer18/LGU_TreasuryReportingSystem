@@ -23,17 +23,30 @@ class SearchTdNoController extends Controller
         $filters = $request->validate([
             'td_no' => ['required', 'string', 'max:80'],
             'limit' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'manual_basis' => ['nullable', 'boolean'],
         ]);
 
         $result = $this->tdSearch->search($filters['td_no'], (int) ($filters['limit'] ?? 100));
 
         if ($result['ok'] ?? false) {
             $manualRows = $this->manualRows($filters['td_no']);
-            $data = array_merge($result['data'] ?? [], $manualRows);
-            usort($data, fn ($a, $b) => strcmp((string) ($b['payment_date'] ?? ''), (string) ($a['payment_date'] ?? '')));
+            $manualBasis = filter_var($filters['manual_basis'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            $data = array_merge($manualBasis ? $manualRows : ($result['data'] ?? []), $manualBasis ? ($result['data'] ?? []) : $manualRows);
+            usort($data, function ($a, $b) use ($manualBasis) {
+                if ($manualBasis) {
+                    $aManual = ($a['source'] ?? '') === 'manual';
+                    $bManual = ($b['source'] ?? '') === 'manual';
+
+                    if ($aManual !== $bManual) {
+                        return $aManual ? -1 : 1;
+                    }
+                }
+
+                return strcmp((string) ($b['payment_date'] ?? ''), (string) ($a['payment_date'] ?? ''));
+            });
 
             $payors = collect($data)
-                ->pluck('paid_by')
+                ->map(fn ($row) => $row['payment_paid_by'] ?? $row['paid_by'] ?? '')
                 ->filter(fn ($value) => trim((string) $value) !== '')
                 ->map(fn ($value) => strtoupper(trim((string) $value)))
                 ->unique()
@@ -45,6 +58,7 @@ class SearchTdNoController extends Controller
             $result['summary'] = array_merge($result['summary'] ?? [], [
                 'manual_count' => count($manualRows),
                 'manual_total_amount' => collect($manualRows)->sum(fn ($row) => (float) ($row['total_amount'] ?? 0)),
+                'manual_basis' => $manualBasis,
                 'total_amount' => collect($data)->sum(fn ($row) => (float) ($row['total_amount'] ?? 0)),
                 'multiple_payors' => count($payors) > 1,
                 'payors' => $payors,

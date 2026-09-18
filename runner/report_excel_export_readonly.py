@@ -2,12 +2,16 @@ import argparse
 import json
 import os
 import re
-import shutil
-import subprocess
 import sys
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
+
+from report_26_advance_rpt_readonly import export_report as export_report_26
+from report_27_summary_sharing_readonly import export_report as export_report_27
+from report_31_full_collections_readonly import export_report as export_report_31
+from report_32_cmci_annex_readonly import export_report as export_report_32
+from report_33_tax_business_readonly import export_report as export_report_33
 
 from firebird_probe import connect
 from manual_rpt_payments_access import default_db_path as manual_rpt_db_path, list_rows as list_manual_rpt_rows
@@ -16,7 +20,14 @@ from report_preview_readonly import (
     SUMMARY_COLUMNS,
     build_report,
     classify_summary_source,
+    decimal_value,
+    fetch_manual_rpt_rows,
     fetch_tax_on_business_summary,
+    manual_rpt_class_code,
+    manual_rpt_property_kind_code,
+    manual_rpt_row_is_reportable,
+    manual_rpt_taxyear,
+    build_provincial_coding_workbook_rows,
     scalar,
 )
 
@@ -283,43 +294,14 @@ RECEIPT_EXCEPTION_DEFINITIONS = {
 }
 
 COLLECTOR_RECEIPT_REPORT = 34
-PARENT_DELEGATED_REPORTS = set(range(1, 21)) | {26, 27, 28, 31, 32, 33}
-NATIVE_TEMPLATE_REPORTS = {25, 29, 30, 39}
-
-
-def parent_runner_candidates():
-    this_file = Path(__file__).resolve()
-    lgu_root = this_file.parents[1] if len(this_file.parents) > 1 else this_file.parent
-    desktop_root = this_file.parents[2] if len(this_file.parents) > 2 else lgu_root.parent
-    user_home = Path(USER_PROFILE)
-    candidates = []
-    candidates.extend([
-        desktop_root / "ESRE_REPORT" / "run_collection_query.py",
-        lgu_root.parent / "ESRE_REPORT" / "run_collection_query.py",
-        user_home / "OneDrive" / "Desktop" / "ESRE_REPORT" / "run_collection_query.py",
-        user_home / "Desktop" / "ESRE_REPORT" / "run_collection_query.py",
-        desktop_root / "run_collection_query.py",
-    ])
-
-    unique = []
-    seen = set()
-    for candidate in candidates:
-        resolved = str(candidate)
-        if resolved not in seen:
-            unique.append(candidate)
-            seen.add(resolved)
-    return unique
-
-
-def resolve_parent_collection_runner():
-    candidates = parent_runner_candidates()
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
-
-
-PARENT_COLLECTION_RUNNER = resolve_parent_collection_runner()
+LOCAL_REPORT_EXPORTERS = {
+    26: export_report_26,
+    27: export_report_27,
+    31: export_report_31,
+    32: export_report_32,
+    33: export_report_33,
+}
+NATIVE_TEMPLATE_REPORTS = {25, 28, 29, 30, 39}
 
 
 def excel_value(value):
@@ -357,6 +339,56 @@ def period_label(date_from, date_to):
         return start_label if date_from == date_to else f"{start_label} to {end_label}"
     except ValueError:
         return f"{date_from} to {date_to}"
+
+
+def provincial_rpt_row_for_detail(property_kind, class_code, actual_use):
+    property_kind = (property_kind or "").strip()
+    class_code = (class_code or "").strip().upper()
+    actual_use = (actual_use or "").strip().upper()
+
+    if property_kind == "M":
+        return 19
+
+    is_land = property_kind == "L"
+    if class_code.startswith("S") or actual_use == "ARC":
+        return 14 if is_land else 21
+    if class_code == "R" or actual_use in ("AR", "ARD"):
+        return 9 if is_land else 16
+    if class_code == "C" or actual_use == "AC":
+        return 10 if is_land else 17
+    if class_code == "I" or actual_use == "AI":
+        return 11 if is_land else 18
+    if class_code == "M" or actual_use == "AM":
+        return 12 if is_land else 19
+    if class_code == "A" or actual_use == "AA":
+        return 13 if is_land else 20
+    if class_code == "T" or actual_use == "ATF":
+        return 15 if is_land else 21
+    return 14 if is_land else 21
+
+
+def build_provincial_rpt_coding_rows_from_fdb(date_from, date_to):
+    # Report 28 Excel consumes the same Summary Report Sharing authority as preview.
+    return build_provincial_coding_workbook_rows(date_from, date_to)
+
+def write_provincial_rpt_coding_workbook(rows, output_path, date_from, date_to):
+    workbook = load_workbook(TEMPLATE_DIR / "PROVINCIAL_RPT_CODING_TEMPLATE.xlsx")
+
+    for sheet_name in ("GF", "SEF"):
+        sheet = workbook[sheet_name]
+        sheet["E5"] = period_label(date_from, date_to)
+        for row_index in range(9, 22):
+            for col_index in (3, 5, 7, 9):
+                sheet.cell(row_index, col_index).value = 0
+
+    for sheet_name, row_index, col_index, value in rows[1:]:
+        workbook[sheet_name].cell(row_index, col_index).value = excel_value(value)
+
+    workbook.calculation.fullCalcOnLoad = True
+    workbook.calculation.forceFullCalc = True
+    output_path = output_path.with_suffix(".xlsx")
+    output_path = save_workbook_with_fallback(workbook, output_path)
+    return len(rows) - 1 if rows else 0, output_path
 
 
 def quarter_label(date_from, date_to):
@@ -578,6 +610,49 @@ def fetch_esre_rpt_collection_buckets(date_from, date_to):
     finally:
         connection.close()
 
+    for row in fetch_manual_rpt_rows(date_from, date_to):
+        if not manual_rpt_row_is_reportable(row):
+            continue
+
+        property_kind = manual_rpt_property_kind_code(row)
+        class_key = manual_rpt_class_code(row)
+        property_kind_name = {
+            "L": "LAND",
+            "B": "BLDG",
+            "M": "MACHINERY",
+        }.get(property_kind, property_kind or "MANUAL")
+        classification_name = (row.get("property_classification") or class_key or "Manual RPT").strip()
+        taxyear = manual_rpt_taxyear(row, report_year)
+
+        manual_amounts = [
+            ("BSC", "current", max(decimal_value(row.get("basic_current_gross")) - decimal_value(row.get("basic_discount")), Decimal("0"))),
+            ("BSC", "prior", decimal_value(row.get("basic_prior_years"))),
+            ("BSC", "penalties", decimal_value(row.get("basic_penalty_current_year")) + decimal_value(row.get("basic_penalty_previous_years")) + decimal_value(row.get("basic_penalty_prior_years"))),
+            ("SEF", "current", max(decimal_value(row.get("sef_current_gross")) - decimal_value(row.get("sef_discount")), Decimal("0"))),
+            ("SEF", "prior", decimal_value(row.get("sef_prior_years"))),
+            ("SEF", "penalties", decimal_value(row.get("sef_penalty_current_year")) + decimal_value(row.get("sef_penalty_previous_years")) + decimal_value(row.get("sef_penalty_prior_years"))),
+        ]
+
+        for tax_type, bucket_name, amount in manual_amounts:
+            if not amount:
+                continue
+            key = (property_kind, class_key, tax_type)
+            if key not in buckets:
+                buckets[key] = {
+                    "property_kind": property_kind,
+                    "property_kind_name": property_kind_name,
+                    "class_code": class_key,
+                    "classification_name": classification_name,
+                    "current": Decimal("0"),
+                    "prior": Decimal("0"),
+                    "penalties": Decimal("0"),
+                    "advance": Decimal("0"),
+                }
+            if bucket_name == "current" and taxyear > report_year:
+                buckets[key]["advance"] += amount
+            else:
+                buckets[key][bucket_name] += amount
+
     return buckets
 
 
@@ -709,7 +784,6 @@ def rpt_basis_rows(cells):
 
 def build_esre_quarterly_rows(report_rows, bpls_tax_rows, rpt_collection_buckets):
     by_source, by_section_source = summary_row_lookup(report_rows)
-    bpls_lookup = bpls_tax_business_lookup(bpls_tax_rows)
     rows = []
     grand_total = Decimal("0")
 
@@ -717,10 +791,18 @@ def build_esre_quarterly_rows(report_rows, bpls_tax_rows, rpt_collection_buckets
         line_rows = []
         section_total = Decimal("0")
         for label, source_names in lines:
-            if section_name == "Tax on Business" and label in ESRE_BPLS_TAX_BUSINESS_LABELS:
-                amount, basis = bpls_tax_business_amount(bpls_lookup, label)
-            else:
-                amount, basis = source_total(by_source, source_names)
+            gf_amount, gf_basis = source_total(
+                by_source,
+                source_names,
+                "municipal_general_fund",
+            )
+            trust_amount, trust_basis = source_total(
+                by_source,
+                source_names,
+                "municipal_trust_fund",
+            )
+            amount = gf_amount + trust_amount
+            basis = f"{gf_basis}; {trust_basis}"
             section_total += amount
             line_rows.append({
                 "category": "",
@@ -783,28 +865,11 @@ def build_esre_quarterly_rows(report_rows, bpls_tax_rows, rpt_collection_buckets
         })
         rows.extend(group_rows)
 
-    report_21_total = Decimal("0")
-    for report_row in report_rows:
-        if report_row.get("source") == "TOTAL" and not report_row.get("section"):
-            report_21_total = decimal_amount(report_row.get("total_collections"))
-            break
-
-    reconciliation_amount = report_21_total - grand_total
-    if abs(reconciliation_amount) > Decimal("0.004"):
-        rows.append({
-            "category": "Reconciliation Difference",
-            "particular": "",
-            "amount": reconciliation_amount,
-            "basis": "Report 21 TOTAL less displayed ESRE category subtotals",
-            "level": 0,
-        })
-        grand_total += reconciliation_amount
-
     rows.append({
-        "category": "Grand Total",
+        "category": "Total for eSRE Encoding",
         "particular": "",
         "amount": grand_total,
-        "basis": "Matches Report 21 TOTAL row",
+        "basis": "Gross RPT plus locally retained Municipal GF and Trust Fund portions",
         "level": 0,
         "is_total": True,
     })
@@ -954,6 +1019,50 @@ def official_breakdown_data(date_from, date_to):
         connection.rollback()
     finally:
         connection.close()
+
+    for row in fetch_manual_rpt_rows(date_from, date_to):
+        if not manual_rpt_row_is_reportable(row):
+            continue
+
+        or_date = row.get("payment_date")
+        try:
+            transaction_date = datetime.strptime(str(or_date), "%Y-%m-%d")
+        except (TypeError, ValueError):
+            transaction_date = or_date
+        or_number = row.get("receipt_no")
+        taxpayer_name = row.get("taxpayer_name") or row.get("paid_by")
+        collector_cashier = row.get("collector") or "MANUAL"
+        basic_share = decimal_value(row.get("basic_net_total")) * Decimal("0.40")
+        sef_share = decimal_value(row.get("sef_net_total")) * Decimal("0.50")
+
+        if basic_share:
+            rpt_gf += basic_share
+            detail_rows.append({
+                "or_date": or_date,
+                "or_number": or_number,
+                "taxpayer_name": taxpayer_name,
+                "category": "RPT GF - Municipal Basic Share 40%",
+                "source": "BSC",
+                "amount": basic_share,
+                "fund_type": "RPT Manual",
+                "collector_cashier": collector_cashier,
+                "transaction_date": transaction_date,
+                "remarks": "Manual RPT payment municipal basic share",
+            })
+        if sef_share:
+            rpt_sf += sef_share
+            detail_rows.append({
+                "or_date": or_date,
+                "or_number": or_number,
+                "taxpayer_name": taxpayer_name,
+                "category": "RPT SF - Municipal SEF Share 50%",
+                "source": "SEF",
+                "amount": sef_share,
+                "fund_type": "RPT Manual",
+                "collector_cashier": collector_cashier,
+                "transaction_date": transaction_date,
+                "remarks": "Manual RPT payment municipal SEF share",
+            })
 
     rpt_municipal = rpt_gf + rpt_sf
     grand_total = sum(category_totals.values(), Decimal("0")) + rpt_municipal
@@ -1131,6 +1240,13 @@ def write_esre_quarterly_workbook(date_from, date_to, output_dir):
     sheet.merge_cells("A3:C3")
     sheet["A3"] = f"Period: {period_label(date_from, date_to)}"
     sheet["A3"].alignment = Alignment(horizontal="center")
+    sheet.merge_cells("A4:C4")
+    sheet["A4"] = (
+        "General Collections: Municipal GF plus locally retained Trust Fund portion. "
+        "RPT: gross Basic and SEF collections for the selected quarter."
+    )
+    sheet["A4"].font = Font(italic=True, size=9)
+    sheet["A4"].alignment = Alignment(horizontal="center", wrap_text=True)
 
     headers = ["Category", "Particular", "Amount"]
     header_row = 5
@@ -1408,7 +1524,9 @@ def write_collector_receipt_workbook(date_from, date_to, output_dir, collector=N
     total_amount = Decimal("0")
     for row_index, row in enumerate(rows, start=header_row + 1):
         amount = Decimal(str(row.get("total_amount") or 0))
-        total_amount += amount
+        status = str(row.get("collection_status") or "").strip().lower()
+        if status not in {"cancelled", "void"}:
+            total_amount += amount
         values = [
             row.get("collection_date"),
             row.get("collector"),
@@ -1679,70 +1797,86 @@ def manual_rpt_record_rows(date_from, date_to, current_taxyear):
 
     rows = []
     for row in manual_rows:
-        tax_year = row.get("taxyear")
-        try:
-            tax_year_int = int(tax_year) if tax_year not in (None, "") else None
-        except (TypeError, ValueError):
-            tax_year_int = None
-        basic_tax = Decimal(str(row.get("basic_tax") or 0))
-        basic_penalty = Decimal(str(row.get("basic_penalty") or 0))
-        sef_tax = Decimal(str(row.get("sef_tax") or 0))
-        sef_penalty = Decimal(str(row.get("sef_penalty") or 0))
-        basic_current = basic_tax if tax_year_int == current_taxyear else Decimal("0")
-        basic_prior = Decimal("0") if tax_year_int == current_taxyear else basic_tax
-        basic_pen_current = basic_penalty if tax_year_int == current_taxyear else Decimal("0")
-        basic_pen_prior = Decimal("0") if tax_year_int == current_taxyear else basic_penalty
-        sef_current = sef_tax if tax_year_int == current_taxyear else Decimal("0")
-        sef_prior = Decimal("0") if tax_year_int == current_taxyear else sef_tax
-        sef_pen_current = sef_penalty if tax_year_int == current_taxyear else Decimal("0")
-        sef_pen_prior = Decimal("0") if tax_year_int == current_taxyear else sef_penalty
-        basic_gross = basic_current + basic_prior + basic_pen_current + basic_pen_prior
-        sef_gross = sef_current + sef_prior + sef_pen_current + sef_pen_prior
-        grand_gross = basic_gross + sef_gross
+        basic_current = Decimal(str(row.get("basic_current_gross") or 0))
+        basic_discount = Decimal(str(row.get("basic_discount") or 0))
+        basic_prior = Decimal(str(row.get("basic_prior_years") or 0))
+        basic_pen_current = Decimal(str(row.get("basic_penalty_current_year") or 0))
+        basic_pen_prev = Decimal(str(row.get("basic_penalty_previous_years") or 0))
+        basic_pen_prior = Decimal(str(row.get("basic_penalty_prior_years") or 0))
+        basic_gross = Decimal(str(row.get("basic_gross_total") or 0))
+        if basic_gross <= 0:
+            basic_gross = basic_current + basic_prior + basic_pen_current + basic_pen_prev + basic_pen_prior
+        basic_net = Decimal(str(row.get("basic_net_total") or 0))
+        if basic_net <= 0:
+            basic_net = basic_gross - basic_discount
+
+        sef_current = Decimal(str(row.get("sef_current_gross") or 0))
+        sef_discount = Decimal(str(row.get("sef_discount") or 0))
+        sef_prior = Decimal(str(row.get("sef_prior_years") or 0))
+        sef_pen_current = Decimal(str(row.get("sef_penalty_current_year") or 0))
+        sef_pen_prev = Decimal(str(row.get("sef_penalty_previous_years") or 0))
+        sef_pen_prior = Decimal(str(row.get("sef_penalty_prior_years") or 0))
+        sef_gross = Decimal(str(row.get("sef_gross_total") or 0))
+        if sef_gross <= 0:
+            sef_gross = sef_current + sef_prior + sef_pen_current + sef_pen_prev + sef_pen_prior
+        sef_net = Decimal(str(row.get("sef_net_total") or 0))
+        if sef_net <= 0:
+            sef_net = sef_gross - sef_discount
+
+        grand_gross = Decimal(str(row.get("grand_gross_total") or 0))
+        if grand_gross <= 0:
+            grand_gross = basic_gross + sef_gross
+        grand_net = Decimal(str(row.get("grand_net_total") or 0))
+        if grand_net <= 0:
+            grand_net = basic_net + sef_net
+        share_25 = Decimal(str(row.get("share_25_percent") or 0))
+        if share_25 <= 0:
+            share_25 = basic_net * Decimal("0.25")
+        payment_total = Decimal(str(row.get("payment_total_amount") or row.get("total_amount") or grand_net))
+
         rows.append([
             row.get("payment_date"),
             row.get("paid_by"),
-            row.get("declared_owner") or row.get("paid_by"),
-            str(tax_year or ""),
-            "",
+            row.get("taxpayer_name") or row.get("declared_owner") or row.get("paid_by"),
+            row.get("period_covered") or row.get("taxyear") or "",
+            row.get("pin") or "",
             row.get("receipt_no"),
-            row.get("td_no"),
-            "",
+            row.get("td_arp_no") or row.get("td_no"),
+            row.get("barangay_name") or "",
             basic_current,
-            Decimal("0"),
+            basic_discount,
             basic_prior,
             basic_pen_current,
-            Decimal("0"),
+            basic_pen_prev,
             basic_pen_prior,
             basic_gross,
-            basic_gross,
+            basic_net,
             sef_current,
-            Decimal("0"),
+            sef_discount,
             sef_prior,
             sef_pen_current,
-            Decimal("0"),
+            sef_pen_prev,
             sef_pen_prior,
             sef_gross,
-            sef_gross,
+            sef_net,
             grand_gross,
-            Decimal(str(row.get("total_amount") or grand_gross)),
-            basic_gross * Decimal("0.25"),
-            "Manual RPT",
-            "Manual RPT Payment",
+            grand_net,
+            share_25,
+            row.get("property_classification") or "Manual RPT",
+            row.get("property_kind") or "Manual RPT Payment",
             row.get("collector"),
-            "MANUAL",
-            0,
-            Decimal(str(row.get("total_amount") or grand_gross)),
-            row.get("rcd_number"),
-            0,
-            1,
+            row.get("payment_status_ct") or "MANUAL",
+            1 if row.get("is_cancelled") else 0,
+            payment_total,
+            row.get("booking_reference") or row.get("rcd_number"),
+            1 if row.get("is_void") else 0,
+            1 if row.get("include_in_report", True) else 0,
         ])
     return rows
 
-
 def build_rpt_record_rows_from_fdb(date_from, date_to, user, password):
     current_taxyear = datetime.strptime(date_from, "%Y-%m-%d").year
-    sql = """
+    sql = f"""
         SELECT
             p.PAYMENT_ID,
             p.PAYMENTDATE,
@@ -1786,8 +1920,7 @@ def build_rpt_record_rows_from_fdb(date_from, date_to, user, password):
         WHERE p.PAYMENTDATE >= CAST(? AS DATE)
           AND p.PAYMENTDATE < DATEADD(1 DAY TO CAST(? AS DATE))
           AND p.PAYGROUP_CT = 'RPT'
-          AND COALESCE(p.VOID_BV, 0) = 0
-          AND COALESCE(TRIM(p.STATUS_CT), '') NOT IN ('CNL', 'CAN', 'CNC', 'CANCEL', 'CANCELLED', 'VOID', 'VOI')
+          {PAID_PAYMENT_SQL}
           AND COALESCE(pcd.CANCELLED_BV, 0) = 0
         ORDER BY p.PAYMENTDATE, p.RECEIPTNO, p.PAYMENT_ID, pcd.TAXTRANS_ID, pcd.TAXYEAR
     """
@@ -1921,7 +2054,7 @@ def build_rpt_record_rows_from_fdb(date_from, date_to, user, password):
 
 
 def payment_detail_rows_for_abstract(date_from, date_to, user, password):
-    sql = """
+    sql = f"""
         SELECT
             p.PAYMENT_ID,
             p.PAYMENTDATE,
@@ -1937,8 +2070,7 @@ def payment_detail_rows_for_abstract(date_from, date_to, user, password):
         JOIN PAYMENTDETAIL pd ON pd.PAYMENT_ID = p.PAYMENT_ID
         WHERE p.PAYMENTDATE >= CAST(? AS DATE)
           AND p.PAYMENTDATE < DATEADD(1 DAY TO CAST(? AS DATE))
-          AND COALESCE(p.VOID_BV, 0) = 0
-          AND COALESCE(TRIM(p.STATUS_CT), '') NOT IN ('CNL', 'CAN', 'CNC', 'CANCEL', 'CANCELLED', 'VOID', 'VOI')
+          {PAID_PAYMENT_SQL}
           AND COALESCE(p.PAYGROUP_CT, '') <> 'RPT'
         ORDER BY p.PAYMENTDATE, p.RECEIPTNO, p.PAYMENT_ID, pd.RECEIPTITEMORDER
     """
@@ -2193,6 +2325,11 @@ def write_native_template_workbook(report_number, date_from, date_to, output_dir
         row_count, output_path = write_rpt_record_workbook(rows, output_path, date_from, date_to)
         return output_path, row_count
 
+    if report_number == 28:
+        rows = build_provincial_rpt_coding_rows_from_fdb(date_from, date_to)
+        row_count, output_path = write_provincial_rpt_coding_workbook(rows, output_path, date_from, date_to)
+        return output_path, row_count
+
     if report_number == 29:
         rows, daily_rows = build_abstract_general_collections_rows_from_fdb(date_from, date_to, None, None)
         row_count, output_path = write_abstract_general_collections_workbook(
@@ -2226,60 +2363,6 @@ def write_native_template_workbook(report_number, date_from, date_to, output_dir
         return output_path, row_count
 
     raise ValueError(f"Native template export for report {report_number} is not implemented.")
-
-
-def delegated_parent_export(report_number, date_from, date_to, output_dir, collector=None):
-    if not PARENT_COLLECTION_RUNNER.exists():
-        searched = "; ".join(str(path) for path in parent_runner_candidates())
-        raise FileNotFoundError(
-            f"Parent collection runner was not found: {PARENT_COLLECTION_RUNNER}. Searched: {searched}"
-        )
-
-    command = [
-        sys.executable,
-        str(PARENT_COLLECTION_RUNNER),
-        str(report_number),
-        date_from,
-        date_to,
-        "--user",
-        os.environ.get("FIREBIRD_USER", ""),
-        "--password",
-        os.environ.get("FIREBIRD_PASSWORD", ""),
-    ]
-    if collector:
-        command.extend(["--collector", collector])
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
-        cwd=str(PARENT_COLLECTION_RUNNER.parent),
-    )
-    output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
-
-    if result.returncode != 0:
-        raise RuntimeError(output or f"Parent collection runner failed with exit code {result.returncode}.")
-
-    match = re.search(r"Output file:\s*(.+)", output)
-    if not match:
-        raise RuntimeError(f"Parent collection runner did not return an output path. Output: {output}")
-
-    source_path = Path(match.group(1).strip())
-    if not source_path.exists():
-        raise FileNotFoundError(f"Parent collection runner output was not found: {source_path}")
-
-    rows_match = re.search(r"Rows exported:\s*(\d+)", output)
-    row_count = int(rows_match.group(1)) if rows_match else 0
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    destination = output_dir / source_path.name
-    if destination.exists():
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        destination = destination.with_name(f"{destination.stem}_{timestamp}{destination.suffix}")
-
-    shutil.copy2(source_path, destination)
-    return destination, row_count
 
 
 def main():
@@ -2391,13 +2474,11 @@ def main():
             }, default=scalar))
             return 0
 
-        if args.report_number in PARENT_DELEGATED_REPORTS:
-            output_path, row_count = delegated_parent_export(
-                args.report_number,
+        if args.report_number in LOCAL_REPORT_EXPORTERS:
+            output_path, row_count = LOCAL_REPORT_EXPORTERS[args.report_number](
                 args.date_from,
                 args.date_to,
-                Path(args.output_dir),
-                args.collector,
+                args.output_dir,
             )
             print(json.dumps({
                 "ok": True,

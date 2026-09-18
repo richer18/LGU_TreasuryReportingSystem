@@ -6951,6 +6951,7 @@ summary:focus-visible,
 .dashboard-app-shell .workspace {
   background: #05080d;
   color: #f8fafc;
+  padding: 0;
 }
 
 .revenue-bi {
@@ -8344,17 +8345,21 @@ summary:focus-visible,
 }
 
 .manual-rpt-dialog {
-  max-width: min(1040px, calc(100vw - 32px));
-  width: 100%;
+  grid-template-rows: auto minmax(0, 1fr);
+  max-width: min(1500px, calc(100vw - 40px));
+  width: min(1500px, calc(100vw - 40px));
 }
 
 .manual-rpt-dialog-body {
   display: grid;
   gap: 0;
-  grid-template-columns: 290px minmax(0, 1fr);
+  grid-template-columns: 310px minmax(0, 1fr);
+  min-height: 0;
+  overflow: auto;
 }
 
 .manual-rpt-reference-panel {
+  align-content: start;
   background: #f8fbff;
   border-right: 1px solid #dbe3ee;
   display: grid;
@@ -8419,9 +8424,10 @@ summary:focus-visible,
 }
 
 .manual-rpt-payment-grid {
+  align-content: start;
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   padding: 22px;
 }
 
@@ -8438,6 +8444,12 @@ summary:focus-visible,
   grid-column: 1 / -1;
   justify-content: flex-end;
   padding: 16px 22px;
+}
+
+@media (max-width: 1280px) {
+  .manual-rpt-payment-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 940px) {
@@ -8470,23 +8482,35 @@ summary:focus-visible,
 .manual-td-search-form {
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 1fr;
 }
 
 .manual-td-search-form .treasury-field {
   min-width: 0;
 }
 
+.manual-td-search-form .secondary-button {
+  justify-content: center;
+  width: 100%;
+}
+
 .manual-reference-table-wrap {
   background: #ffffff;
   border: 1px solid #dbe3ee;
-  border-radius: 8px;
+  border-radius: 10px;
   grid-column: 1 / -1;
   overflow: hidden;
 }
 
+.manual-reference-table-wrap .table-scroll {
+  max-height: 300px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
 .manual-reference-table-heading {
   align-items: center;
+  background: #ffffff;
   border-bottom: 1px solid #dbe3ee;
   display: flex;
   gap: 12px;
@@ -8507,20 +8531,550 @@ summary:focus-visible,
 
 .manual-reference-table {
   border: 0;
+  border-collapse: separate;
   border-radius: 0;
-  min-width: 980px;
+  border-spacing: 0;
+  display: table;
+  margin: 0;
+  min-width: 1160px;
+  table-layout: fixed;
+  width: 1160px;
+}
+
+.manual-reference-table thead {
+  display: table-header-group;
+}
+
+.manual-reference-table tbody {
+  display: table-row-group;
+}
+
+.manual-reference-table tr {
+  display: table-row;
 }
 
 .manual-reference-table th,
 .manual-reference-table td {
+  border-bottom: 1px solid #e5ecf5;
+  box-sizing: border-box;
+  display: table-cell;
   font-size: 12px;
-  padding: 9px 10px;
-  vertical-align: top;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  padding: 11px 12px;
+  text-align: left;
+  vertical-align: middle;
+  white-space: normal;
+  word-break: normal;
 }
 
+.manual-reference-table th {
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  position: sticky;
+  text-transform: none;
+  top: 0;
+  z-index: 2;
+}
+
+.manual-reference-table td {
+  color: #1f2937;
+  min-height: 44px;
+}
+
+.manual-reference-table tbody tr:hover td {
+  background: #f8fbff;
+}
+
+.manual-reference-col-date { width: 96px; }
+.manual-reference-col-paid-by { width: 172px; }
+.manual-reference-col-taxpayer { width: 176px; }
+.manual-reference-col-period { width: 88px; }
+.manual-reference-col-pin { width: 150px; }
+.manual-reference-col-or { width: 96px; }
+.manual-reference-col-td { width: 154px; }
+.manual-reference-col-brgy { width: 112px; }
+.manual-reference-col-use { width: 116px; }
+
+.manual-reference-table .selected-manual-reference-row td {
+  background: #eff6ff;
+  border-bottom-color: #dbeafe;
+}
+
+.manual-reference-table .selected-manual-reference-row td:first-child {
+  box-shadow: inset 3px 0 0 #0b5cff;
+}
+
+.manual-reference-table .text-button {
+  min-width: 96px;
+  white-space: normal;
+}
 @media (max-width: 640px) {
   .manual-td-search-form {
     grid-template-columns: 1fr;
   }
 }
 
+
+.manual-source-hidden {
+  display: none;
+}
+
+/* =========================================
+   CITATION TICKET PAGE - MAIN LAYOUT
+   ========================================= */
+.citation-ticket-page {
+  display: grid;
+  gap: 20px;
+  padding: 20px;
+  background-color: #f8fafc; /* Soft background to make cards pop */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* =========================================
+   HERO SECTION
+   ========================================= */
+.citation-ticket-hero {
+  align-items: center;
+  /* Updated to match the vibrant blue gradient in the screenshot */
+  background: linear-gradient(90deg, #1e3a8a 0%, #1d4ed8 50%, #2563eb 100%);
+  border-radius: 8px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  color: #ffffff;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  padding: 24px 32px;
+}
+
+.citation-ticket-hero-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.citation-ticket-hero .eyebrow {
+  color: #93c5fd;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.citation-ticket-hero h2 {
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.citation-ticket-hero p {
+  color: #dbeafe;
+  font-size: 14px;
+  margin: 0;
+}
+
+/* Hero Buttons */
+.citation-ticket-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.citation-ticket-hero-actions button {
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 16px;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.citation-ticket-hero-actions .secondary-button {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+}
+
+.citation-ticket-hero-actions .secondary-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.citation-ticket-hero-actions .primary-button {
+  background: #2563eb;
+  border: 1px solid #3b82f6;
+  color: #ffffff;
+}
+
+.citation-ticket-hero-actions .primary-button:hover {
+  background: #1d4ed8;
+}
+
+/* =========================================
+   KPI CARDS
+   ========================================= */
+.citation-ticket-kpis {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.citation-kpi-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.citation-kpi-card:hover {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+  transform: translateY(-2px);
+}
+
+/* Updated to reflect the small rounded icon containers in the screenshot */
+.citation-kpi-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: #eff6ff; 
+}
+
+.citation-kpi-icon svg {
+  color: #2563eb;
+  width: 18px;
+  height: 18px;
+}
+
+.citation-kpi-card span {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.citation-kpi-card strong {
+  color: #0f172a;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* KPI Color Variations */
+.citation-kpi-card.warning .citation-kpi-icon { background: #fffbeb; }
+.citation-kpi-card.warning .citation-kpi-icon svg { color: #d97706; }
+
+.citation-kpi-card.success .citation-kpi-icon { background: #f0fdf4; }
+.citation-kpi-card.success .citation-kpi-icon svg { color: #16a34a; }
+
+.citation-kpi-card.danger .citation-kpi-icon { background: #fef2f2; }
+.citation-kpi-card.danger .citation-kpi-icon svg { color: #dc2626; }
+
+.citation-kpi-card.amount .citation-kpi-icon { background: #f0fdfa; }
+.citation-kpi-card.amount .citation-kpi-icon svg { color: #0d9488; }
+
+/* =========================================
+   FILTER / CONTROL PANEL
+   ========================================= */
+.citation-ticket-control-panel {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  padding: 0; /* Removing padding to let tabs touch the edge */
+}
+
+/* Adjusted tabs to match the minimalist text-style in the screenshot */
+.citation-ticket-tabs {
+  display: flex;
+  gap: 24px;
+  padding: 0 24px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.citation-ticket-tabs button {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent; /* For active state line */
+  color: #64748b;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 16px 0;
+  margin-bottom: -1px; /* Overlap border */
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.citation-ticket-tabs button:hover {
+  color: #0f172a;
+}
+
+.citation-ticket-tabs button.active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+}
+
+.citation-ticket-filters {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  padding: 20px 24px;
+  align-items: center;
+}
+
+/* =========================================
+   TABLE SECTION
+   ========================================= */
+.citation-ticket-list-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.citation-ticket-table-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.citation-ticket-table-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #0f172a;
+}
+
+.citation-ticket-table-header p {
+  margin: 4px 0 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.citation-ticket-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1080px;
+}
+
+.citation-ticket-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 12px 24px;
+  text-align: left;
+}
+
+.citation-ticket-table td {
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+  font-size: 14px;
+  padding: 16px 24px;
+  vertical-align: middle;
+}
+
+.citation-ticket-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+/* =========================================================
+   CITATION TICKET BUTTON FIX
+   ========================================================= */
+
+.citation-ticket-hero-actions .MuiButton-outlined {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.38) !important;
+  color: #ffffff !important;
+}
+
+.citation-ticket-hero-actions .MuiButton-outlined:hover {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.60) !important;
+  color: #ffffff !important;
+}
+
+.citation-ticket-hero-actions .MuiButton-contained {
+  background: #ffffff !important;
+  border-color: #ffffff !important;
+  color: #1d4ed8 !important;
+}
+
+.citation-ticket-hero-actions .MuiButton-contained:hover {
+  background: #eff6ff !important;
+  border-color: #eff6ff !important;
+  color: #1e40af !important;
+}
+/* Business permits workspace */
+.business-permits-page { gap: 16px; }
+.business-permits-header { align-items: center; display: flex; gap: 20px; justify-content: space-between; }
+.business-permits-title { align-items: center; display: flex; gap: 14px; min-width: 0; }
+.business-permits-title-icon { align-items: center; background: #eaf3ff; border: 1px solid #cfe2ff; border-radius: 8px; color: #0b61d8; display: inline-flex; flex: 0 0 auto; height: 46px; justify-content: center; width: 46px; }
+.business-permits-title h2 { color: var(--color-text-strong); font-size: 28px; line-height: 1.15; margin: 2px 0 3px; }
+.business-permits-title p:last-child { color: var(--color-muted); margin: 0; }
+.business-permits-kpis { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.business-permits-kpi { align-items: flex-start; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; display: flex; gap: 12px; min-height: 118px; padding: 16px; }
+.business-permits-kpi-icon { align-items: center; border-radius: 7px; display: inline-flex; flex: 0 0 auto; height: 38px; justify-content: center; width: 38px; }
+.business-permits-kpi.blue .business-permits-kpi-icon { background: #eaf3ff; color: #0b61d8; }
+.business-permits-kpi.green .business-permits-kpi-icon { background: #e8f7ef; color: #087a49; }
+.business-permits-kpi.amber .business-permits-kpi-icon { background: #fff4dc; color: #9a5b00; }
+.business-permits-kpi.teal .business-permits-kpi-icon { background: #e6f7f7; color: #087b7b; }
+.business-permits-kpi > div { display: grid; gap: 5px; min-width: 0; }
+.business-permits-kpi span:not(.business-permits-kpi-icon) { color: var(--color-muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }
+.business-permits-kpi strong { color: var(--color-text-strong); font-size: 22px; font-variant-numeric: tabular-nums; line-height: 1.2; overflow-wrap: anywhere; }
+.business-permits-kpi small { color: var(--color-muted); font-size: 12px; line-height: 1.35; }
+.business-permits-filter-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 15px; }
+.business-permits-filter-heading { align-items: center; color: var(--color-text-strong); display: flex; gap: 10px; margin-bottom: 12px; }
+.business-permits-filter-heading > svg { color: var(--color-primary); }
+.business-permits-filter-heading div { display: grid; gap: 2px; }
+.business-permits-filter-heading span { color: var(--color-muted); font-size: 12px; }
+.business-permits-filters { align-items: end; display: grid; gap: 10px; grid-template-columns: minmax(280px, 1fr) 180px 180px auto; }
+.business-permits-search { align-items: center; background: #fff; border: 1px solid var(--color-border); border-radius: 6px; display: flex; gap: 9px; height: 42px; padding: 0 11px; }
+.business-permits-search:focus-within { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-soft); }
+.business-permits-search > svg { color: var(--color-muted); flex: 0 0 auto; }
+.business-permits-search input { background: transparent; border: 0; color: var(--color-text); font: inherit; min-width: 0; outline: 0; width: 100%; }
+.business-permits-search button { align-items: center; background: transparent; border: 0; color: var(--color-muted); cursor: pointer; display: inline-flex; padding: 4px; }
+.business-permits-select { display: grid; gap: 5px; }
+.business-permits-select span { color: var(--color-muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.business-permits-select select { background: #fff; border: 1px solid var(--color-border); border-radius: 6px; color: var(--color-text); font: inherit; height: 42px; padding: 0 10px; width: 100%; }
+.business-permits-clear { align-items: center; background: #fff; border: 1px solid var(--color-border); border-radius: 6px; color: var(--color-text); cursor: pointer; display: inline-flex; font: inherit; font-weight: 800; gap: 6px; height: 42px; padding: 0 13px; white-space: nowrap; }
+.business-permits-table-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; }
+.business-permits-table-header { align-items: center; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; padding: 15px 17px; }
+.business-permits-table-header h3 { color: var(--color-text-strong); font-size: 17px; margin: 2px 0 0; }
+.business-permits-table-header > span { background: #edf4fc; border: 1px solid #d7e6f5; border-radius: 999px; color: #245178; font-size: 12px; font-weight: 800; padding: 5px 9px; }
+.business-permits-table-scroll { max-height: min(64vh, 720px); overflow: auto; }
+.business-permits-table { border-collapse: separate; border-spacing: 0; font-size: 12px; min-width: 1520px; width: 100%; }
+.business-permits-table th { background: #f1f5f9; border-bottom: 1px solid #cfd9e3; color: #526173; font-size: 11px; font-weight: 900; padding: 11px 12px; position: sticky; text-align: left; text-transform: uppercase; top: 0; white-space: nowrap; z-index: 2; }
+.business-permits-table td { border-bottom: 1px solid #e7edf3; color: var(--color-text); padding: 11px 12px; vertical-align: middle; }
+.business-permits-table tbody tr:hover { background: #f7fbff; }
+.business-permits-table tbody tr:last-child td { border-bottom: 0; }
+.business-permits-table .numeric-cell { text-align: right; }
+.business-permits-table .date-cell, .business-permits-table .code-cell { white-space: nowrap; }
+.business-permits-table .code-cell { color: #334a5e; font-variant-numeric: tabular-nums; font-weight: 700; }
+.business-permits-table .amount-cell { color: #0b6440; font-variant-numeric: tabular-nums; font-weight: 900; white-space: nowrap; }
+.business-name-cell, .nature-cell { min-width: 210px; }
+.business-name-cell strong, .business-name-cell span, .nature-cell strong, .nature-cell span { display: block; }
+.business-name-cell strong, .nature-cell strong { color: var(--color-text-strong); }
+.business-name-cell span, .nature-cell span { color: var(--color-muted); line-height: 1.35; margin-top: 3px; }
+.permit-type-badge { background: #edf4fc; border: 1px solid #d7e6f5; border-radius: 4px; color: #245178; display: inline-block; font-size: 10px; font-weight: 900; padding: 4px 6px; text-transform: uppercase; white-space: nowrap; }
+.business-permits-pagination { align-items: center; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; min-height: 54px; padding: 9px 15px; }
+.business-permits-pagination > span { color: var(--color-muted); font-size: 12px; font-weight: 700; }
+.business-permits-pagination > div { align-items: center; display: flex; gap: 10px; }
+.business-permits-pagination strong { color: var(--color-text); font-size: 12px; }
+.business-permits-pagination button { align-items: center; background: #fff; border: 1px solid var(--color-border); border-radius: 6px; color: var(--color-text); cursor: pointer; display: inline-flex; height: 34px; justify-content: center; width: 34px; }
+.business-permits-pagination button:disabled { cursor: not-allowed; opacity: .4; }
+@media (max-width: 1180px) { .business-permits-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .business-permits-filters { grid-template-columns: minmax(260px, 1fr) 170px 170px; } .business-permits-clear { grid-column: 1 / -1; justify-self: start; } }
+@media (max-width: 720px) { .business-permits-header { align-items: stretch; flex-direction: column; } .business-permits-header .primary-button { justify-content: center; width: 100%; } .business-permits-kpis, .business-permits-filters { grid-template-columns: 1fr; } .business-permits-clear { grid-column: auto; justify-self: stretch; justify-content: center; } .business-permits-title { align-items: flex-start; } .business-permits-title h2 { font-size: 24px; } .business-permits-table-header { align-items: flex-start; gap: 10px; } .business-permits-pagination { align-items: flex-start; flex-direction: column; } }
+
+/* Dashboard business permit registrations */
+.dashboard-permits-card { overflow: hidden; }
+.dashboard-permits-open { background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; color: #164e78; cursor: pointer; font: inherit; font-size: 12px; font-weight: 800; min-height: 34px; padding: 0 12px; }
+.dashboard-permits-open:hover { background: #f0f7ff; border-color: #93c5fd; }
+.dashboard-permits-content { display: grid; gap: 18px; grid-template-columns: 260px minmax(0, 1fr); padding: 0 16px 16px; }
+.dashboard-permits-totals { align-content: start; display: grid; gap: 9px; }
+.dashboard-permits-totals > div { background: #f8fafc; border: 1px solid #dbe4ed; border-radius: 7px; display: grid; gap: 3px; min-height: 82px; padding: 12px 14px; position: relative; }
+.dashboard-permits-totals > div:first-child { background: #eff6ff; border-color: #bfdbfe; }
+.dashboard-permits-totals > div.new { border-left: 4px solid #0ea5e9; }
+.dashboard-permits-totals > div.renewal { border-left: 4px solid #16a34a; }
+.dashboard-permits-totals span:not(.dashboard-permits-total-icon) { color: #64748b; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.dashboard-permits-totals strong { color: #0f172a; font-size: 25px; font-variant-numeric: tabular-nums; line-height: 1.05; }
+.dashboard-permits-totals small { color: #64748b; font-size: 11px; }
+.dashboard-permits-total-icon { align-items: center; color: #1677c8; display: inline-flex; position: absolute; right: 13px; top: 12px; }
+.dashboard-permits-monthly { border: 1px solid #dbe4ed; border-radius: 7px; overflow: hidden; }
+.dashboard-permits-monthly > div { align-items: center; border-bottom: 1px solid #e7edf3; display: grid; gap: 12px; grid-template-columns: 58px 60px 75px 60px minmax(150px, 1fr); min-height: 36px; padding: 0 12px; }
+.dashboard-permits-monthly > div:last-child { border-bottom: 0; }
+.dashboard-permits-monthly > div:not(.dashboard-permits-month-head):hover { background: #f8fbff; }
+.dashboard-permits-month-head { background: #f1f5f9; color: #536273; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.dashboard-permits-monthly strong, .dashboard-permits-monthly b { color: #17263a; font-size: 12px; }
+.dashboard-permits-monthly span { color: #4a6075; font-size: 12px; font-variant-numeric: tabular-nums; }
+.dashboard-permits-monthly .is-empty { opacity: .48; }
+.dashboard-permits-bar { align-items: center; background: #e5eaf0; border-radius: 999px; display: flex; height: 7px; overflow: hidden; width: 100%; }
+.dashboard-permits-bar i { display: block; height: 100%; width: var(--permit-width); }
+.dashboard-permits-bar i.new { background: #0ea5e9; }
+.dashboard-permits-bar i.renewal { background: #16a34a; }
+.dashboard-permits-state { color: #64748b; min-height: 130px; padding: 22px 16px; }
+.dashboard-permits-state.error { align-items: center; color: #b42318; display: flex; gap: 8px; }
+@media (max-width: 900px) { .dashboard-permits-content { grid-template-columns: 1fr; } .dashboard-permits-totals { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .dashboard-permits-totals { grid-template-columns: 1fr; } .dashboard-permits-monthly { overflow-x: auto; } .dashboard-permits-monthly > div { min-width: 560px; } }
+
+/* Dashboard permit placement and dark-theme integration */
+.revenue-bi-main-column { display: grid; gap: 12px; min-width: 0; }
+.revenue-bi .dashboard-permits-card { background: var(--bi-surface); color: var(--bi-text); }
+.revenue-bi .dashboard-permits-open { background: var(--bi-elevated); border-color: var(--bi-border); color: var(--bi-blue); }
+.revenue-bi .dashboard-permits-open:hover { background: #132033; border-color: var(--bi-blue); }
+.revenue-bi .dashboard-permits-totals > div { background: var(--bi-elevated); border-color: var(--bi-border-subtle); }
+.revenue-bi .dashboard-permits-totals > div:first-child { background: rgba(22, 135, 248, .08); border-color: rgba(22, 135, 248, .28); }
+.revenue-bi .dashboard-permits-totals span:not(.dashboard-permits-total-icon),
+.revenue-bi .dashboard-permits-totals small { color: var(--bi-muted); }
+.revenue-bi .dashboard-permits-totals strong { color: var(--bi-text); }
+.revenue-bi .dashboard-permits-monthly { border-color: var(--bi-border-subtle); }
+.revenue-bi .dashboard-permits-monthly > div { border-color: var(--bi-border-subtle); }
+.revenue-bi .dashboard-permits-monthly > div:not(.dashboard-permits-month-head):hover { background: var(--bi-elevated); }
+.revenue-bi .dashboard-permits-month-head { background: var(--bi-elevated); color: var(--bi-muted); }
+.revenue-bi .dashboard-permits-monthly strong,
+.revenue-bi .dashboard-permits-monthly b { color: var(--bi-text); }
+.revenue-bi .dashboard-permits-monthly span { color: var(--bi-secondary-text); }
+.revenue-bi .dashboard-permits-bar { background: #1b2b40; }
+.revenue-bi .dashboard-permits-state { color: var(--bi-muted); }
+.revenue-bi .dashboard-permits-state.error { color: var(--bi-critical); }
+
+/* Remove light surfaces from the dashboard permit panel */
+.revenue-bi .dashboard-permits-card,
+.revenue-bi .dashboard-permits-content,
+.revenue-bi .dashboard-permits-monthly,
+.revenue-bi .dashboard-permits-monthly > div,
+.revenue-bi .dashboard-permits-totals,
+.revenue-bi .dashboard-permits-totals > div {
+  background-color: transparent;
+}
+.revenue-bi .dashboard-permits-month-head,
+.revenue-bi .dashboard-permits-totals > div:first-child {
+  background-color: var(--bi-elevated);
+}
+.revenue-bi .dashboard-permits-open {
+  background-color: transparent;
+}
+
+/* Business permit record card */
+.business-permit-view-button { align-items: center; background: #fff; border: 1px solid #9fc4ec; border-radius: 5px; color: #075fbd; cursor: pointer; display: inline-flex; font: inherit; font-size: 11px; font-weight: 900; gap: 5px; min-height: 32px; padding: 0 9px; white-space: nowrap; }
+.business-permit-view-button:hover { background: #edf6ff; border-color: #3992ea; }
+.business-card-dialog-backdrop { align-items: center; background: rgba(15, 23, 42, .62); display: flex; inset: 0; justify-content: center; padding: 24px; position: fixed; z-index: 1200; }
+.business-card-dialog { background: #fff; border: 1px solid #cbd8e6; border-radius: 8px; box-shadow: 0 24px 64px rgba(15, 23, 42, .28); max-height: calc(100vh - 48px); max-width: 780px; overflow-y: auto; width: 100%; }
+.business-card-dialog-header { align-items: center; border-bottom: 1px solid #dce5ee; display: flex; justify-content: space-between; padding: 16px 18px; }
+.business-card-dialog-header > div { align-items: center; display: flex; gap: 11px; }
+.business-card-dialog-header h3 { color: #14283b; font-size: 18px; margin: 2px 0 0; }
+.business-card-dialog-icon { align-items: center; background: #eaf3ff; border-radius: 7px; color: #0868cc; display: inline-flex; height: 38px; justify-content: center; width: 38px; }
+.business-card-dialog-header > button { align-items: center; background: transparent; border: 0; border-radius: 5px; color: #64748b; cursor: pointer; display: inline-flex; height: 34px; justify-content: center; width: 34px; }
+.business-card-dialog-header > button:hover { background: #eef2f6; color: #1f3447; }
+.business-card-identity { align-items: flex-start; background: #f5f9fd; border-bottom: 1px solid #dce5ee; display: flex; gap: 16px; justify-content: space-between; padding: 18px; }
+.business-card-identity h4 { color: #0f2940; font-size: 21px; margin: 0 0 4px; }
+.business-card-identity p { color: #38546b; font-weight: 700; margin: 0 0 8px; }
+.business-card-identity div > span { align-items: center; color: #64748b; display: flex; font-size: 12px; gap: 6px; }
+.business-card-details { display: grid; gap: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 8px 18px; }
+.business-card-field { border-bottom: 1px solid #e6edf3; display: grid; gap: 5px; min-width: 0; padding: 12px 4px; }
+.business-card-field:nth-child(odd) { margin-right: 16px; }
+.business-card-field.wide { grid-column: 1 / -1; margin-right: 0; }
+.business-card-field > span { color: #697c8c; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.business-card-field > strong { color: #172d40; font-size: 13px; overflow-wrap: anywhere; }
+.business-card-field.emphasized > strong { color: #087447; font-size: 17px; }
+.business-card-payment { background: #f8fafc; border-bottom: 1px solid #dce5ee; border-top: 1px solid #dce5ee; padding: 14px 18px; }
+.business-card-payment-title { align-items: center; color: #1c3d58; display: flex; gap: 8px; margin-bottom: 4px; }
+.business-card-payment > div:last-child { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.business-card-payment .business-card-field { margin-right: 12px; }
+.business-card-financials { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 8px 18px; }
+.business-card-financials .business-card-field { margin-right: 14px; }
+.business-card-dialog footer { display: flex; justify-content: flex-end; padding: 14px 18px 18px; }
+@media (max-width: 680px) { .business-card-dialog-backdrop { align-items: flex-end; padding: 0; } .business-card-dialog { border-radius: 8px 8px 0 0; max-height: 92vh; } .business-card-details, .business-card-payment > div:last-child, .business-card-financials { grid-template-columns: 1fr; } .business-card-field, .business-card-field:nth-child(odd), .business-card-payment .business-card-field, .business-card-financials .business-card-field { margin-right: 0; } .business-card-identity { flex-direction: column; } }

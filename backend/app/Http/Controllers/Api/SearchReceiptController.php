@@ -37,9 +37,17 @@ class SearchReceiptController extends Controller
         $payload = $request->validate([
             'assigned_collector' => ['required', 'string', 'max:30'],
             'receipt_no' => ['required', 'string', 'max:30'],
+            'collection_status' => ['nullable', 'string', 'in:Paid,Cancelled,Void'],
         ]);
 
-        $result = $this->receipts->update($paymentId, $payload['assigned_collector'], $payload['receipt_no']);
+        $canUpdateStatus = strtolower((string) $request->user()?->role) === 'admin';
+
+        $result = $this->receipts->update(
+            $paymentId,
+            $payload['assigned_collector'],
+            $payload['receipt_no'],
+            $canUpdateStatus ? ($payload['collection_status'] ?? null) : null,
+        );
 
         return response()->json($result, $result['ok'] ? 200 : 500);
     }

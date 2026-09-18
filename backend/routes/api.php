@@ -11,6 +11,8 @@ use App\Http\Controllers\Api\TotalRevenueController;
 use App\Http\Controllers\Api\CalendarController;
 use App\Http\Controllers\Api\CalendarEventController;
 use App\Http\Controllers\Api\CashTicketController;
+use App\Http\Controllers\Api\CitationTicketController;
+use App\Http\Controllers\Api\CheckIssuedRecordController;
 use App\Http\Controllers\Api\DashboardSummaryController;
 use App\Http\Controllers\Api\FirebirdStatusController;
 use App\Http\Controllers\Api\GeneralFundController;
@@ -28,6 +30,7 @@ use App\Http\Controllers\Api\RcdGenerateOrController;
 use App\Http\Controllers\Api\SearchReceiptController;
 use App\Http\Controllers\Api\SearchTdNoController;
 use App\Http\Controllers\Api\UserAccountController;
+use App\Http\Controllers\Api\WaterworksController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', fn () => [
@@ -128,6 +131,39 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/TotalExpired', [TotalExpiredController::class, 'index']);
         Route::apiResource('bplo', BploRecordController::class);
     });
+
+    Route::prefix('waterworks')
+        ->middleware('permission:waterworks.view')
+        ->group(function () {
+            Route::get('/payments', [WaterworksController::class, 'payments']);
+            Route::get('/accounts', [WaterworksController::class, 'accounts']);
+            Route::get('/taxpayers', [WaterworksController::class, 'taxpayers']);
+            Route::get('/receipts', [WaterworksController::class, 'receipts']);
+            Route::get('/taxpayer-payments', [WaterworksController::class, 'taxpayerPayments']);
+            Route::get('/reports/daily', [WaterworksController::class, 'dailyReport']);
+            Route::get('/reports/billing', [WaterworksController::class, 'billingReport']);
+            Route::get('/payments/export', [WaterworksController::class, 'export']);
+            Route::post('/card-account', [WaterworksController::class, 'storeAccount'])->middleware('permission:waterworks.update');
+            Route::post('/new-entry', [WaterworksController::class, 'storeEntry'])->middleware('permission:waterworks.create');
+            Route::get('/payment-edit/{paymentId}', [WaterworksController::class, 'paymentEdit']);
+            Route::put('/payment-edit/{paymentId}', [WaterworksController::class, 'updatePayment'])->middleware('permission:waterworks.update');
+            Route::delete('/payment-edit/{paymentId}', [WaterworksController::class, 'deletePayment'])->middleware('permission:waterworks.delete');
+            Route::get('/tickets', [WaterworksController::class, 'tickets']);
+            Route::post('/tickets', [WaterworksController::class, 'storeTicket'])->middleware('permission:waterworks.create');
+            Route::put('/tickets/{ticket}', [WaterworksController::class, 'updateTicket'])->middleware('permission:waterworks.update');
+            Route::get('/tickets/summary', [WaterworksController::class, 'ticketSummary']);
+        });
+    Route::get('/rci/checks', [CheckIssuedRecordController::class, 'index'])->middleware('permission:rci.view');
+    Route::post('/rci/checks', [CheckIssuedRecordController::class, 'store'])->middleware('permission:rci.manage');
+    Route::get('/rci/checks/export', [CheckIssuedRecordController::class, 'export'])->middleware('permission:rci.view');
+    Route::post('/rci/checks/{id}/restore', [CheckIssuedRecordController::class, 'restore'])->middleware('permission:rci.manage');
+    Route::get('/rci/checks/{check}', [CheckIssuedRecordController::class, 'show'])->middleware('permission:rci.view');
+    Route::put('/rci/checks/{check}', [CheckIssuedRecordController::class, 'update'])->middleware('permission:rci.manage');
+    Route::patch('/rci/checks/{check}/status', [CheckIssuedRecordController::class, 'status'])->middleware('permission:rci.manage');
+    Route::delete('/rci/checks/{check}', [CheckIssuedRecordController::class, 'destroy'])->middleware('permission:rci.manage');
+
+    Route::get('/citation-tickets', [CitationTicketController::class, 'index'])->middleware('permission:cash_tickets.view,citation_tickets.view');
+    Route::post('/citation-tickets', [CitationTicketController::class, 'store'])->middleware('permission:cash_tickets.view,citation_tickets.view');
 
     Route::prefix('cash-tickets')
         ->middleware('permission:cash_tickets.view')

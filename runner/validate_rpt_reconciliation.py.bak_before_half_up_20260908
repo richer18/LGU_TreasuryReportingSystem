@@ -1,0 +1,177 @@
+import argparse
+import importlib.util
+import os
+import sys
+import tempfile
+from decimal import Decimal
+from pathlib import Path
+
+
+RUNNER = Path(__file__).resolve().parent
+ROOT = RUNNER.parent
+ENV_FILE = ROOT / "backend" / ".env"
+PREVIEW = RUNNER / "report_preview_readonly.py"
+
+
+def load_firebird_env():
+    if not ENV_FILE.exists():
+        return
+    wanted = {
+        "FIREBIRD_CONNECTION",
+        "FIREBIRD_ODBC_DSN",
+        "FIREBIRD_DB_PATH",
+        "FIREBIRD_USER",
+        "FIREBIRD_PASSWORD",
+        "FIREBIRD_CHARSET",
+        "FIREBIRD_CLIENT_LIBRARY",
+        "FIREBIRD_ODBC_CLIENT_LIBRARY",
+    }
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key in wanted:
+            os.environ.setdefault(key, value.strip().strip("'\""))
+
+
+def load_module(module_name, path):
+    if str(RUNNER) not in sys.path:
+        sys.path.insert(0, str(RUNNER))
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_preview_module():
+    return load_module("report_preview_readonly", PREVIEW)
+
+
+def load_exporter_module():
+    return load_module("report_excel_export_readonly", RUNNER / "report_excel_export_readonly.py")
+
+
+def money(value):
+    return Decimal(value or 0).quantize(Decimal("0.01"))
+
+
+def total_row(payload):
+    return next(row for row in payload["rows"] if row.get("source") == "TOTAL")
+
+
+def sheet_total(sheet):
+    return money(sheet["totalRemittance"][8])
+
+
+def sheet_detail_sum(sheet):
+    return money(sum((money(row[index]) for row in sheet["rows"] for index in (2, 4, 6, 8)), Decimal("0")))
+
+
+def sheet_bucket_sum(sheet, group_prefix, value_index):
+    return money(sum((money(row[value_index]) for row in sheet["rows"] if str(row[0]).startswith(group_prefix)), Decimal("0")))
+
+
+def assert_equal(label, left, right):
+    if money(left) != money(right):
+        raise AssertionError(f"{label}: {money(left)} != {money(right)}")
+
+
+def validate_tie_case(module):
+    cases = {
+        Decimal("10.009"): Decimal("10.00"),
+        Decimal("10.999"): Decimal("10.99"),
+        Decimal("-10.009"): Decimal("-10.00"),
+    }
+    for raw, expected in cases.items():
+        actual = module.rpt_round_money(raw)
+        if actual != expected:
+            raise AssertionError(f"CUT 2 uses unexpected policy: {raw} -> {actual}, expected {expected}")
+    print(f"CUT 2 cases OK ({module.RPT_MONEY_ROUNDING})")
+
+
+def validate_excel_export(exporter, summary_gf, summary_sef, date_from, date_to):
+    from openpyxl import load_workbook
+
+    with tempfile.TemporaryDirectory(prefix="rpt-reconcile-") as temp_dir:
+        output_path, _row_count = exporter.write_native_template_workbook(28, date_from, date_to, Path(temp_dir))
+        workbook = load_workbook(output_path, data_only=False)
+        gf_sum = money(sum((money(workbook["GF"].cell(row, column).value) for row in range(9, 22) for column in (3, 5, 7, 9)), Decimal("0")))
+        sef_sum = money(sum((money(workbook["SEF"].cell(row, column).value) for row in range(9, 22) for column in (3, 5, 7, 9)), Decimal("0")))
+        assert_equal("Report 28 Excel GF visible cells", gf_sum, summary_gf)
+        assert_equal("Report 28 Excel SEF visible cells", sef_sum, summary_sef)
+        return gf_sum, sef_sum
+
+
+def validate_period(module, exporter, date_from, date_to):
+    authority = module.authoritative_rpt_sharing(date_from, date_to)
+    report_23_total = total_row(module.build_report(23, date_from, date_to))
+    coding = module.build_provincial_coding_preview(date_from, date_to)
+    gf_sheet = next(sheet for sheet in coding["sheets"] if sheet["sheet"] == "GF")
+    sef_sheet = next(sheet for sheet in coding["sheets"] if sheet["sheet"] == "SEF")
+
+    summary_gf = money(authority["totals"]["provincial_gf"])
+    summary_sef = money(authority["totals"]["provincial_sef"])
+    r21_gf = money(report_23_total["provincial_general_fund"])
+    r21_sef = money(report_23_total["provincial_sef"])
+    r28_gf = sheet_total(gf_sheet)
+    r28_sef = sheet_total(sef_sheet)
+
+    assert_equal("R21/R23 Provincial GF RPT", r21_gf, summary_gf)
+    assert_equal("R21/R23 Provincial SEF RPT", r21_sef, summary_sef)
+    assert_equal("R28 GF Grand Total", r28_gf, summary_gf)
+    assert_equal("R28 SEF Grand Total", r28_sef, summary_sef)
+    assert_equal("R28 GF detail sum", sheet_detail_sum(gf_sheet), r28_gf)
+    assert_equal("R28 SEF detail sum", sheet_detail_sum(sef_sheet), r28_sef)
+
+    field_to_index = {
+        "current": 2,
+        "prior": 4,
+        "penalty_current": 6,
+        "penalty_prior": 8,
+    }
+    for sheet, tax_type, share_column in (
+        (gf_sheet, "BSC", "provincial_general_fund"),
+        (sef_sheet, "SEF", "provincial_sef"),
+    ):
+        for group, prefix in (("Land", "Land"), ("Bldg.", "Building")):
+            for field, index in field_to_index.items():
+                expected = authority["field_summary"][(group, tax_type, field)][share_column]
+                actual = sheet_bucket_sum(sheet, prefix, index)
+                assert_equal(f"{sheet['sheet']} {group} {field}", actual, expected)
+
+    print(f"{date_from} to {date_to}: OK")
+    print(f"  Summary GF={summary_gf:,} R21/R23 GF={r21_gf:,} R28 GF={r28_gf:,} variance={money(summary_gf - r28_gf):,}")
+    print(f"  Summary SEF={summary_sef:,} R21/R23 SEF={r21_sef:,} R28 SEF={r28_sef:,} variance={money(summary_sef - r28_sef):,}")
+    excel_gf, excel_sef = validate_excel_export(exporter, summary_gf, summary_sef, date_from, date_to)
+
+    print(f"  R28 GF detail={sheet_detail_sum(gf_sheet):,} total={r28_gf:,} diff={money(sheet_detail_sum(gf_sheet) - r28_gf):,}")
+    print(f"  R28 SEF detail={sheet_detail_sum(sef_sheet):,} total={r28_sef:,} diff={money(sheet_detail_sum(sef_sheet) - r28_sef):,}")
+    print(f"  R28 Excel GF visible cells={excel_gf:,} diff={money(excel_gf - summary_gf):,}")
+    print(f"  R28 Excel SEF visible cells={excel_sef:,} diff={money(excel_sef - summary_sef):,}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Validate RPT share reconciliation invariants.")
+    parser.add_argument("--period", action="append", help="YYYY-MM-DD:YYYY-MM-DD. Can be repeated.")
+    args = parser.parse_args()
+
+    load_firebird_env()
+    module = load_preview_module()
+    exporter = load_exporter_module()
+    validate_tie_case(module)
+    periods = args.period or [
+        "2026-01-01:2026-01-31",
+        "2026-02-01:2026-02-28",
+        "2026-03-01:2026-03-31",
+        "2026-04-01:2026-04-30",
+        "2026-05-01:2026-05-31",
+    ]
+    for period in periods:
+        date_from, date_to = period.split(":", 1)
+        validate_period(module, exporter, date_from, date_to)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -3,10 +3,12 @@ import json
 import os
 import sys
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_EVEN, ROUND_HALF_UP
 from pathlib import Path
 
 from firebird_probe import connect
+from manual_rpt_payments_access import default_db_path as manual_rpt_db_path, list_rows as list_manual_rpt_rows
+from payment_deduplication import reportable_payment_filter
 
 APPDATA_SITE = os.environ.get("APPDATA")
 USER_PROFILE = os.environ.get("USERPROFILE") or r"C:\Users\LIFT-LAPTOP"
@@ -79,10 +81,7 @@ NO_RPT_ORDER = [
     "Diving Fee",
 ]
 
-PAID_PAYMENT_SQL = """
-          AND COALESCE(p.VOID_BV, 0) = 0
-          AND COALESCE(TRIM(p.STATUS_CT), '') NOT IN ('CNL', 'CAN', 'CNC', 'CANCEL', 'CANCELLED', 'VOID', 'VOI')
-"""
+PAID_PAYMENT_SQL = reportable_payment_filter("p")
 
 BPLS_TAX_ON_BUSINESS_SOURCES = {
     "Manufacturing",
@@ -205,9 +204,47 @@ def classify_summary_source(itaxtype, source_id, source_ct):
     return None
 
 
-def money_round(value):
+MONEY_QUANT = Decimal("0.01")
+MONEY_ROUNDING = ROUND_HALF_EVEN
+RPT_MONEY_ROUNDING = ROUND_HALF_UP
+
+
+def round_money(value):
     value = value or Decimal("0")
-    return Decimal(value).quantize(Decimal("0.01"))
+    return Decimal(value).quantize(MONEY_QUANT, rounding=MONEY_ROUNDING)
+
+
+def rpt_round_money(value):
+    value = value or Decimal("0")
+    return Decimal(value).quantize(MONEY_QUANT, rounding=RPT_MONEY_ROUNDING)
+
+
+def money_round(value):
+    return round_money(value)
+
+
+RPT_BASIC_PROVINCIAL_RATE = Decimal("0.35")
+RPT_BASIC_MUNICIPAL_RATE = Decimal("0.40")
+RPT_BASIC_BARANGAY_RATE = Decimal("0.25")
+RPT_SEF_PROVINCIAL_RATE = Decimal("0.50")
+RPT_SEF_MUNICIPAL_RATE = Decimal("0.50")
+
+PROVINCIAL_CODING_ROWS = [
+    {"label": "Land Residential", "code": "40102040-101-01-01", "source_row": 12},
+    {"label": "Land Commercial", "code": "40102040-101-01-02", "source_row": 13},
+    {"label": "Land Industrial", "code": "40102040-101-01-03", "source_row": 14},
+    {"label": "Land Machinery", "code": "40102040-101-01-04", "source_row": None},
+    {"label": "Land Agricultural", "code": "40102040-101-01-05", "source_row": 11},
+    {"label": "Land Recreational", "code": "40102040-101-01-06", "source_row": None},
+    {"label": "Land-TIMBER", "code": "", "source_row": None},
+    {"label": "Building Residential", "code": "40102040-101-02-01", "source_row": 23},
+    {"label": "Building Commercial", "code": "40102040-101-02-02", "source_row": 24},
+    {"label": "Building Industrial", "code": "40102040-101-02-03", "source_row": 26},
+    {"label": "Building Machinery", "code": "40102040-101-02-04", "source_row": 22},
+    {"label": "Building Agricultural", "code": "40102040-101-02-05", "source_row": 25},
+    {"label": "Building Recreational", "code": "40102040-101-02-06", "source_row": None},
+]
+
 
 def empty_summary_row(source):
     return {
@@ -329,6 +366,8 @@ def fetch_rpt_buckets(date_from, date_to):
     finally:
         connection.close()
 
+    entries.extend(manual_rpt_bucket_entries(date_from, date_to))
+
     report_year = datetime.strptime(date_from, "%Y-%m-%d").year
     buckets = {}
 
@@ -350,28 +389,43 @@ def fetch_rpt_buckets(date_from, date_to):
     return buckets
 
 
-def rpt_summary_row(label, amount, tax_type):
+def rpt_summary_row(label, amount, tax_type, sharing=None):
     row = empty_summary_row(label)
-    amount = money_round(amount)
-    row["total_collections"] = amount
+    amount = Decimal(amount or Decimal("0"))
+    row["total_collections"] = money_round(amount)
+
+    # RPT shares come from the Summary Report Sharing authority when provided.
+    # This keeps Reports 21, 23, 27, and 28 on one Decimal calculation path.
+    if sharing:
+        for column in (
+            "provincial_general_fund",
+            "provincial_sef",
+            "provincial_total",
+            "municipal_general_fund",
+            "municipal_sef",
+            "municipal_total",
+            "barangay_share",
+        ):
+            row[column] = sharing.get(column, Decimal("0"))
+        return row
 
     if tax_type == "BSC":
-        row["provincial_general_fund"] = money_round(amount * Decimal("0.35"))
+        row["provincial_general_fund"] = money_round(amount * RPT_BASIC_PROVINCIAL_RATE)
         row["provincial_total"] = row["provincial_general_fund"]
-        row["municipal_general_fund"] = money_round(amount * Decimal("0.40"))
+        row["municipal_general_fund"] = money_round(amount * RPT_BASIC_MUNICIPAL_RATE)
         row["municipal_total"] = row["municipal_general_fund"]
         row["barangay_share"] = amount - row["provincial_total"] - row["municipal_total"]
     else:
-        row["provincial_sef"] = money_round(amount * Decimal("0.50"))
+        row["provincial_sef"] = money_round(amount * RPT_SEF_PROVINCIAL_RATE)
         row["provincial_total"] = row["provincial_sef"]
         row["municipal_sef"] = amount - row["provincial_total"]
         row["municipal_total"] = row["municipal_sef"]
 
     return row
 
-
 def fetch_rpt_summary(date_from, date_to):
-    buckets = fetch_rpt_buckets(date_from, date_to)
+    authority = authoritative_rpt_sharing(date_from, date_to)
+    summary = authority["summary"]
     layout = [
         ("Real Property Tax - Basic/Land", None, None),
         ("Current Year", "Land", "BSC"),
@@ -395,96 +449,48 @@ def fetch_rpt_summary(date_from, date_to):
     for label, group, tax_type in layout:
         if group is None:
             rows.append({"source": label, "section": True})
-        else:
-            rows.append(rpt_summary_row(label, buckets.get((group, tax_type, label), Decimal("0")), tax_type))
+            continue
+
+        sharing = summary.get((group, tax_type, label), {})
+        rows.append(rpt_summary_row(label, sharing.get("collection", Decimal("0")), tax_type, sharing))
 
     return rows
 
-
 def fetch_rpt_sharing_summary(date_from, date_to):
-    sql = f"""
-        SELECT
-            pcd.PROPERTYKIND_CT,
-            pcd.CASETYPE_CT,
-            pcd.TAXYEAR,
-            SUM(pcd.AMOUNT) AS AMOUNT
-        FROM PAYMENT p
-        JOIN PAYMENTCLASSDETAIL pcd ON pcd.PAYMENT_ID = p.PAYMENT_ID
-        WHERE p.PAYMENTDATE >= CAST(? AS DATE)
-          AND p.PAYMENTDATE < DATEADD(1 DAY TO CAST(? AS DATE))
-          AND p.PAYGROUP_CT = 'RPT'
-          {PAID_PAYMENT_SQL}
-          AND COALESCE(pcd.CANCELLED_BV, 0) = 0
-          AND pcd.ITAXTYPE_CT = 'BSC'
-        GROUP BY pcd.PROPERTYKIND_CT, pcd.CASETYPE_CT, pcd.TAXYEAR
-    """
-
-    entries = []
-    connection = connect()
-    try:
-        cursor = connection.cursor()
-        cursor.execute(sql, (date_from, date_to))
-        for property_kind, case_type, taxyear, amount in cursor.fetchall():
-            entries.append({
-                "property_group": "Land" if (property_kind or "").strip() == "L" else "Building",
-                "case_type": (case_type or "").strip(),
-                "taxyear": taxyear,
-                "amount": amount or Decimal("0"),
-            })
-        connection.rollback()
-    finally:
-        connection.close()
-
-    report_year = datetime.strptime(date_from, "%Y-%m-%d").year
-    buckets = {
-        "Land": {"Current": Decimal("0"), "Prior": Decimal("0"), "Penalties": Decimal("0")},
-        "Building": {"Current": Decimal("0"), "Prior": Decimal("0"), "Penalties": Decimal("0")},
-    }
-
-    for entry in entries:
-        group = entry["property_group"]
-        amount = entry["amount"]
-        taxyear = entry["taxyear"]
-
-        if taxyear and taxyear > report_year:
-            continue
-
-        if entry["case_type"] == "PEN":
-            buckets[group]["Penalties"] += amount
-        elif entry["case_type"] == "DED":
-            if taxyear == report_year:
-                buckets[group]["Current"] -= abs(amount)
-            else:
-                buckets[group]["Prior"] -= abs(amount)
-        elif taxyear == report_year:
-            buckets[group]["Current"] += amount
-        else:
-            buckets[group]["Prior"] += amount
-
+    authority = authoritative_rpt_sharing(date_from, date_to)
+    summary = authority["summary"]
     rows = []
     grand_total = Decimal("0")
-    for group in ("Land", "Building"):
+
+    for display_group, summary_group in (("Land", "Land"), ("Building", "Bldg.")):
         group_total = Decimal("0")
         for category in ("Current", "Prior", "Penalties"):
-            amount = buckets[group][category]
+            label = "Current Year" if category == "Current" else "Previous Years" if category == "Prior" else "Penalties"
+            data = summary.get((summary_group, "BSC", label), {})
+            amount = data.get("collection", Decimal("0"))
             group_total += amount
             rows.append({
-                "property_group": group,
+                "property_group": display_group,
                 "category": category,
                 "bsc_amount": amount,
-                "provincial_share_35": amount * Decimal("0.35"),
-                "municipal_share_40": amount * Decimal("0.40"),
-                "barangay_share_25": amount * Decimal("0.25"),
+                "provincial_share_35": data.get("provincial_general_fund", Decimal("0")),
+                "municipal_share_40": data.get("municipal_general_fund", Decimal("0")),
+                "barangay_share_25": data.get("barangay_share", Decimal("0")),
             })
 
+        group_shares = {
+            "provincial": sum(summary.get((summary_group, "BSC", label), {}).get("provincial_general_fund", Decimal("0")) for label in ("Current Year", "Previous Years", "Penalties")),
+            "municipal": sum(summary.get((summary_group, "BSC", label), {}).get("municipal_general_fund", Decimal("0")) for label in ("Current Year", "Previous Years", "Penalties")),
+            "barangay": sum(summary.get((summary_group, "BSC", label), {}).get("barangay_share", Decimal("0")) for label in ("Current Year", "Previous Years", "Penalties")),
+        }
         grand_total += group_total
         rows.append({
-            "property_group": group,
+            "property_group": display_group,
             "category": "TOTAL",
             "bsc_amount": group_total,
-            "provincial_share_35": group_total * Decimal("0.35"),
-            "municipal_share_40": group_total * Decimal("0.40"),
-            "barangay_share_25": group_total * Decimal("0.25"),
+            "provincial_share_35": group_shares["provincial"],
+            "municipal_share_40": group_shares["municipal"],
+            "barangay_share_25": group_shares["barangay"],
             "total": True,
         })
 
@@ -492,13 +498,12 @@ def fetch_rpt_sharing_summary(date_from, date_to):
         "property_group": "Land and Building",
         "category": "GRAND TOTAL",
         "bsc_amount": grand_total,
-        "provincial_share_35": grand_total * Decimal("0.35"),
-        "municipal_share_40": grand_total * Decimal("0.40"),
-        "barangay_share_25": grand_total * Decimal("0.25"),
+        "provincial_share_35": authority["totals"]["provincial_gf"],
+        "municipal_share_40": authority["totals"]["municipal_gf"],
+        "barangay_share_25": authority["totals"]["barangay"],
         "grand_total": True,
     })
     return rows
-
 
 def sharing_row_for_classification(property_kind, class_code):
     property_kind = (property_kind or "").strip()
@@ -582,6 +587,9 @@ def fetch_summary_sharing_template_cells(date_from, date_to):
     finally:
         connection.close()
 
+    for cell_key, amount in manual_rpt_sharing_template_values(date_from, date_to).items():
+        values[cell_key] = values.get(cell_key, Decimal("0")) + amount
+
     cells = []
     for row_index in (11, 12, 13, 14, 22, 23, 24, 25, 26):
         for col_index in (3, 4, 5, 6, 7, 10, 11, 12, 13, 14):
@@ -657,6 +665,13 @@ def fetch_full_report_collections(date_from, date_to):
     finally:
         connection.close()
 
+    for row in fetch_manual_rpt_rows(date_from, date_to):
+        if not manual_rpt_row_is_reportable(row):
+            continue
+        payment_date = parse_excel_date(row.get("payment_date"))
+        if payment_date:
+            add_full_daily_amount(daily, payment_date, "rpt", manual_rpt_total(row))
+
     start_date = datetime.strptime(date_from, "%Y-%m-%d").date()
     end_date = datetime.strptime(date_to, "%Y-%m-%d").date()
     rows = []
@@ -690,6 +705,501 @@ def decimal_value(value):
     except Exception:
         return Decimal("0")
 
+
+
+
+def fetch_manual_rpt_rows(date_from, date_to):
+    try:
+        return list_manual_rpt_rows(
+            manual_rpt_db_path(),
+            td_no=None,
+            date_from=date_from,
+            date_to=date_to,
+            limit=50000,
+        )
+    except Exception:
+        return []
+
+
+def manual_rpt_row_is_reportable(row):
+    return bool(row.get("include_in_report", True)) and not bool(row.get("is_cancelled")) and not bool(row.get("is_void"))
+
+
+def manual_rpt_taxyear(row, report_year):
+    text = clean_text(row.get("period_covered") or row.get("taxyear"))
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if len(digits) >= 4:
+        try:
+            return int(digits[:4])
+        except ValueError:
+            pass
+    return report_year
+
+
+def manual_rpt_property_group(row, building_label="Bldg."):
+    kind = clean_text(row.get("property_kind")).upper()
+    if kind.startswith(("B", "IMPROV", "BUILD", "MACH")):
+        return building_label
+    return "Land"
+
+
+def manual_rpt_property_kind_code(row):
+    kind = clean_text(row.get("property_kind")).upper()
+    if kind.startswith("MACH"):
+        return "M"
+    if kind.startswith(("B", "IMPROV", "BUILD")):
+        return "B"
+    return "L"
+
+
+def manual_rpt_class_code(row):
+    text = clean_text(row.get("property_classification")).upper()
+    if text.startswith("A"):
+        return "A"
+    if text.startswith("R"):
+        return "R"
+    if text.startswith("C"):
+        return "C"
+    if text.startswith("S"):
+        return "S"
+    return ""
+
+
+def manual_rpt_total(row):
+    return (
+        decimal_value(row.get("payment_total_amount"))
+        or decimal_value(row.get("total_amount"))
+        or decimal_value(row.get("grand_net_total"))
+        or (
+            decimal_value(row.get("basic_net_total"))
+            + decimal_value(row.get("sef_net_total"))
+        )
+    )
+
+
+def manual_rpt_bucket_entries(date_from, date_to):
+    report_year = datetime.strptime(date_from, "%Y-%m-%d").year
+    entries = []
+    for row in fetch_manual_rpt_rows(date_from, date_to):
+        if not manual_rpt_row_is_reportable(row):
+            continue
+
+        taxyear = manual_rpt_taxyear(row, report_year)
+        group = manual_rpt_property_group(row)
+        basic_current = max(decimal_value(row.get("basic_current_gross")) - decimal_value(row.get("basic_discount")), Decimal("0"))
+        sef_current = max(decimal_value(row.get("sef_current_gross")) - decimal_value(row.get("sef_discount")), Decimal("0"))
+        basic_prior = decimal_value(row.get("basic_prior_years"))
+        sef_prior = decimal_value(row.get("sef_prior_years"))
+        basic_penalty = (
+            decimal_value(row.get("basic_penalty_current_year"))
+            + decimal_value(row.get("basic_penalty_previous_years"))
+            + decimal_value(row.get("basic_penalty_prior_years"))
+        )
+        sef_penalty = (
+            decimal_value(row.get("sef_penalty_current_year"))
+            + decimal_value(row.get("sef_penalty_previous_years"))
+            + decimal_value(row.get("sef_penalty_prior_years"))
+        )
+
+        if basic_current:
+            entries.append({"property_group": group, "tax_type": "BSC", "case_type": "REG", "taxyear": report_year, "amount": basic_current})
+        if basic_prior:
+            entries.append({"property_group": group, "tax_type": "BSC", "case_type": "REG", "taxyear": taxyear if taxyear != report_year else report_year - 1, "amount": basic_prior})
+        if basic_penalty:
+            entries.append({"property_group": group, "tax_type": "BSC", "case_type": "PEN", "taxyear": taxyear, "amount": basic_penalty})
+        if sef_current:
+            entries.append({"property_group": group, "tax_type": "SEF", "case_type": "REG", "taxyear": report_year, "amount": sef_current})
+        if sef_prior:
+            entries.append({"property_group": group, "tax_type": "SEF", "case_type": "REG", "taxyear": taxyear if taxyear != report_year else report_year - 1, "amount": sef_prior})
+        if sef_penalty:
+            entries.append({"property_group": group, "tax_type": "SEF", "case_type": "PEN", "taxyear": taxyear, "amount": sef_penalty})
+    return entries
+
+
+def manual_rpt_sharing_entries(date_from, date_to):
+    entries = []
+    for entry in manual_rpt_bucket_entries(date_from, date_to):
+        if entry.get("tax_type") != "BSC":
+            continue
+        entries.append({
+            "property_group": "Land" if entry.get("property_group") == "Land" else "Building",
+            "case_type": entry.get("case_type"),
+            "taxyear": entry.get("taxyear"),
+            "amount": entry.get("amount") or Decimal("0"),
+        })
+    return entries
+
+
+def add_manual_rpt_template_value(values, row_index, col_index, amount):
+    amount = decimal_value(amount)
+    if amount:
+        values[(row_index, col_index)] = values.get((row_index, col_index), Decimal("0")) + amount
+
+
+def manual_rpt_sharing_template_values(date_from, date_to):
+    report_year = datetime.strptime(date_from, "%Y-%m-%d").year
+    values = {}
+    for row in fetch_manual_rpt_rows(date_from, date_to):
+        if not manual_rpt_row_is_reportable(row):
+            continue
+
+        row_index = sharing_row_for_classification(manual_rpt_property_kind_code(row), manual_rpt_class_code(row))
+        taxyear = manual_rpt_taxyear(row, report_year)
+        basic_penalty_current = decimal_value(row.get("basic_penalty_current_year"))
+        basic_penalty_prior = decimal_value(row.get("basic_penalty_previous_years")) + decimal_value(row.get("basic_penalty_prior_years"))
+        sef_penalty_current = decimal_value(row.get("sef_penalty_current_year"))
+        sef_penalty_prior = decimal_value(row.get("sef_penalty_previous_years")) + decimal_value(row.get("sef_penalty_prior_years"))
+
+        add_manual_rpt_template_value(values, row_index, 3 if taxyear == report_year else 5, row.get("basic_current_gross"))
+        add_manual_rpt_template_value(values, row_index, 4, row.get("basic_discount"))
+        add_manual_rpt_template_value(values, row_index, 5, row.get("basic_prior_years"))
+        add_manual_rpt_template_value(values, row_index, 6, basic_penalty_current)
+        add_manual_rpt_template_value(values, row_index, 7, basic_penalty_prior)
+
+        add_manual_rpt_template_value(values, row_index, 10 if taxyear == report_year else 12, row.get("sef_current_gross"))
+        add_manual_rpt_template_value(values, row_index, 11, row.get("sef_discount"))
+        add_manual_rpt_template_value(values, row_index, 12, row.get("sef_prior_years"))
+        add_manual_rpt_template_value(values, row_index, 13, sef_penalty_current)
+        add_manual_rpt_template_value(values, row_index, 14, sef_penalty_prior)
+    return values
+
+
+
+def authoritative_cell_lookup(cells):
+    return {
+        (int(cell["row"]), int(cell["column"])): Decimal(str(cell.get("value") or "0"))
+        for cell in cells
+    }
+
+
+def sum_cells(lookup, rows, columns):
+    return sum((lookup.get((row_index, column_index), Decimal("0")) for row_index in rows for column_index in columns), Decimal("0"))
+
+
+def source_row_group(row_index):
+    if row_index in (11, 12, 13, 14):
+        return "Land"
+    if row_index in (22, 23, 24, 25, 26):
+        return "Bldg."
+    return None
+
+
+def group_display_name(group):
+    return "Building" if group == "Bldg." else group
+
+
+def combine_share_lines(lines):
+    keys = (
+        "collection",
+        "provincial_general_fund",
+        "provincial_sef",
+        "provincial_total",
+        "municipal_general_fund",
+        "municipal_sef",
+        "municipal_total",
+        "barangay_share",
+        "raw_collection",
+        "raw_provincial_general_fund",
+        "raw_provincial_sef",
+        "raw_provincial_total",
+        "raw_municipal_general_fund",
+        "raw_municipal_sef",
+        "raw_municipal_total",
+        "raw_barangay_share",
+    )
+    return {
+        key: sum((line.get(key, Decimal("0")) for line in lines), Decimal("0"))
+        for key in keys
+    }
+
+
+def authoritative_share_line(collection, tax_type):
+    raw_collection = Decimal(collection or Decimal("0"))
+    collection = rpt_round_money(raw_collection)
+
+    if tax_type == "BSC":
+        raw_provincial = raw_collection * RPT_BASIC_PROVINCIAL_RATE
+        raw_municipal = raw_collection * RPT_BASIC_MUNICIPAL_RATE
+        raw_barangay = raw_collection * RPT_BASIC_BARANGAY_RATE
+        provincial = rpt_round_money(raw_provincial)
+        municipal = rpt_round_money(raw_municipal)
+        barangay = rpt_round_money(raw_barangay)
+        return {
+            "collection": collection,
+            "provincial_general_fund": provincial,
+            "provincial_sef": Decimal("0"),
+            "provincial_total": provincial,
+            "municipal_general_fund": municipal,
+            "municipal_sef": Decimal("0"),
+            "municipal_total": municipal,
+            "barangay_share": barangay,
+            "raw_collection": raw_collection,
+            "raw_provincial_general_fund": raw_provincial,
+            "raw_provincial_sef": Decimal("0"),
+            "raw_provincial_total": raw_provincial,
+            "raw_municipal_general_fund": raw_municipal,
+            "raw_municipal_sef": Decimal("0"),
+            "raw_municipal_total": raw_municipal,
+            "raw_barangay_share": raw_barangay,
+        }
+
+    raw_provincial = raw_collection * RPT_SEF_PROVINCIAL_RATE
+    raw_municipal = raw_collection * RPT_SEF_MUNICIPAL_RATE
+    provincial = rpt_round_money(raw_provincial)
+    municipal = rpt_round_money(raw_municipal)
+    return {
+        "collection": collection,
+        "provincial_general_fund": Decimal("0"),
+        "provincial_sef": provincial,
+        "provincial_total": provincial,
+        "municipal_general_fund": Decimal("0"),
+        "municipal_sef": municipal,
+        "municipal_total": municipal,
+        "barangay_share": Decimal("0"),
+        "raw_collection": raw_collection,
+        "raw_provincial_general_fund": Decimal("0"),
+        "raw_provincial_sef": raw_provincial,
+        "raw_provincial_total": raw_provincial,
+        "raw_municipal_general_fund": Decimal("0"),
+        "raw_municipal_sef": raw_municipal,
+        "raw_municipal_total": raw_municipal,
+        "raw_barangay_share": Decimal("0"),
+    }
+
+
+FIELD_SPECS = {
+    "BSC": {
+        "current": ("Current Year", (3,), (4,)),
+        "prior": ("Previous Years", (5,), ()),
+        "penalty_current": ("Penalties", (6,), ()),
+        "penalty_prior": ("Penalties", (7,), ()),
+    },
+    "SEF": {
+        "current": ("Current Year", (10,), (11,)),
+        "prior": ("Previous Years", (12,), ()),
+        "penalty_current": ("Penalties", (13,), ()),
+        "penalty_prior": ("Penalties", (14,), ()),
+    },
+}
+
+
+def build_authoritative_rpt_sharing_from_cells(cells):
+    lookup = authoritative_cell_lookup(cells)
+    group_rows = {
+        "Land": (11, 12, 13, 14),
+        "Bldg.": (22, 23, 24, 25, 26),
+    }
+    row_field_summary = {}
+    field_summary = {}
+    summary = {}
+
+    for group, rows in group_rows.items():
+        for tax_type, fields in FIELD_SPECS.items():
+            for field, (_label, add_columns, subtract_columns) in fields.items():
+                row_lines = []
+                for row_index in rows:
+                    collection = sum_cells(lookup, (row_index,), add_columns) - sum_cells(lookup, (row_index,), subtract_columns)
+                    line = authoritative_share_line(collection, tax_type)
+                    row_field_summary[(row_index, tax_type, field)] = line
+                    row_lines.append(line)
+                field_summary[(group, tax_type, field)] = combine_share_lines(row_lines)
+
+            summary[(group, tax_type, "Current Year")] = field_summary[(group, tax_type, "current")]
+            summary[(group, tax_type, "Previous Years")] = field_summary[(group, tax_type, "prior")]
+            summary[(group, tax_type, "Penalties")] = combine_share_lines([
+                field_summary[(group, tax_type, "penalty_current")],
+                field_summary[(group, tax_type, "penalty_prior")],
+            ])
+
+    return {
+        "template_cells": cells,
+        "summary": summary,
+        "field_summary": field_summary,
+        "row_field_summary": row_field_summary,
+        "totals": {
+            "provincial_gf": sum((data["provincial_general_fund"] for (group, tax_type, label), data in summary.items() if tax_type == "BSC"), Decimal("0")),
+            "provincial_sef": sum((data["provincial_sef"] for (group, tax_type, label), data in summary.items() if tax_type == "SEF"), Decimal("0")),
+            "municipal_gf": sum((data["municipal_general_fund"] for (group, tax_type, label), data in summary.items() if tax_type == "BSC"), Decimal("0")),
+            "municipal_sef": sum((data["municipal_sef"] for (group, tax_type, label), data in summary.items() if tax_type == "SEF"), Decimal("0")),
+            "barangay": sum((data["barangay_share"] for (group, tax_type, label), data in summary.items() if tax_type == "BSC"), Decimal("0")),
+        },
+    }
+
+
+def authoritative_rpt_sharing(date_from, date_to):
+    return build_authoritative_rpt_sharing_from_cells(fetch_summary_sharing_template_cells(date_from, date_to))
+
+
+def allocation_remainder(raw_value, displayed_value):
+    return raw_value - displayed_value
+
+
+def allocate_display_amounts(raw_values, authoritative_total):
+    displayed = {key: round_money(value) for key, value in raw_values.items()}
+    residual = round_money(authoritative_total - sum(displayed.values(), Decimal("0")))
+    centavos = int((residual / MONEY_QUANT).to_integral_value())
+    if centavos == 0:
+        return displayed
+
+    candidates = [
+        key for key, value in raw_values.items()
+        if value != 0 or displayed.get(key, Decimal("0")) != 0
+    ] or list(raw_values.keys())
+
+    if centavos > 0:
+        ordered = sorted(candidates, key=lambda key: (allocation_remainder(raw_values[key], displayed[key]), str(key)), reverse=True)
+        step = MONEY_QUANT
+    else:
+        ordered = sorted(candidates, key=lambda key: (allocation_remainder(raw_values[key], displayed[key]), str(key)))
+        step = -MONEY_QUANT
+
+    for index in range(abs(centavos)):
+        key = ordered[index % len(ordered)]
+        displayed[key] += step
+
+    return displayed
+
+
+def raw_coding_amount(lookup, source_row, field, is_gf):
+    if not source_row:
+        return Decimal("0")
+    columns = FIELD_SPECS["BSC" if is_gf else "SEF"][field]
+    _label, add_columns, subtract_columns = columns
+    amount = sum((lookup.get((source_row, column), Decimal("0")) for column in add_columns), Decimal("0"))
+    amount -= sum((lookup.get((source_row, column), Decimal("0")) for column in subtract_columns), Decimal("0"))
+    rate = RPT_BASIC_PROVINCIAL_RATE if is_gf else RPT_SEF_PROVINCIAL_RATE
+    return amount * rate
+
+
+def build_provincial_coding_sheet(authority, sheet_name):
+    is_gf = sheet_name == "GF"
+    tax_type = "BSC" if is_gf else "SEF"
+    share_column = "provincial_general_fund" if is_gf else "provincial_sef"
+    fields = ("current", "prior", "penalty_current", "penalty_prior")
+    allocated_by_field = {field: {} for field in fields}
+
+    for field in fields:
+        for index, item in enumerate(PROVINCIAL_CODING_ROWS):
+            source_row = item["source_row"]
+            line = authority["row_field_summary"].get((source_row, tax_type, field), {})
+            allocated_by_field[field][index] = line.get(share_column, Decimal("0"))
+
+    rows = []
+    totals = {field: Decimal("0") for field in fields}
+    for index, item in enumerate(PROVINCIAL_CODING_ROWS):
+        code = item["code"]
+        penalty_code = code.replace("-101-", "-102-") if code else ""
+        values = {field: allocated_by_field[field][index] for field in fields}
+        for field in fields:
+            totals[field] += values[field]
+        rows.append([
+            item["label"],
+            code,
+            values["current"],
+            code,
+            values["prior"],
+            penalty_code,
+            values["penalty_current"],
+            penalty_code,
+            values["penalty_prior"],
+        ])
+
+    total_remittance = sum(totals.values(), Decimal("0"))
+    return {
+        "fundTitle": "GENERAL FUND" if is_gf else "SEF",
+        "sheet": sheet_name,
+        "rows": rows,
+        "subtotal": ["SUB TOTAL", "", totals["current"], "", totals["prior"], "", totals["penalty_current"], "", totals["penalty_prior"]],
+        "totalRemittance": ["TOTAL REMITTANCE GF" if is_gf else "TOTAL REMITTANCE SEF", "", "", "", "", "", "", "", total_remittance],
+        "total": total_remittance,
+        "bucketTotals": [
+            {
+                "property_group": group_display_name(group),
+                "field": field,
+                "amount": authority["field_summary"][(group, tax_type, field)][share_column],
+            }
+            for group in ("Land", "Bldg.")
+            for field in fields
+        ],
+    }
+
+
+def build_provincial_coding_preview(date_from, date_to):
+    authority = authoritative_rpt_sharing(date_from, date_to)
+    gf_sheet = build_provincial_coding_sheet(authority, "GF")
+    sef_sheet = build_provincial_coding_sheet(authority, "SEF")
+    return {
+        "sheets": [
+            gf_sheet,
+            sef_sheet,
+        ],
+        "totals": {
+            "provincial_gf": gf_sheet["total"],
+            "provincial_sef": sef_sheet["total"],
+        },
+    }
+
+
+def build_provincial_coding_workbook_rows(date_from, date_to):
+    coding = build_provincial_coding_preview(date_from, date_to)
+    rows = [["SHEET", "ROW", "COLUMN", "VALUE"]]
+    for sheet in coding["sheets"]:
+        sheet_name = sheet["sheet"]
+        for target_row, row in enumerate(sheet["rows"], start=9):
+            for target_column, value_index in zip((3, 5, 7, 9), (2, 4, 6, 8)):
+                rows.append([sheet_name, target_row, target_column, row[value_index]])
+    return rows
+
+
+def build_sharing_panel_rows(authority, tax_type):
+    share_columns = (
+        ("provincial_share", "provincial_general_fund" if tax_type == "BSC" else "provincial_sef"),
+        ("municipal_share", "municipal_general_fund" if tax_type == "BSC" else "municipal_sef"),
+    )
+    if tax_type == "BSC":
+        share_columns = share_columns + (("barangay_share", "barangay_share"),)
+
+    rows = []
+    fields = (
+        ("Current", "current"),
+        ("Prior", "prior"),
+        ("Current-Year Penalty", "penalty_current"),
+        ("Prior-Year Penalty", "penalty_prior"),
+    )
+    for display_group, group in (("Land", "Land"), ("Building", "Bldg.")):
+        for label, field in fields:
+            data = authority["field_summary"][(group, tax_type, field)]
+            row = {
+                "property_group": display_group,
+                "category": label,
+                "amount": data["collection"],
+            }
+            for output_key, data_key in share_columns:
+                row[output_key] = data[data_key]
+            rows.append(row)
+
+        total = combine_share_lines([authority["field_summary"][(group, tax_type, field)] for _label, field in fields])
+        row = {
+            "property_group": display_group,
+            "category": "TOTAL",
+            "amount": total["collection"],
+            "total": True,
+        }
+        for output_key, data_key in share_columns:
+            row[output_key] = total[data_key]
+        rows.append(row)
+
+    grand = combine_share_lines(list(authority["field_summary"].values()))
+    row = {
+        "property_group": "Land and Building",
+        "category": "GRAND TOTAL",
+        "amount": sum((data["collection"] for (group, row_tax_type, field), data in authority["field_summary"].items() if row_tax_type == tax_type), Decimal("0")),
+        "grand_total": True,
+    }
+    for output_key, data_key in share_columns:
+        row[output_key] = sum((data[data_key] for (group, row_tax_type, field), data in authority["field_summary"].items() if row_tax_type == tax_type), Decimal("0"))
+    rows.append(row)
+    return rows
 
 def find_business_permit_workbook(pattern):
     matches = sorted(BUSINESS_PERMIT_DIR.glob(pattern))
@@ -861,6 +1371,7 @@ def build_report(number, date_from, date_to):
     elif number == 23:
         rows = fetch_rpt_summary(date_from, date_to)
     elif number == 27:
+        authority = authoritative_rpt_sharing(date_from, date_to)
         rows = fetch_rpt_sharing_summary(date_from, date_to)
         return {
             "ok": True,
@@ -877,9 +1388,14 @@ def build_report(number, date_from, date_to):
                 "barangay_share_25",
             ],
             "rows": rows,
-            "template_cells": fetch_summary_sharing_template_cells(date_from, date_to),
+            "template_cells": authority["template_cells"],
+            "share_panels": {
+                "BSC": build_sharing_panel_rows(authority, "BSC"),
+                "SEF": build_sharing_panel_rows(authority, "SEF"),
+            },
         }
     elif number == 28:
+        authority = authoritative_rpt_sharing(date_from, date_to)
         rows = fetch_rpt_sharing_summary(date_from, date_to)
         return {
             "ok": True,
@@ -896,7 +1412,12 @@ def build_report(number, date_from, date_to):
                 "barangay_share_25",
             ],
             "rows": rows,
-            "template_cells": fetch_summary_sharing_template_cells(date_from, date_to),
+            "template_cells": authority["template_cells"],
+            "share_panels": {
+                "BSC": build_sharing_panel_rows(authority, "BSC"),
+                "SEF": build_sharing_panel_rows(authority, "SEF"),
+            },
+            "provincial_coding": build_provincial_coding_preview(date_from, date_to),
         }
     elif number == 31:
         rows = fetch_full_report_collections(date_from, date_to)

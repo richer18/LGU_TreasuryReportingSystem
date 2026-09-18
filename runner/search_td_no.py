@@ -34,7 +34,17 @@ def search_td_no(cursor, td_no, limit):
             p.PAYMENT_ID,
             CAST(p.PAYMENTDATE AS DATE) AS PAYMENT_DATE,
             TRIM(p.RECEIPTNO) AS RECEIPT_NO,
-            COALESCE(NULLIF(TRIM(p.PAIDBY), ''), '-') AS PAID_BY,
+            COALESCE(
+                (SELECT FIRST 1 NULLIF(TRIM(tp.OWNERNAME), '')
+                 FROM TPACCOUNT ta
+                 JOIN TAXPAYER tp ON tp.LOCAL_TIN = ta.LOCAL_TIN
+                 WHERE ta.TAXTRANS_ID = ra.TAXTRANS_ID
+                   AND ta.TAXYEAR = pcd.TAXYEAR
+                 ORDER BY tp.OWNERNAME),
+                NULLIF(TRIM(p.PAIDBY), ''),
+                '-'
+            ) AS PAID_BY,
+            NULLIF(TRIM(p.PAIDBY), '') AS PAYMENT_PAID_BY,
             COALESCE(NULLIF(TRIM(p.COLLECTOR), ''), NULLIF(TRIM(p.USERID), ''), '-') AS COLLECTOR,
             TRIM(p.RCDNUMBER) AS RCD_NUMBER,
             TRIM(p.STATUS_CT) AS STATUS_CODE,
@@ -55,10 +65,14 @@ def search_td_no(cursor, td_no, limit):
             TRIM(prop.NEWPINNO) AS NEW_PIN,
             TRIM(prop.BARANGAY_CT) AS BARANGAY_CODE,
             COALESCE(NULLIF(TRIM(brgy.DESCRIPTION), ''), TRIM(prop.BARANGAY_CT), '-') AS BARANGAY_NAME,
+            MAX(NULLIF(TRIM(cls.DESCRIPTION), '')) AS PROPERTY_CLASSIFICATION,
+            MAX(NULLIF(TRIM(kind.DESCRIPTION), '')) AS PROPERTY_KIND,
             pcd.TAXYEAR,
             SUM(CASE WHEN pcd.ITAXTYPE_CT = 'BSC' AND pcd.CASETYPE_CT = 'REG' THEN COALESCE(pcd.AMOUNT, 0) ELSE 0 END) AS BASIC_TAX,
+            SUM(CASE WHEN pcd.ITAXTYPE_CT = 'BSC' AND pcd.CASETYPE_CT = 'DED' THEN COALESCE(pcd.AMOUNT, 0) ELSE 0 END) AS BASIC_DISCOUNT_AMOUNT,
             SUM(CASE WHEN pcd.ITAXTYPE_CT = 'BSC' AND pcd.CASETYPE_CT = 'PEN' THEN COALESCE(pcd.AMOUNT, 0) ELSE 0 END) AS BASIC_PENALTY,
             SUM(CASE WHEN pcd.ITAXTYPE_CT = 'SEF' AND pcd.CASETYPE_CT = 'REG' THEN COALESCE(pcd.AMOUNT, 0) ELSE 0 END) AS SEF_TAX,
+            SUM(CASE WHEN pcd.ITAXTYPE_CT = 'SEF' AND pcd.CASETYPE_CT = 'DED' THEN COALESCE(pcd.AMOUNT, 0) ELSE 0 END) AS SEF_DISCOUNT_AMOUNT,
             SUM(CASE WHEN pcd.ITAXTYPE_CT = 'SEF' AND pcd.CASETYPE_CT = 'PEN' THEN COALESCE(pcd.AMOUNT, 0) ELSE 0 END) AS SEF_PENALTY,
             SUM(COALESCE(pcd.AMOUNT, 0)) AS TOTAL_AMOUNT
         FROM PAYMENTCLASSDETAIL pcd
@@ -69,6 +83,10 @@ def search_td_no(cursor, td_no, limit):
                ON brgy.CODE = prop.BARANGAY_CT
               AND brgy.MUNICIPAL_ID = prop.MUNICIPAL_ID
               AND brgy.PROVINCE_CT = prop.PROVINCE_CT
+        LEFT JOIN T_CLASSIFICATION cls
+               ON cls.CODE = COALESCE(pcd.CLASSCODE_CT, ra.PREDOMCLASSCODE_CT)
+        LEFT JOIN T_PROPERTYKIND kind
+               ON kind.CODE = COALESCE(pcd.PROPERTYKIND_CT, prop.PROPERTYKIND_CT)
         WHERE COALESCE(pcd.CANCELLED_BV, 0) = 0
           AND COALESCE(p.VOID_BV, 0) = 0
           AND COALESCE(TRIM(p.STATUS_CT), '') NOT IN ('CAN', 'CNC', 'CNL', 'CANCEL', 'CANCELLED', 'VOID', 'VOI')
@@ -83,7 +101,7 @@ def search_td_no(cursor, td_no, limit):
             p.PAYMENT_ID,
             CAST(p.PAYMENTDATE AS DATE),
             TRIM(p.RECEIPTNO),
-            COALESCE(NULLIF(TRIM(p.PAIDBY), ''), '-'),
+            NULLIF(TRIM(p.PAIDBY), ''),
             COALESCE(NULLIF(TRIM(p.COLLECTOR), ''), NULLIF(TRIM(p.USERID), ''), '-'),
             TRIM(p.RCDNUMBER),
             TRIM(p.STATUS_CT),
@@ -107,6 +125,41 @@ def search_td_no(cursor, td_no, limit):
     for item in result:
         item["collection_status"] = "Paid"
         item["period_covered"] = str(item.get("taxyear") or "")
+        taxyear = int(item.get("taxyear") or 0)
+        pay_year = int(str(item.get("payment_date") or "0000")[:4] or 0)
+        basic_tax = float(item.get("basic_tax") or 0)
+        basic_discount = abs(float(item.get("basic_discount_amount") or 0))
+        basic_penalty = float(item.get("basic_penalty") or 0)
+        sef_tax = float(item.get("sef_tax") or 0)
+        sef_discount = abs(float(item.get("sef_discount_amount") or 0))
+        sef_penalty = float(item.get("sef_penalty") or 0)
+
+        is_current = taxyear and pay_year and taxyear == pay_year
+        is_previous = taxyear and pay_year and taxyear == pay_year - 1
+        item["basic_current_gross"] = basic_tax if is_current else 0
+        item["basic_discount"] = basic_discount
+        item["basic_prior_years"] = 0 if is_current else basic_tax
+        item["basic_penalty_current_year"] = basic_penalty if is_current else 0
+        item["basic_penalty_previous_years"] = basic_penalty if is_previous else 0
+        item["basic_penalty_prior_years"] = 0 if is_current or is_previous else basic_penalty
+        item["basic_gross_total"] = basic_tax + basic_penalty
+        item["basic_net_total"] = max(item["basic_gross_total"] - basic_discount, 0)
+        item["sef_current_gross"] = sef_tax if is_current else 0
+        item["sef_discount"] = sef_discount
+        item["sef_prior_years"] = 0 if is_current else sef_tax
+        item["sef_penalty_current_year"] = sef_penalty if is_current else 0
+        item["sef_penalty_previous_years"] = sef_penalty if is_previous else 0
+        item["sef_penalty_prior_years"] = 0 if is_current or is_previous else sef_penalty
+        item["sef_gross_total"] = sef_tax + sef_penalty
+        item["sef_net_total"] = max(item["sef_gross_total"] - sef_discount, 0)
+        item["grand_gross_total"] = item["basic_gross_total"] + item["sef_gross_total"]
+        item["grand_net_total"] = item["basic_net_total"] + item["sef_net_total"]
+        item["payment_total_amount"] = float(item.get("total_amount") or item["grand_net_total"] or 0)
+        item["share_25_percent"] = round(item["basic_net_total"] * 0.25, 2)
+        item["payment_status_ct"] = item.get("status_code") or "PAID"
+        item["is_cancelled"] = False
+        item["is_void"] = bool(item.get("void_bv") or 0)
+        item["include_in_report"] = not item["is_void"]
     return result
 
 

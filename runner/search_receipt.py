@@ -169,6 +169,19 @@ def write_connection():
         fb_library_name=os.environ.get("FIREBIRD_CLIENT_LIBRARY", DEFAULT_CLIENT_PATH),
     )
 
+def normalize_update_status(value):
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized in {"paid", "not_cancelled", "not-cancelled", "active"}:
+        return {"status_ct": "SAV", "void_bv": 0, "collection_status": "Paid"}
+    if normalized in {"cancelled", "canceled", "cancel"}:
+        return {"status_ct": "CNL", "void_bv": 0, "collection_status": "Cancelled"}
+    if normalized == "void":
+        return {"status_ct": "VOID", "void_bv": 1, "collection_status": "Void"}
+    raise ValueError("collection_status must be Paid, Cancelled, or Void")
+
+
 def update_receipt(args):
     if os.environ.get("FIREBIRD_ALLOW_RECEIPT_UPDATE") != "1":
         return {
@@ -182,15 +195,25 @@ def update_receipt(args):
     if not receipt_no or not collector:
         raise ValueError("assigned_collector and new_receipt_no are required for update")
 
+    status_update = normalize_update_status(getattr(args, "collection_status", None))
+    assignments = ["COLLECTOR = ?", "RECEIPTNO = ?"]
+    params = [collector, receipt_no]
+
+    if status_update:
+        assignments.extend(["STATUS_CT = ?", "VOID_BV = ?"])
+        params.extend([status_update["status_ct"], status_update["void_bv"]])
+
+    params.append(args.payment_id)
+
     connection = write_connection()
     cursor = connection.cursor()
     cursor.execute(
-        """
+        f"""
         UPDATE PAYMENT
-        SET COLLECTOR = ?, RECEIPTNO = ?
+        SET {", ".join(assignments)}
         WHERE PAYMENT_ID = ?
         """,
-        [collector, receipt_no, args.payment_id],
+        params,
     )
     updated_count = cursor.rowcount
     connection.commit()
@@ -202,6 +225,7 @@ def update_receipt(args):
         "payment_id": args.payment_id,
         "assigned_collector": collector,
         "receipt_no": receipt_no,
+        "collection_status": status_update["collection_status"] if status_update else None,
     }
 
 
@@ -220,6 +244,7 @@ def main():
     update_parser.add_argument("--payment-id", required=True)
     update_parser.add_argument("--assigned-collector", required=True)
     update_parser.add_argument("--new-receipt-no", required=True)
+    update_parser.add_argument("--collection-status")
 
     args = parser.parse_args()
     payload = {

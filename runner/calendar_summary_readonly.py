@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from firebird_probe import connect
+from payment_deduplication import reportable_payment_predicate
 
 try:
     import receipt_exceptions_readonly as receipt_exceptions
@@ -91,9 +92,8 @@ def build_days(year, month):
 
 
 def payment_validity_filter():
-    return """
-        COALESCE(p.VOID_BV, 0) = 0
-        AND UPPER(TRIM(COALESCE(p.STATUS_CT, ''))) NOT IN ('VOID', 'VOI', 'CNL', 'CAN', 'CNC', 'CANCEL', 'CANCELLED')
+    return f"""
+        {reportable_payment_predicate("p")}
         AND UPPER(TRIM(COALESCE(st.DESCRIPTION, ''))) NOT LIKE '%CANCEL%'
         AND UPPER(TRIM(COALESCE(st.DESCRIPTION, ''))) NOT LIKE '%VOID%'
     """

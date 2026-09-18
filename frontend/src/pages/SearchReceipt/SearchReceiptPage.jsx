@@ -8,7 +8,9 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  IconButton,
   LinearProgress,
+  MenuItem,
   Paper,
   Table,
   TableBody,
@@ -21,7 +23,7 @@ import {
   Typography,
 } from '@mui/material'
 import { Eye, Pencil, ReceiptText, Search, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import axiosInstance from '../../axiosinstance/axiosInstance'
 import { formatMoney } from '../GeneralFund/utils/generalFundFormat'
 
@@ -59,6 +61,29 @@ const formatDate = (dateValue) => {
   }).format(date)
 }
 
+const receiptStatusOptions = [
+  { value: 'Paid', label: 'Paid / Not Cancelled' },
+  { value: 'Cancelled', label: 'Cancelled' },
+  { value: 'Void', label: 'Void' },
+]
+
+const collectorDefaults = [
+  { label: 'FLORA MY', value: 'flora' },
+  { label: 'IRIS', value: 'angelique' },
+  { label: 'AGNES', value: 'agnes' },
+  { label: 'RICARDO', value: 'ricardo' },
+  { label: 'EMILY E. CREDO', value: 'emily' },
+  { label: 'AMABELLA', value: 'amabella' },
+  { label: 'GTZ', value: 'gtz' },
+]
+
+const collectorOptionKey = (value) => String(value || '').trim().toLowerCase()
+
+const collectorOptionLabel = (value) => {
+  const clean = String(value || '').trim()
+  return clean ? clean.toUpperCase() : ''
+}
+
 const statusColor = (status) => {
   const normalized = String(status || '').toLowerCase()
   if (normalized === 'paid') return 'success'
@@ -73,23 +98,34 @@ function DialogHeader({ onClose, subtitle, title }) {
       sx={{
         background: 'linear-gradient(135deg, #0f172a, #1e3a5f)',
         color: '#ffffff',
+        position: 'relative',
+        pr: 7,
         px: 3,
         py: 2,
       }}
     >
-      <Box alignItems="center" display="flex" justifyContent="space-between">
-        <Box>
-          <Typography fontWeight={900} variant="h6">{title}</Typography>
-          <Typography fontSize={13} sx={{ opacity: 0.84 }}>{subtitle}</Typography>
-        </Box>
-        <Button onClick={onClose} sx={{ color: '#ffffff', minWidth: 40 }}>
-          <X size={20} />
-        </Button>
+      <Box>
+        <Typography fontWeight={900} variant="h6">{title}</Typography>
+        <Typography fontSize={13} sx={{ opacity: 0.84 }}>{subtitle}</Typography>
       </Box>
+      <IconButton
+        aria-label="Close dialog"
+        onClick={onClose}
+        size="small"
+        sx={{
+          bgcolor: 'rgba(255,255,255,0.12)',
+          color: '#ffffff',
+          position: 'absolute',
+          right: 18,
+          top: 18,
+          '&:hover': { bgcolor: 'rgba(255,255,255,0.22)' },
+        }}
+      >
+        <X size={18} />
+      </IconButton>
     </DialogTitle>
   )
 }
-
 function DetailBox({ label, value }) {
   return (
     <Paper sx={{ borderRadius: 2, p: 1.5 }} variant="outlined">
@@ -109,7 +145,8 @@ export function SearchReceiptPage({ user }) {
   const [selectedReceipt, setSelectedReceipt] = useState(null)
   const [detail, setDetail] = useState(null)
   const [activeDialog, setActiveDialog] = useState('')
-  const [editForm, setEditForm] = useState({ assigned_collector: '', receipt_no: '' })
+  const [editForm, setEditForm] = useState({ assigned_collector: '', receipt_no: '', collection_status: 'Paid' })
+  const [collectorRows, setCollectorRows] = useState([])
   const [status, setStatus] = useState('idle')
   const [detailLoading, setDetailLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -122,7 +159,56 @@ export function SearchReceiptPage({ user }) {
     () => rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
     [page, rows, rowsPerPage],
   )
+
+  const collectorOptions = useMemo(() => {
+    const options = new Map()
+
+    collectorDefaults.forEach((option) => options.set(collectorOptionKey(option.value), option))
+    collectorRows.forEach((row) => {
+      const value = String(row.collector || row.cashier || row.value || '').trim()
+      if (!value) return
+
+      const key = collectorOptionKey(value)
+      if (options.has(key)) return
+
+      options.set(key, {
+        label: collectorOptionLabel(value),
+        value,
+      })
+    })
+
+    if (editForm.assigned_collector) {
+      const currentValue = String(editForm.assigned_collector).trim()
+      const currentKey = collectorOptionKey(currentValue)
+      if (currentValue && !options.has(currentKey)) {
+        options.set(currentKey, {
+          label: collectorOptionLabel(currentValue),
+          value: currentValue,
+        })
+      }
+    }
+
+    return Array.from(options.values())
+  }, [collectorRows, editForm.assigned_collector])
+
+  useEffect(() => {
+    let isMounted = true
+
+    axiosInstance.get('/general-fund/collectors', { params: { limit: 200 } })
+      .then((response) => {
+        if (isMounted) setCollectorRows(response.data.data || [])
+      })
+      .catch(() => {
+        if (isMounted) setCollectorRows([])
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
   const canEditReceipts = user?.permissions?.includes('search_receipts.edit')
+  const canManageReceiptStatus = String(user?.role || '').toLowerCase() === 'admin'
 
   const searchReceipts = async (event) => {
     event.preventDefault()
@@ -166,6 +252,7 @@ export function SearchReceiptPage({ user }) {
     setEditForm({
       assigned_collector: row.assigned_collector || '',
       receipt_no: row.receipt_no || '',
+      collection_status: row.collection_status || 'Paid',
     })
 
     try {
@@ -198,7 +285,16 @@ export function SearchReceiptPage({ user }) {
     setSaveMessage('')
 
     try {
-      const response = await axiosInstance.patch(`/search-receipts/${encodeURIComponent(selectedReceipt.payment_id)}`, editForm)
+      const payload = {
+        assigned_collector: editForm.assigned_collector,
+        receipt_no: editForm.receipt_no,
+      }
+
+      if (canManageReceiptStatus) {
+        payload.collection_status = editForm.collection_status
+      }
+
+      const response = await axiosInstance.patch(`/search-receipts/${encodeURIComponent(selectedReceipt.payment_id)}`, payload)
       const data = response.data.data
 
       if (data?.updated) {
@@ -206,7 +302,7 @@ export function SearchReceiptPage({ user }) {
         setRows((current) =>
           current.map((row) =>
             row.payment_id === selectedReceipt.payment_id
-              ? { ...row, assigned_collector: editForm.assigned_collector, receipt_no: editForm.receipt_no }
+              ? { ...row, assigned_collector: editForm.assigned_collector, receipt_no: editForm.receipt_no, collection_status: canManageReceiptStatus ? (data.collection_status || editForm.collection_status || row.collection_status) : row.collection_status }
               : row,
           ),
         )
@@ -406,41 +502,80 @@ export function SearchReceiptPage({ user }) {
 
       <Dialog
         fullWidth
-        maxWidth={false}
+        maxWidth="md"
         onClose={closeDialog}
         open={activeDialog === 'update'}
-        PaperProps={{ sx: { borderRadius: 3, maxWidth: 720, overflow: 'hidden', width: 'calc(100vw - 32px)' } }}
+        PaperProps={{ sx: { borderRadius: 3, maxWidth: 860, overflow: 'hidden', width: '100%' } }}
       >
         <DialogHeader onClose={closeDialog} subtitle="Restricted fields only" title="Update Receipt" />
-        <DialogContent sx={{ backgroundColor: '#f4f7fb', p: 2.5 }}>
+        <DialogContent sx={{ backgroundColor: '#f4f7fb', p: 3 }}>
           {detailLoading && <LinearProgress />}
           {selectedReceipt && (
-            <Box display="grid" gap={2}>
-              <Alert severity="info">
-                Only Assigned Collector and OR Receipt No. are exposed in this form.
+            <Box display="grid" gap={2.25}>
+              <Alert severity="info" sx={{ alignItems: 'center', borderRadius: 2 }}>
+                Only restricted receipt maintenance fields are exposed in this form. Status changes are admin-only.
               </Alert>
-              {saveMessage && <Alert severity={saveMessage.includes('disabled') ? 'warning' : 'success'}>{saveMessage}</Alert>}
-              {error && <Alert severity="warning">{error}</Alert>}
-              <TextField
-                label="Assigned Collector"
-                onChange={(event) => setEditForm((current) => ({ ...current, assigned_collector: event.target.value }))}
-                size="small"
-                value={editForm.assigned_collector}
-              />
-              <TextField
-                label="OR Receipt No."
-                onChange={(event) => setEditForm((current) => ({ ...current, receipt_no: event.target.value }))}
-                size="small"
-                value={editForm.receipt_no}
-              />
+              {saveMessage && <Alert severity={saveMessage.includes('disabled') ? 'warning' : 'success'} sx={{ borderRadius: 2 }}>{saveMessage}</Alert>}
+              {error && <Alert severity="warning" sx={{ borderRadius: 2 }}>{error}</Alert>}
+              <Box
+                sx={{
+                  bgcolor: '#ffffff',
+                  border: '1px solid #d8e2f0',
+                  borderRadius: 2.5,
+                  display: 'grid',
+                  gap: 2,
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    sm: canManageReceiptStatus ? '1.5fr 1fr' : '1.5fr 1fr',
+                    md: canManageReceiptStatus ? 'minmax(320px, 1.7fr) minmax(190px, 1fr) minmax(190px, 0.9fr)' : 'minmax(320px, 1.6fr) minmax(190px, 1fr)',
+                  },
+                  p: 2.5,
+                }}
+              >
+                <TextField
+                  fullWidth
+                  label="Assigned Collector"
+                  sx={{ gridColumn: { xs: '1', sm: canManageReceiptStatus ? 'span 2' : 'auto', md: 'auto' } }}
+                  onChange={(event) => setEditForm((current) => ({ ...current, assigned_collector: event.target.value }))}
+                  select
+                  size="small"
+                  value={editForm.assigned_collector}
+                >
+                  <MenuItem value="">Select collector</MenuItem>
+                  {collectorOptions.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  fullWidth
+                  label="OR Receipt No."
+                  onChange={(event) => setEditForm((current) => ({ ...current, receipt_no: event.target.value }))}
+                  size="small"
+                  value={editForm.receipt_no}
+                />
+                {canManageReceiptStatus && (
+                  <TextField
+                    fullWidth
+                    label="Receipt Status"
+                    onChange={(event) => setEditForm((current) => ({ ...current, collection_status: event.target.value }))}
+                    select
+                    size="small"
+                    value={editForm.collection_status}
+                  >
+                    {receiptStatusOptions.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              </Box>
             </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ backgroundColor: '#f4f7fb', px: 2.5, pb: 2.5 }}>
+        <DialogActions sx={{ backgroundColor: '#ffffff', borderTop: '1px solid #d8e2f0', gap: 1, px: 3, py: 2 }}>
+          <Button onClick={closeDialog} variant="outlined">Close</Button>
           <Button disabled={saving} onClick={saveReceiptUpdate} variant="contained">
             {saving ? 'Saving...' : 'Save Changes'}
           </Button>
-          <Button onClick={closeDialog} variant="outlined">Close</Button>
         </DialogActions>
       </Dialog>
     </div>

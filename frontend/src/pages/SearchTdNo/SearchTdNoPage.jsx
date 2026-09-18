@@ -17,6 +17,14 @@ const fieldValue = (...values) => {
 
 const getTaxYear = (row) => fieldValue(row?.taxyear, row?.tax_year, row?.period_covered)
 
+const getReferenceKey = (row, index = 0) => [
+  row?.source || '',
+  row?.manual_id || row?.payment_id || index,
+  row?.taxtrans_id || '',
+  row?.taxyear || row?.tax_year || row?.period_covered || '',
+  row?.receipt_no || '',
+].join('|')
+
 const asNumber = (value) => Number(String(value ?? '').replace(/,/g, '')) || 0
 
 const getErrorMessage = (error) =>
@@ -36,6 +44,7 @@ export function SearchTdNoPage() {
   const [manualSearchSummary, setManualSearchSummary] = useState(null)
   const [manualSearchStatus, setManualSearchStatus] = useState('idle')
   const [manualSearchError, setManualSearchError] = useState('')
+  const [selectedManualReferenceKey, setSelectedManualReferenceKey] = useState('')
   const [manualForm, setManualForm] = useState({
     payment_date: '',
     declared_owner: '',
@@ -119,27 +128,50 @@ export function SearchTdNoPage() {
 
   const buildManualForm = (referenceRow = null) => {
     const today = new Date().toISOString().slice(0, 10)
+    const row = referenceRow || {}
     return {
       payment_date: today,
-      declared_owner: referenceRow?.declared_owner || referenceRow?.taxpayer_name || '',
+      declared_owner: row.declared_owner || row.taxpayer_name || '',
       paid_by: '',
       receipt_no: '',
-      tax_year: referenceRow ? getTaxYear(referenceRow) : '',
-      basic_tax: '',
-      basic_penalty: '',
-      sef_tax: '',
-      sef_penalty: '',
-      total_amount: '',
-      collector: referenceRow?.collector || '',
-      pin: referenceRow?.new_pin || referenceRow?.pin || referenceRow?.property_index_number || '',
-      td_arp_no: referenceRow?.td_no || referenceRow?.td_no_for_gr || '',
-      barangay_name: referenceRow?.barangay_name || referenceRow?.barangay || referenceRow?.barangay_code || '',
-      property_classification: referenceRow?.property_classification || '',
-      property_kind: referenceRow?.property_kind || '',
-      payment_status_ct: referenceRow?.payment_status_ct || 'PAID',
-      include_in_report: true,
+      tax_year: referenceRow ? getTaxYear(row) : '',
+      basic_tax: copyAmount(row, 'basic_tax'),
+      basic_penalty: copyAmount(row, 'basic_penalty'),
+      sef_tax: copyAmount(row, 'sef_tax'),
+      sef_penalty: copyAmount(row, 'sef_penalty'),
+      total_amount: copyAmount(row, 'total_amount'),
+      collector: row.collector || '',
+      pin: row.new_pin || row.pin || row.property_index_number || '',
+      td_arp_no: row.td_no || row.td_no_for_gr || row.td_arp_no || '',
+      barangay_name: row.barangay_name || row.barangay || row.barangay_code || '',
+      basic_current_gross: copyAmount(row, 'basic_current_gross'),
+      basic_discount: copyAmount(row, 'basic_discount'),
+      basic_prior_years: copyAmount(row, 'basic_prior_years'),
+      basic_penalty_current_year: copyAmount(row, 'basic_penalty_current_year'),
+      basic_penalty_previous_years: copyAmount(row, 'basic_penalty_previous_years'),
+      basic_penalty_prior_years: copyAmount(row, 'basic_penalty_prior_years'),
+      basic_gross_total: copyAmount(row, 'basic_gross_total'),
+      basic_net_total: copyAmount(row, 'basic_net_total'),
+      sef_current_gross: copyAmount(row, 'sef_current_gross'),
+      sef_discount: copyAmount(row, 'sef_discount'),
+      sef_prior_years: copyAmount(row, 'sef_prior_years'),
+      sef_penalty_current_year: copyAmount(row, 'sef_penalty_current_year'),
+      sef_penalty_previous_years: copyAmount(row, 'sef_penalty_previous_years'),
+      sef_penalty_prior_years: copyAmount(row, 'sef_penalty_prior_years'),
+      sef_gross_total: copyAmount(row, 'sef_gross_total'),
+      sef_net_total: copyAmount(row, 'sef_net_total'),
+      grand_gross_total: copyAmount(row, 'grand_gross_total'),
+      grand_net_total: copyAmount(row, 'grand_net_total'),
+      share_25_percent: copyAmount(row, 'share_25_percent'),
+      payment_total_amount: copyAmount(row, 'payment_total_amount'),
+      property_classification: row.property_classification || '',
+      property_kind: row.property_kind || '',
+      payment_status_ct: row.payment_status_ct || row.status_code || 'PAID',
+      is_cancelled: Boolean(row.is_cancelled ?? row.cancelled_bv ?? false),
+      include_in_report: row.include_in_report ?? true,
+      is_void: Boolean(row.is_void ?? row.void_bv ?? false),
       rcd_number: '',
-      booking_reference: '',
+      booking_reference: row.booking_reference || row.rcd_number || '',
       remarks: 'Manual payment accepted by office for already-paid TD No.',
     }
   }
@@ -148,18 +180,56 @@ export function SearchTdNoPage() {
     setManualForm(buildManualForm(referenceRow))
   }
 
-  const applyReferenceRow = (referenceRow) => {
+  const copyAmount = (referenceRow, field, fallback = '') => {
+    const value = referenceRow?.[field]
+    return value === undefined || value === null || value === '' ? fallback : value
+  }
+
+  const applyReferenceRow = (referenceRow, index = 0) => {
     if (!referenceRow) return
+    setSelectedManualReferenceKey(getReferenceKey(referenceRow, index))
     setManualForm((current) => ({
       ...current,
+      // Keep payment_date, paid_by, and receipt_no as the new manual payment values.
       declared_owner: referenceRow.declared_owner || referenceRow.taxpayer_name || current.declared_owner,
       tax_year: getTaxYear(referenceRow) === '-' ? current.tax_year : getTaxYear(referenceRow),
+      period_covered: referenceRow.period_covered || getTaxYear(referenceRow) || current.period_covered,
       collector: referenceRow.collector || current.collector,
       pin: referenceRow.new_pin || referenceRow.pin || referenceRow.property_index_number || current.pin,
-      td_arp_no: referenceRow.td_no || referenceRow.td_no_for_gr || current.td_arp_no,
+      td_arp_no: referenceRow.td_no || referenceRow.td_no_for_gr || referenceRow.td_arp_no || current.td_arp_no,
       barangay_name: referenceRow.barangay_name || referenceRow.barangay || referenceRow.barangay_code || current.barangay_name,
+      basic_current_gross: copyAmount(referenceRow, 'basic_current_gross', current.basic_current_gross),
+      basic_discount: copyAmount(referenceRow, 'basic_discount', current.basic_discount),
+      basic_prior_years: copyAmount(referenceRow, 'basic_prior_years', current.basic_prior_years),
+      basic_penalty_current_year: copyAmount(referenceRow, 'basic_penalty_current_year', current.basic_penalty_current_year),
+      basic_penalty_previous_years: copyAmount(referenceRow, 'basic_penalty_previous_years', current.basic_penalty_previous_years),
+      basic_penalty_prior_years: copyAmount(referenceRow, 'basic_penalty_prior_years', current.basic_penalty_prior_years),
+      basic_gross_total: copyAmount(referenceRow, 'basic_gross_total', current.basic_gross_total),
+      basic_net_total: copyAmount(referenceRow, 'basic_net_total', current.basic_net_total),
+      sef_current_gross: copyAmount(referenceRow, 'sef_current_gross', current.sef_current_gross),
+      sef_discount: copyAmount(referenceRow, 'sef_discount', current.sef_discount),
+      sef_prior_years: copyAmount(referenceRow, 'sef_prior_years', current.sef_prior_years),
+      sef_penalty_current_year: copyAmount(referenceRow, 'sef_penalty_current_year', current.sef_penalty_current_year),
+      sef_penalty_previous_years: copyAmount(referenceRow, 'sef_penalty_previous_years', current.sef_penalty_previous_years),
+      sef_penalty_prior_years: copyAmount(referenceRow, 'sef_penalty_prior_years', current.sef_penalty_prior_years),
+      sef_gross_total: copyAmount(referenceRow, 'sef_gross_total', current.sef_gross_total),
+      sef_net_total: copyAmount(referenceRow, 'sef_net_total', current.sef_net_total),
+      grand_gross_total: copyAmount(referenceRow, 'grand_gross_total', current.grand_gross_total),
+      grand_net_total: copyAmount(referenceRow, 'grand_net_total', current.grand_net_total),
+      share_25_percent: copyAmount(referenceRow, 'share_25_percent', current.share_25_percent),
+      payment_total_amount: copyAmount(referenceRow, 'payment_total_amount', current.payment_total_amount),
       property_classification: referenceRow.property_classification || current.property_classification,
       property_kind: referenceRow.property_kind || current.property_kind,
+      payment_status_ct: referenceRow.payment_status_ct || referenceRow.status_code || current.payment_status_ct,
+      is_cancelled: Boolean(referenceRow.is_cancelled ?? referenceRow.cancelled_bv ?? current.is_cancelled),
+      booking_reference: referenceRow.booking_reference || referenceRow.rcd_number || current.booking_reference,
+      is_void: Boolean(referenceRow.is_void ?? referenceRow.void_bv ?? current.is_void),
+      include_in_report: referenceRow.include_in_report ?? current.include_in_report,
+      basic_tax: copyAmount(referenceRow, 'basic_tax', current.basic_tax),
+      basic_penalty: copyAmount(referenceRow, 'basic_penalty', current.basic_penalty),
+      sef_tax: copyAmount(referenceRow, 'sef_tax', current.sef_tax),
+      sef_penalty: copyAmount(referenceRow, 'sef_penalty', current.sef_penalty),
+      total_amount: copyAmount(referenceRow, 'total_amount', current.total_amount),
     }))
   }
 
@@ -168,6 +238,7 @@ export function SearchTdNoPage() {
     setManualSearchTdNo(searchText)
     setManualSearchRows(rows)
     setManualSearchSummary(summary)
+    setSelectedManualReferenceKey(rows[0] ? getReferenceKey(rows[0], 0) : '')
     setManualSearchStatus(rows.length > 0 ? 'success' : 'idle')
     setManualSearchError('')
     setManualMessage('')
@@ -190,19 +261,18 @@ export function SearchTdNoPage() {
     setManualSearchRows([])
     setManualSearchSummary(null)
     try {
-      const response = await axiosInstance.get('/search-td-no', { params: { td_no: searchText, limit: 200 } })
+      const response = await axiosInstance.get('/search-td-no', { params: { td_no: searchText, limit: 200, manual_basis: 1 } })
       const data = response.data.data || []
       setManualSearchRows(data)
       setManualSearchSummary(response.data.summary || null)
+      setManualForm(buildManualForm(data[0] || null))
+      setSelectedManualReferenceKey(data[0] ? getReferenceKey(data[0], 0) : '')
       setTdNo(searchText)
       setRows(data)
       setSummary(response.data.summary || null)
       setStatus('success')
       setError('')
       setManualSearchStatus('success')
-      if (data[0]) {
-        applyReferenceRow(data[0])
-      }
     } catch (requestError) {
       setManualSearchStatus('error')
       setManualSearchError(getErrorMessage(requestError))
@@ -296,7 +366,7 @@ export function SearchTdNoPage() {
                 <span className="dialog-title-icon"><Landmark size={18} aria-hidden="true" /></span>
                 <div>
                   <h2>Manual RPT Payment</h2>
-                  <p>Search the TD No. in iTax, review the property details, then encode the manual payment.</p>
+                  <p>Search the TD No.; saved manual clones appear first, then iTax details. Encode only the new payment fields.</p>
                 </div>
               </div>
               <button aria-label="Close" className="icon-button" onClick={closeManualDialog} type="button"><X size={20} /></button>
@@ -314,13 +384,13 @@ export function SearchTdNoPage() {
                     Search
                   </button>
                 </div>
-                {manualSearchStatus === 'loading' && <div className="inline-info">Searching iTax records...</div>}
+                {manualSearchStatus === 'loading' && <div className="inline-info">Searching manual clone and iTax records...</div>}
                 {manualSearchError && <div className="inline-alert">{manualSearchError}</div>}
                 <p className="eyebrow">TD Reference</p>
                 <h3>{manualSearchTdNo.trim() || tdNo.trim() || '-'}</h3>
                 <dl>
                   <div><dt>Name of the Taxpayer</dt><dd>{fieldValue(latestManualReferenceRow?.declared_owner, latestManualReferenceRow?.taxpayer_name, manualForm.declared_owner)}</dd></div>
-                  <div><dt>Paid By</dt><dd>{fieldValue(latestManualReferenceRow?.paid_by)}</dd></div>
+                  <div><dt>Paid By</dt><dd>{fieldValue(latestManualReferenceRow?.payment_paid_by, latestManualReferenceRow?.paid_by)}</dd></div>
                   <div><dt>O.R. No.</dt><dd>{fieldValue(latestManualReferenceRow?.receipt_no)}</dd></div>
                   <div><dt>Date</dt><dd>{formatDate(latestManualReferenceRow?.payment_date)}</dd></div>
                   <div><dt>Period Covered</dt><dd>{getTaxYear(latestManualReferenceRow)}</dd></div>
@@ -342,7 +412,18 @@ export function SearchTdNoPage() {
                     <span>{manualReferenceRows.length} record(s){manualSearchSummary?.receipt_count ? `, ${manualSearchSummary.receipt_count} receipt(s)` : ''}</span>
                   </div>
                   <div className="table-scroll">
-                    <table className="reports-table compact-table manual-reference-table">
+                    <table className="reports-table manual-reference-table">
+                      <colgroup>
+                        <col className="manual-reference-col-date" />
+                        <col className="manual-reference-col-paid-by" />
+                        <col className="manual-reference-col-taxpayer" />
+                        <col className="manual-reference-col-period" />
+                        <col className="manual-reference-col-pin" />
+                        <col className="manual-reference-col-or" />
+                        <col className="manual-reference-col-td" />
+                        <col className="manual-reference-col-brgy" />
+                        <col className="manual-reference-col-use" />
+                      </colgroup>
                       <thead>
                         <tr>
                           <th>Date</th>
@@ -358,21 +439,25 @@ export function SearchTdNoPage() {
                       </thead>
                       <tbody>
                         {manualReferenceRows.length === 0 && (
-                          <tr><td colSpan="9" className="empty-table-message">Search TD No. to load iTax payment details.</td></tr>
+                          <tr><td colSpan="9" className="empty-table-message">Search TD No. to load saved manual clone and iTax payment details.</td></tr>
                         )}
-                        {manualReferenceRows.map((row, index) => (
-                          <tr key={`${row.payment_id || row.manual_id || index}-${row.taxtrans_id || ''}-${row.taxyear || ''}`}>
+                        {manualReferenceRows.map((row, index) => {
+                          const referenceKey = getReferenceKey(row, index)
+                          const isSelectedReference = referenceKey === selectedManualReferenceKey
+                          return (
+                          <tr className={isSelectedReference ? 'selected-manual-reference-row' : ''} key={`${row.payment_id || row.manual_id || index}-${row.taxtrans_id || ''}-${row.taxyear || ''}`}>
                             <td>{formatDate(row.payment_date)}</td>
-                            <td>{fieldValue(row.paid_by)}</td>
+                            <td>{fieldValue(row.payment_paid_by, row.paid_by)}</td>
                             <td>{fieldValue(row.declared_owner, row.taxpayer_name)}</td>
                             <td>{getTaxYear(row)}</td>
                             <td>{fieldValue(row.new_pin, row.pin, row.property_index_number)}</td>
                             <td><strong>{fieldValue(row.receipt_no)}</strong></td>
                             <td>{fieldValue(row.td_no, row.td_no_for_gr, manualSearchTdNo)}</td>
                             <td>{fieldValue(row.barangay_name, row.barangay, row.barangay_code)}</td>
-                            <td><button className="text-button" type="button" onClick={() => applyReferenceRow(row)}>Use</button></td>
+                            <td><button className="text-button" type="button" onClick={() => applyReferenceRow(row, index)}>{isSelectedReference ? 'Selected basis' : 'Copy TD Data'}</button></td>
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -382,39 +467,39 @@ export function SearchTdNoPage() {
                 <label className="treasury-field"><span>Date Paid</span><input required type="date" value={manualForm.payment_date} onChange={(event) => updateManualForm('payment_date', event.target.value)} /></label>
                 <label className="treasury-field"><span>Paid By</span><input required value={manualForm.paid_by} onChange={(event) => updateManualForm('paid_by', event.target.value)} placeholder="Name of payer/client" /></label>
                 <label className="treasury-field"><span>Collector</span><input required value={manualForm.collector} onChange={(event) => updateManualForm('collector', event.target.value)} placeholder="Collector name" /></label>
-                <label className="treasury-field"><span>Name of the Taxpayer</span><input value={manualForm.declared_owner} onChange={(event) => updateManualForm('declared_owner', event.target.value)} placeholder={latestManualReferenceRow?.declared_owner || 'Taxpayer / declared owner'} /></label>
-                <label className="treasury-field"><span>Period Covered</span><input required value={manualForm.tax_year} onChange={(event) => updateManualForm('tax_year', event.target.value)} placeholder="Tax year or period" /></label>
-                <label className="treasury-field"><span>PIN</span><input value={manualForm.pin || ''} onChange={(event) => updateManualForm('pin', event.target.value)} placeholder="Property Index No." /></label>
-                <label className="treasury-field"><span>TD/ARP No.</span><input value={manualForm.td_arp_no || ''} onChange={(event) => updateManualForm('td_arp_no', event.target.value)} placeholder="TD/ARP No." /></label>
-                <label className="treasury-field"><span>Name of Brgy.</span><input value={manualForm.barangay_name || ''} onChange={(event) => updateManualForm('barangay_name', event.target.value)} placeholder="Barangay" /></label>
-                <label className="treasury-field"><span>Basic Current Gross</span><input min="0" step="0.01" type="number" value={manualForm.basic_current_gross || ''} onChange={(event) => updateManualForm('basic_current_gross', event.target.value)} /></label>
-                <label className="treasury-field"><span>Basic Discount</span><input min="0" step="0.01" type="number" value={manualForm.basic_discount || ''} onChange={(event) => updateManualForm('basic_discount', event.target.value)} /></label>
-                <label className="treasury-field"><span>Basic Prior Years</span><input min="0" step="0.01" type="number" value={manualForm.basic_prior_years || ''} onChange={(event) => updateManualForm('basic_prior_years', event.target.value)} /></label>
-                <label className="treasury-field"><span>Basic Penalty Current</span><input min="0" step="0.01" type="number" value={manualForm.basic_penalty_current_year || ''} onChange={(event) => updateManualForm('basic_penalty_current_year', event.target.value)} /></label>
-                <label className="treasury-field"><span>Basic Penalty Previous</span><input min="0" step="0.01" type="number" value={manualForm.basic_penalty_previous_years || ''} onChange={(event) => updateManualForm('basic_penalty_previous_years', event.target.value)} /></label>
-                <label className="treasury-field"><span>Basic Penalty Prior</span><input min="0" step="0.01" type="number" value={manualForm.basic_penalty_prior_years || ''} onChange={(event) => updateManualForm('basic_penalty_prior_years', event.target.value)} /></label>
-                <label className="treasury-field"><span>SEF Current Gross</span><input min="0" step="0.01" type="number" value={manualForm.sef_current_gross || ''} onChange={(event) => updateManualForm('sef_current_gross', event.target.value)} /></label>
-                <label className="treasury-field"><span>SEF Discount</span><input min="0" step="0.01" type="number" value={manualForm.sef_discount || ''} onChange={(event) => updateManualForm('sef_discount', event.target.value)} /></label>
-                <label className="treasury-field"><span>SEF Prior Years</span><input min="0" step="0.01" type="number" value={manualForm.sef_prior_years || ''} onChange={(event) => updateManualForm('sef_prior_years', event.target.value)} /></label>
-                <label className="treasury-field"><span>SEF Penalty Current</span><input min="0" step="0.01" type="number" value={manualForm.sef_penalty_current_year || ''} onChange={(event) => updateManualForm('sef_penalty_current_year', event.target.value)} /></label>
-                <label className="treasury-field"><span>SEF Penalty Previous</span><input min="0" step="0.01" type="number" value={manualForm.sef_penalty_previous_years || ''} onChange={(event) => updateManualForm('sef_penalty_previous_years', event.target.value)} /></label>
-                <label className="treasury-field"><span>SEF Penalty Prior</span><input min="0" step="0.01" type="number" value={manualForm.sef_penalty_prior_years || ''} onChange={(event) => updateManualForm('sef_penalty_prior_years', event.target.value)} /></label>
-                <label className="treasury-field"><span>Property Classification</span><input value={manualForm.property_classification || ''} onChange={(event) => updateManualForm('property_classification', event.target.value)} /></label>
-                <label className="treasury-field"><span>Property Kind</span><input value={manualForm.property_kind || ''} onChange={(event) => updateManualForm('property_kind', event.target.value)} /></label>
-                <label className="treasury-field"><span>PAYMENT STATUS_CT</span><input value={manualForm.payment_status_ct || ''} onChange={(event) => updateManualForm('payment_status_ct', event.target.value)} /></label>
-                <label className="treasury-field"><span>BOOKINGREFERENCE</span><input value={manualForm.booking_reference || ''} onChange={(event) => updateManualForm('booking_reference', event.target.value)} placeholder="RCD / booking reference" /></label>
-                <label className="treasury-field"><span>Basic</span><input min="0" step="0.01" type="number" value={manualForm.basic_tax} onChange={(event) => updateManualForm('basic_tax', event.target.value)} /></label>
-                <label className="treasury-field"><span>Basic Penalty</span><input min="0" step="0.01" type="number" value={manualForm.basic_penalty} onChange={(event) => updateManualForm('basic_penalty', event.target.value)} /></label>
-                <label className="treasury-field"><span>SEF</span><input min="0" step="0.01" type="number" value={manualForm.sef_tax} onChange={(event) => updateManualForm('sef_tax', event.target.value)} /></label>
-                <label className="treasury-field"><span>SEF Penalty</span><input min="0" step="0.01" type="number" value={manualForm.sef_penalty} onChange={(event) => updateManualForm('sef_penalty', event.target.value)} /></label>
-                <label className="treasury-field"><span>Total Override</span><input min="0" step="0.01" type="number" value={manualForm.total_amount} onChange={(event) => updateManualForm('total_amount', event.target.value)} placeholder={manualComputedTotal ? String(manualComputedTotal.toFixed(2)) : 'Auto total'} /></label>
-                <label className="treasury-field"><span>RCD No.</span><input value={manualForm.rcd_number} onChange={(event) => updateManualForm('rcd_number', event.target.value)} placeholder="Optional RCD No." /></label>
+                <label className="treasury-field manual-source-hidden"><span>Name of the Taxpayer</span><input value={manualForm.declared_owner} onChange={(event) => updateManualForm('declared_owner', event.target.value)} placeholder={latestManualReferenceRow?.declared_owner || 'Taxpayer / declared owner'} /></label>
+                <label className="treasury-field manual-source-hidden"><span>Period Covered</span><input required value={manualForm.tax_year} onChange={(event) => updateManualForm('tax_year', event.target.value)} placeholder="Tax year or period" /></label>
+                <label className="treasury-field manual-source-hidden"><span>PIN</span><input value={manualForm.pin || ''} onChange={(event) => updateManualForm('pin', event.target.value)} placeholder="Property Index No." /></label>
+                <label className="treasury-field manual-source-hidden"><span>TD/ARP No.</span><input value={manualForm.td_arp_no || ''} onChange={(event) => updateManualForm('td_arp_no', event.target.value)} placeholder="TD/ARP No." /></label>
+                <label className="treasury-field manual-source-hidden"><span>Name of Brgy.</span><input value={manualForm.barangay_name || ''} onChange={(event) => updateManualForm('barangay_name', event.target.value)} placeholder="Barangay" /></label>
+                <label className="treasury-field manual-source-hidden"><span>Basic Current Gross</span><input min="0" step="0.01" type="number" value={manualForm.basic_current_gross || ''} onChange={(event) => updateManualForm('basic_current_gross', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>Basic Discount</span><input min="0" step="0.01" type="number" value={manualForm.basic_discount || ''} onChange={(event) => updateManualForm('basic_discount', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>Basic Prior Years</span><input min="0" step="0.01" type="number" value={manualForm.basic_prior_years || ''} onChange={(event) => updateManualForm('basic_prior_years', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>Basic Penalty Current</span><input min="0" step="0.01" type="number" value={manualForm.basic_penalty_current_year || ''} onChange={(event) => updateManualForm('basic_penalty_current_year', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>Basic Penalty Previous</span><input min="0" step="0.01" type="number" value={manualForm.basic_penalty_previous_years || ''} onChange={(event) => updateManualForm('basic_penalty_previous_years', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>Basic Penalty Prior</span><input min="0" step="0.01" type="number" value={manualForm.basic_penalty_prior_years || ''} onChange={(event) => updateManualForm('basic_penalty_prior_years', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>SEF Current Gross</span><input min="0" step="0.01" type="number" value={manualForm.sef_current_gross || ''} onChange={(event) => updateManualForm('sef_current_gross', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>SEF Discount</span><input min="0" step="0.01" type="number" value={manualForm.sef_discount || ''} onChange={(event) => updateManualForm('sef_discount', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>SEF Prior Years</span><input min="0" step="0.01" type="number" value={manualForm.sef_prior_years || ''} onChange={(event) => updateManualForm('sef_prior_years', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>SEF Penalty Current</span><input min="0" step="0.01" type="number" value={manualForm.sef_penalty_current_year || ''} onChange={(event) => updateManualForm('sef_penalty_current_year', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>SEF Penalty Previous</span><input min="0" step="0.01" type="number" value={manualForm.sef_penalty_previous_years || ''} onChange={(event) => updateManualForm('sef_penalty_previous_years', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>SEF Penalty Prior</span><input min="0" step="0.01" type="number" value={manualForm.sef_penalty_prior_years || ''} onChange={(event) => updateManualForm('sef_penalty_prior_years', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>Property Classification</span><input value={manualForm.property_classification || ''} onChange={(event) => updateManualForm('property_classification', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>Property Kind</span><input value={manualForm.property_kind || ''} onChange={(event) => updateManualForm('property_kind', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>PAYMENT STATUS_CT</span><input value={manualForm.payment_status_ct || ''} onChange={(event) => updateManualForm('payment_status_ct', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>BOOKINGREFERENCE</span><input value={manualForm.booking_reference || ''} onChange={(event) => updateManualForm('booking_reference', event.target.value)} placeholder="RCD / booking reference" /></label>
+                <label className="treasury-field manual-source-hidden"><span>Basic</span><input min="0" step="0.01" type="number" value={manualForm.basic_tax} onChange={(event) => updateManualForm('basic_tax', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>Basic Penalty</span><input min="0" step="0.01" type="number" value={manualForm.basic_penalty} onChange={(event) => updateManualForm('basic_penalty', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>SEF</span><input min="0" step="0.01" type="number" value={manualForm.sef_tax} onChange={(event) => updateManualForm('sef_tax', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>SEF Penalty</span><input min="0" step="0.01" type="number" value={manualForm.sef_penalty} onChange={(event) => updateManualForm('sef_penalty', event.target.value)} /></label>
+                <label className="treasury-field manual-source-hidden"><span>Total Override</span><input min="0" step="0.01" type="number" value={manualForm.total_amount} onChange={(event) => updateManualForm('total_amount', event.target.value)} placeholder={manualComputedTotal ? String(manualComputedTotal.toFixed(2)) : 'Auto total'} /></label>
+                <label className="treasury-field manual-source-hidden"><span>RCD No.</span><input value={manualForm.rcd_number} onChange={(event) => updateManualForm('rcd_number', event.target.value)} placeholder="Optional RCD No." /></label>
                 <label className="treasury-field manual-rpt-remarks"><span>Remarks</span><textarea value={manualForm.remarks} onChange={(event) => updateManualForm('remarks', event.target.value)} placeholder="Reason / approval notes" /></label>
               </div>
 
               <footer className="manual-rpt-dialog-actions">
                 <button className="secondary-button" type="button" onClick={closeManualDialog}>Cancel</button>
-                <button className="secondary-button" type="button" onClick={() => resetManualForm(latestManualReferenceRow)}>Use latest iTax details</button>
+                <button className="secondary-button" type="button" onClick={() => resetManualForm(latestManualReferenceRow)}>Use latest TD details</button>
                 <button className="primary-button" disabled={manualStatus === 'saving'} type="submit"><Plus size={16} aria-hidden="true" />Save Manual Payment</button>
               </footer>
             </form>
@@ -453,7 +538,7 @@ export function SearchTdNoPage() {
               )}
               {rows.map((row) => (
                 <tr key={`${row.payment_id || row.manual_id}-${row.taxtrans_id || ''}-${row.taxyear || row.tax_year || ''}`}>
-                  <td><span className={row.source === 'manual' ? 'status-badge warning' : 'status-badge'}>{row.source === 'manual' ? 'Manual' : 'iTax'}</span></td><td>{formatDate(row.payment_date)}</td><td><strong>{row.td_no || row.td_no_for_gr || '-'}</strong></td><td>{row.declared_owner || '-'}</td><td>{row.paid_by || '-'}</td><td><strong>{row.receipt_no || '-'}</strong></td><td>{row.taxyear || row.tax_year || '-'}</td><td>{formatMoney(row.basic_tax || 0)}</td><td>{formatMoney(row.basic_penalty || 0)}</td><td>{formatMoney(row.sef_tax || 0)}</td><td>{formatMoney(row.sef_penalty || 0)}</td><td><strong>{formatMoney(row.total_amount || 0)}</strong></td><td>{row.collector || '-'}</td><td>{row.rcd_number || '-'}</td><td>{row.source === 'manual' ? <button className="text-danger-button" type="button" onClick={() => deleteManualPayment(row.manual_id)}><Trash2 size={14} aria-hidden="true" />Delete</button> : '-'}</td>
+                  <td><span className={row.source === 'manual' ? 'status-badge warning' : 'status-badge'}>{row.source === 'manual' ? 'Manual' : 'iTax'}</span></td><td>{formatDate(row.payment_date)}</td><td><strong>{row.td_no || row.td_no_for_gr || '-'}</strong></td><td>{row.declared_owner || '-'}</td><td>{row.payment_paid_by || row.paid_by || '-'}</td><td><strong>{row.receipt_no || '-'}</strong></td><td>{row.taxyear || row.tax_year || '-'}</td><td>{formatMoney(row.basic_tax || 0)}</td><td>{formatMoney(row.basic_penalty || 0)}</td><td>{formatMoney(row.sef_tax || 0)}</td><td>{formatMoney(row.sef_penalty || 0)}</td><td><strong>{formatMoney(row.total_amount || 0)}</strong></td><td>{row.collector || '-'}</td><td>{row.rcd_number || '-'}</td><td>{row.source === 'manual' ? <button className="text-danger-button" type="button" onClick={() => deleteManualPayment(row.manual_id)}><Trash2 size={14} aria-hidden="true" />Delete</button> : '-'}</td>
                 </tr>
               ))}
             </tbody>

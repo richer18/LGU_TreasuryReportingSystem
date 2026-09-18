@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
+  Building2,
   CalendarDays,
   Info,
   ListChecks,
@@ -46,14 +47,13 @@ const getPeriod = (year) => {
 const findTotalRow = (rows = []) =>
   rows.find((row) => row.total || String(row.source || '').toUpperCase() === 'TOTAL') || {}
 
-const getCollectionTotal = (payload) => Number(findTotalRow(payload?.rows).total_collections || 0)
 const normalizeName = (value) => String(value || '').trim().toLowerCase()
 
-const sourceAmount = (rows, names) => {
+const sourceAmount = (rows, names, field = 'municipal_general_fund') => {
   const lookup = new Set(names.map(normalizeName))
   return (rows || []).reduce((total, row) => (
     lookup.has(normalizeName(row.source))
-      ? total + Number(row.total_collections || 0)
+      ? total + Number(row[field] || 0)
       : total
   ), 0)
 }
@@ -146,6 +146,10 @@ const categoryConfig = [
       'Docking and Mooring Fee',
       'Fishing Permit Fee',
       'Miscellaneous',
+      'Building Permit Fee',
+      'Electrical Permit Fee',
+      'Zoning Fee',
+      'Livestock',
     ]),
   },
   {
@@ -194,12 +198,19 @@ const categoryConfig = [
     target: (rows) => targetAmount(rows, (name) => name === 'REAL PROPERTY TAX'),
     actual: (_rows, context) => rptSharingMunicipalShareAmount(context.rptSharing),
   },
+  {
+    key: 'other_income',
+    label: 'Other Income/Receipts',
+    target: (rows) => targetAmount(rows, (name) => name.startsWith('OTHER INCOME/RECEIPTS')),
+    actual: (rows) => sourceAmount(rows, ['Interest Income']),
+  },
 ]
 
-const statusForRate = (rate, target = 0) => {
+const statusForRate = (rate, target = 0, expectedRate = 100) => {
   if (Number(target || 0) <= 0) return { label: 'No data', tone: 'neutral' }
-  if (rate >= 100) return { label: 'On track', tone: 'good' }
-  if (rate >= 70) return { label: 'Watch', tone: 'warning' }
+  const paceRate = expectedRate > 0 ? (rate / expectedRate) * 100 : rate
+  if (paceRate >= 100) return { label: 'On track', tone: 'good' }
+  if (paceRate >= 70) return { label: 'Watch', tone: 'warning' }
   return { label: 'Needs attention', tone: 'critical' }
 }
 
@@ -231,6 +242,9 @@ export function DashboardPage({ user, connectionClass, connectionLabel, onOpenMe
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+  const [businessPermits, setBusinessPermits] = useState([])
+  const [permitsLoading, setPermitsLoading] = useState(true)
+  const [permitsError, setPermitsError] = useState('')
 
   const period = useMemo(() => getPeriod(year), [year])
 
@@ -263,6 +277,24 @@ export function DashboardPage({ user, connectionClass, connectionLabel, onOpenMe
     loadDashboard(year)
   }, [year])
 
+  const loadBusinessPermits = async () => {
+    setPermitsLoading(true)
+    setPermitsError('')
+    try {
+      const response = await axiosInstance.get('/business-permits/report-data', { params: { limit: 5000 } })
+      setBusinessPermits(response.data.records || [])
+    } catch (requestError) {
+      setBusinessPermits([])
+      setPermitsError(getDashboardError(requestError, 'Unable to load business permit data.'))
+    } finally {
+      setPermitsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadBusinessPermits()
+  }, [])
+
   const refreshDashboardData = async () => {
     const nextPeriod = getPeriod(year)
     setRefreshing(true)
@@ -272,6 +304,7 @@ export function DashboardPage({ user, connectionClass, connectionLabel, onOpenMe
         params: { year, month: nextPeriod.month },
       })
       await loadDashboard(year)
+      await loadBusinessPermits()
     } catch (requestError) {
       setError(getDashboardError(requestError, 'Unable to refresh dashboard cache.'))
     } finally {
@@ -282,8 +315,10 @@ export function DashboardPage({ user, connectionClass, connectionLabel, onOpenMe
   const collectionModel = useMemo(() => {
     const summary = dashboardData.incomeTarget?.summary || {}
     const ytdRow = findTotalRow(dashboardData.ytdCollections?.rows)
-    const monthTotal = getCollectionTotal(dashboardData.monthCollections)
-    const ytdTotal = Number(ytdRow.total_collections || 0)
+    const monthRow = findTotalRow(dashboardData.monthCollections?.rows)
+    const grossYtdTotal = Number(ytdRow.total_collections || 0)
+    const monthTotal = Number(monthRow.municipal_general_fund || 0)
+    const ytdTotal = Number(ytdRow.municipal_general_fund || 0)
     const localTarget = Number(summary.local_sources || 0)
     const targetToDate = localTarget * period.elapsedRatio
     const monthlyTarget = localTarget / 12
@@ -296,6 +331,7 @@ export function DashboardPage({ user, connectionClass, connectionLabel, onOpenMe
     return {
       annualRate,
       expectedRate,
+      grossYtdTotal,
       localTarget,
       monthRate,
       monthTotal,
@@ -357,6 +393,30 @@ export function DashboardPage({ user, connectionClass, connectionLabel, onOpenMe
       .slice(0, 5),
     [dashboardData.recentPayments],
   )
+
+  const businessPermitModel = useMemo(() => {
+    const selectedYear = Number(year)
+    const monthly = Array.from({ length: 12 }, (_, index) => ({ month: index, newCount: 0, renewalCount: 0 }))
+    let newCount = 0
+    let renewalCount = 0
+
+    businessPermits.forEach((record) => {
+      const match = String(record.application_date || '').match(/^(\d{4})-(\d{2})/)
+      if (!match || Number(match[1]) !== selectedYear) return
+      const monthIndex = Number(match[2]) - 1
+      if (monthIndex < 0 || monthIndex > 11) return
+      const type = String(record.application_type || '').trim().toUpperCase()
+      if (type === 'NEW') {
+        newCount += 1
+        monthly[monthIndex].newCount += 1
+      } else if (type === 'RENEWAL' || type === 'RENEW') {
+        renewalCount += 1
+        monthly[monthIndex].renewalCount += 1
+      }
+    })
+
+    return { monthly, newCount, renewalCount, total: newCount + renewalCount }
+  }, [businessPermits, year])
 
   const dataReady = Boolean(dashboardData.ytdCollections && dashboardData.incomeTarget)
   const variancePositive = collectionModel.varianceToDate >= 0
@@ -495,9 +555,12 @@ export function DashboardPage({ user, connectionClass, connectionLabel, onOpenMe
           <section className="revenue-bi-section">
             <SectionHeading title="Revenue details" />
             <div className="revenue-bi-details">
-              <RevenueSourceTable available={dataReady} rows={categoryRows} />
+              <div className="revenue-bi-main-column">
+                <RevenueSourceTable available={dataReady} expectedRate={collectionModel.expectedRate} rows={categoryRows} />
+                <BusinessPermitCard error={permitsError} loading={permitsLoading} model={businessPermitModel} onOpen={() => navigateTo('/business-permits')} year={period.selectedYear} />
+              </div>
               <aside className="revenue-bi-insights" aria-label="Revenue insights">
-                <CollectionMixCard rows={collectionShareRows} total={collectionModel.ytdTotal} />
+                <CollectionMixCard rows={collectionShareRows} total={collectionModel.grossYtdTotal} />
                 <ReconciliationCard onReview={canReviewReconciliation ? () => navigateTo('/aco-dashboard') : null} reconciliation={reconciliation} />
                 <CurrentMonthCard available={Boolean(dashboardData.monthCollections && dashboardData.incomeTarget)} model={collectionModel} monthName={period.monthName} />
                 <DiveTicketCard available={Boolean(dashboardData.diveTickets)} summary={diveTickets} topBuyer={topDiveBuyer} />
@@ -525,6 +588,38 @@ export function DashboardPage({ user, connectionClass, connectionLabel, onOpenMe
 
 function SectionHeading({ title }) {
   return <div className="revenue-bi-section-heading"><h2>{title}</h2></div>
+}
+
+function BusinessPermitCard({ error, loading, model, onOpen, year }) {
+  const hasRecords = model.monthly.some((item) => item.newCount || item.renewalCount)
+  const maxCount = Math.max(...model.monthly.map((item) => item.newCount + item.renewalCount), 1)
+  const monthFormatter = new Intl.DateTimeFormat('en-PH', { month: 'short' })
+
+  return (
+    <article className="revenue-bi-card dashboard-permits-card">
+      <CardHeader action={<button className="dashboard-permits-open" onClick={onOpen} type="button">Open permits</button>} subtitle={`New and renewed business permits recorded for ${year}`} title="Business permit registrations" />
+      {loading ? <div className="dashboard-permits-state">Loading business permit records...</div> : error ? (
+        <div className="dashboard-permits-state error"><AlertCircle size={17} />{error}</div>
+      ) : (
+        <div className="dashboard-permits-content">
+          <div className="dashboard-permits-totals">
+            <div><span className="dashboard-permits-total-icon"><Building2 size={18} /></span><span>Total registered</span><strong>{model.total.toLocaleString()}</strong></div>
+            <div className="new"><span>New</span><strong>{model.newCount.toLocaleString()}</strong><small>{model.total ? formatPercent((model.newCount / model.total) * 100) : '0.0'}% of total</small></div>
+            <div className="renewal"><span>Renewals</span><strong>{model.renewalCount.toLocaleString()}</strong><small>{model.total ? formatPercent((model.renewalCount / model.total) * 100) : '0.0'}% of total</small></div>
+          </div>
+          {!hasRecords ? <EmptyState message={`No new or renewed permits are recorded for ${year}.`} /> : (
+            <div className="dashboard-permits-monthly" role="table" aria-label={`Monthly business permit registrations for ${year}`}>
+              <div className="dashboard-permits-month-head" role="row"><span>Month</span><span>New</span><span>Renewal</span><span>Total</span><span>Monthly volume</span></div>
+              {model.monthly.map((item) => {
+                const total = item.newCount + item.renewalCount
+                return <div className={!total ? 'is-empty' : ''} key={item.month} role="row"><strong>{monthFormatter.format(new Date(year, item.month, 1))}</strong><span>{item.newCount.toLocaleString()}</span><span>{item.renewalCount.toLocaleString()}</span><b>{total.toLocaleString()}</b><span className="dashboard-permits-bar"><i className="new" style={{ '--permit-width': `${(item.newCount / maxCount) * 100}%` }} /><i className="renewal" style={{ '--permit-width': `${(item.renewalCount / maxCount) * 100}%` }} /></span></div>
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </article>
+  )
 }
 
 function StateBanner({ message, tone }) {
@@ -609,7 +704,7 @@ function EmptyState({ message }) {
   return <div className="revenue-bi-empty"><ListChecks size={20} aria-hidden="true" /><span>{message}</span></div>
 }
 
-function RevenueSourceTable({ available, rows }) {
+function RevenueSourceTable({ available, expectedRate, rows }) {
   return (
     <article className="revenue-bi-card revenue-bi-source-card">
       <CardHeader subtitle="Generated collection performance against configured income targets" title="Revenue sources" />
@@ -626,7 +721,7 @@ function RevenueSourceTable({ available, rows }) {
               <span role="columnheader">Trend</span>
             </div>
             {rows.map((row) => {
-              const status = statusForRate(row.rate, row.target)
+              const status = statusForRate(row.rate, row.target, expectedRate)
               return (
                 <div className="revenue-bi-source-row" key={row.key} role="row">
                   <strong role="cell">{row.label}</strong>

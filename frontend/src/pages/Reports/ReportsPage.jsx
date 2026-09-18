@@ -1,6 +1,6 @@
 import { BookOpen, Calendar, Eraser, FileSpreadsheet, FileText, Info, LoaderCircle, Printer, RefreshCw, Trash2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import axiosInstance from '../../axiosinstance/axiosInstance'
 import { getCashierCollectorAssignment } from '../../utils/cashierAssignments'
 import { RealPropertyTaxPaymentCardReport } from './RealPropertyTaxPaymentCardReport'
@@ -387,42 +387,20 @@ const apiSharingCellsToMap = (cells = []) => cells.reduce((lookup, cell) => {
   return lookup
 }, {})
 
-const buildProvincialCodingSheet = (cellMap, sheet) => {
+const formatCodingLine = (row = []) => row.map((value, index) => (
+  [2, 4, 6, 8].includes(index) ? formatAmount(value) : value
+))
+
+const buildProvincialCodingSheet = (sheetData, sheet) => {
   const isGf = sheet === 'GF'
-  const columns = isGf
-    ? { current: 3, discount: 4, prior: 5, penaltyCurrent: 6, penaltyPrior: 7 }
-    : { current: 10, discount: 11, prior: 12, penaltyCurrent: 13, penaltyPrior: 14 }
-  const rate = isGf ? 0.35 : 0.50
   const totalLabel = isGf ? 'TOTAL REMITTANCE GF' : 'TOTAL REMITTANCE SEF'
-  const valueAt = (row, column) => Number(cellMap?.[`${row}:${column}`] || 0)
-  const amountFor = (row, column) => Number(row?.sourceRow ? valueAt(row.sourceRow, column) * rate : 0)
-  const currentFor = (row) => Number(row?.sourceRow ? (valueAt(row.sourceRow, columns.current) - valueAt(row.sourceRow, columns.discount)) * rate : 0)
-  const rows = provincialCodingRows.map((row) => [
-    row.label,
-    row.code,
-    formatAmount(currentFor(row)),
-    row.code,
-    formatAmount(amountFor(row, columns.prior)),
-    row.code ? row.code.replace('-101-', '-102-') : '',
-    formatAmount(amountFor(row, columns.penaltyCurrent)),
-    row.code ? row.code.replace('-101-', '-102-') : '',
-    formatAmount(amountFor(row, columns.penaltyPrior)),
-  ])
-  const subtotal = rows.reduce((totals, row) => {
-    totals.current += Number(String(row[2] || '').replace(/,/g, '')) || 0
-    totals.prior += Number(String(row[4] || '').replace(/,/g, '')) || 0
-    totals.penaltyCurrent += Number(String(row[6] || '').replace(/,/g, '')) || 0
-    totals.penaltyPrior += Number(String(row[8] || '').replace(/,/g, '')) || 0
-    return totals
-  }, { current: 0, prior: 0, penaltyCurrent: 0, penaltyPrior: 0 })
-  const totalRemittance = subtotal.current + subtotal.prior + subtotal.penaltyCurrent + subtotal.penaltyPrior
 
   return {
-    fundTitle: isGf ? 'GENERAL FUND' : 'SEF',
+    fundTitle: sheetData?.fundTitle || (isGf ? 'GENERAL FUND' : 'SEF'),
     headersTop: ['', '', 'CURRENT YEAR', '', 'PRIOR YEAR', '', 'CURRENT YEAR PENALTY', '', 'PRIOR YEAR'],
-    rows,
-    subtotal: ['SUB TOTAL', '', formatAmount(subtotal.current), '', formatAmount(subtotal.prior), '', formatAmount(subtotal.penaltyCurrent), '', formatAmount(subtotal.penaltyPrior)],
-    totalRemittance: [totalLabel, '', '', '', '', '', '', '', formatAmount(totalRemittance)],
+    rows: (sheetData?.rows || provincialCodingRows.map((row) => [row.label, row.code, 0, row.code, 0, row.code ? row.code.replace('-101-', '-102-') : '', 0, row.code ? row.code.replace('-101-', '-102-') : '', 0])).map(formatCodingLine),
+    subtotal: formatCodingLine(sheetData?.subtotal || ['SUB TOTAL', '', 0, '', 0, '', 0, '', 0]),
+    totalRemittance: formatCodingLine(sheetData?.totalRemittance || [totalLabel, '', '', '', '', '', '', '', 0]),
   }
 }
 
@@ -496,11 +474,12 @@ const getTemplateDefinition = (report, period) => {
       meta: [['MONTH:', period.monthName], ['DAY:', ''], ['YEAR:', period.year]],
       rows: report.previewData?.rows?.map(apiSharingRowToTemplateRow) ?? sharingSections,
       cellMap: apiSharingCellsToMap(report.previewData?.template_cells),
+      sharePanels: report.previewData?.share_panels || {},
     }
   }
 
   if (report.number === 28) {
-    const cellMap = apiSharingCellsToMap(report.previewData?.template_cells)
+    const codingSheets = report.previewData?.provincial_coding?.sheets || []
 
     return {
       kind: 'provincial-coding',
@@ -509,8 +488,8 @@ const getTemplateDefinition = (report, period) => {
       municipality: 'Municipality of Zamboanguita',
       periodText: `For the month of ${period.monthName} ${period.year}`,
       sheets: [
-        buildProvincialCodingSheet(cellMap, 'GF'),
-        buildProvincialCodingSheet(cellMap, 'SEF'),
+        buildProvincialCodingSheet(codingSheets.find((sheet) => sheet.sheet === 'GF'), 'GF'),
+        buildProvincialCodingSheet(codingSheets.find((sheet) => sheet.sheet === 'SEF'), 'SEF'),
       ],
     }
   }
@@ -762,74 +741,42 @@ const SharingCollectionPanel = ({ columns, title, template }) => {
   )
 }
 
-const SharingSharePanel = ({ columns, groupTitle, shares, template }) => {
-  const landTotal = sharingCollectionRowsFor(template, sharingLandRows, columns).at(-1)
-  const buildingTotal = sharingCollectionRowsFor(template, sharingBuildingRows, columns).at(-1)
-  const rows = [
-    ['Current', Number(landTotal.current || 0) - Number(landTotal.discount || 0), Number(buildingTotal.current || 0) - Number(buildingTotal.discount || 0)],
-    ['Prior', Number(landTotal.prior || 0), Number(buildingTotal.prior || 0)],
-    ['Penalties', Number(landTotal.penaltyCurrent || 0) + Number(landTotal.penaltyPrior || 0), Number(buildingTotal.penaltyCurrent || 0) + Number(buildingTotal.penaltyPrior || 0)],
-  ]
-  const landGrand = rows.reduce((total, row) => total + row[1], 0)
-  const buildingGrand = rows.reduce((total, row) => total + row[2], 0)
-
-  const shareCells = (amount) => shares.map((share) => formatAmount(amount * share.rate))
-  const shareTotal = (amount) => shares.reduce((total, share) => total + amount * share.rate, 0)
+const SharingSharePanel = ({ groupTitle, panelRows = [], shares }) => {
+  const rowsFor = (propertyGroup) => panelRows.filter((row) => row.property_group === propertyGroup && !row.grand_total)
+  const grandRow = panelRows.find((row) => row.grand_total)
 
   return (
     <section className="sharing-template-panel sharing-share-panel">
       <h2>{groupTitle}</h2>
       <table className="sharing-template-table">
         <tbody>
-          <tr className="sharing-section-row">
-            <th colSpan={2 + shares.length}>LAND SHARING</th>
-          </tr>
-          <tr>
-            <th>Category</th>
-            <th>LAND</th>
-            {shares.map((share) => <th key={`land-${share.label}`}>{share.label}</th>)}
-          </tr>
-          {rows.map(([label, landAmount]) => (
-            <tr key={`${groupTitle}-land-${label}`}>
-              <td>{label}</td>
-              <td>{formatAmount(landAmount)}</td>
-              {shareCells(landAmount).map((value, index) => <td key={`${label}-${index}`}>{value}</td>)}
-            </tr>
+          {['Land', 'Building'].map((propertyGroup) => (
+            <Fragment key={`${groupTitle}-${propertyGroup}`}>
+              <tr className={`sharing-section-row ${propertyGroup === 'Building' ? 'sharing-building-section' : ''}`}>
+                <th colSpan={2 + shares.length}>{propertyGroup.toUpperCase()} SHARING</th>
+              </tr>
+              <tr>
+                <th>Category</th>
+                <th>{propertyGroup.toUpperCase()}</th>
+                {shares.map((share) => <th key={`${propertyGroup}-${share.key}`}>{share.label}</th>)}
+              </tr>
+              {rowsFor(propertyGroup).map((row) => (
+                <tr className={row.total ? 'sharing-total-row' : ''} key={`${groupTitle}-${propertyGroup}-${row.category}`}>
+                  <td>{row.category}</td>
+                  <td>{formatAmount(row.amount)}</td>
+                  {shares.map((share) => <td key={`${row.category}-${share.key}`}>{formatAmount(row[share.key])}</td>)}
+                </tr>
+              ))}
+              <tr className="sharing-spacer-row"><td colSpan={2 + shares.length}></td></tr>
+            </Fragment>
           ))}
-          <tr className="sharing-total-row">
-            <td>TOTAL</td>
-            <td>{formatAmount(landGrand)}</td>
-            {shareCells(landGrand).map((value, index) => <td key={`land-total-${index}`}>{value}</td>)}
-          </tr>
-          <tr className="sharing-total-line">
-            <td>LAND SHARING TOTAL</td>
-            <td colSpan={1 + shares.length}>{formatAmount(shareTotal(landGrand))}</td>
-          </tr>
-          <tr className="sharing-spacer-row"><td colSpan={2 + shares.length}></td></tr>
-          <tr className="sharing-section-row sharing-building-section">
-            <th colSpan={2 + shares.length}>BUILDING SHARING</th>
-          </tr>
-          <tr>
-            <th>Category</th>
-            <th>BUILDING</th>
-            {shares.map((share) => <th key={`building-${share.label}`}>{share.label}</th>)}
-          </tr>
-          {rows.map(([label, , buildingAmount]) => (
-            <tr key={`${groupTitle}-building-${label}`}>
-              <td>{label}</td>
-              <td>{formatAmount(buildingAmount)}</td>
-              {shareCells(buildingAmount).map((value, index) => <td key={`${label}-building-${index}`}>{value}</td>)}
+          {grandRow && (
+            <tr className="sharing-total-line">
+              <td>GRAND SHARING TOTAL</td>
+              <td>{formatAmount(grandRow.amount)}</td>
+              {shares.map((share) => <td key={`grand-${share.key}`}>{formatAmount(grandRow[share.key])}</td>)}
             </tr>
-          ))}
-          <tr className="sharing-total-row">
-            <td>TOTAL</td>
-            <td>{formatAmount(buildingGrand)}</td>
-            {shareCells(buildingGrand).map((value, index) => <td key={`building-total-${index}`}>{value}</td>)}
-          </tr>
-          <tr className="sharing-total-line">
-            <td>BUILDING SHARING TOTAL</td>
-            <td colSpan={1 + shares.length}>{formatAmount(shareTotal(buildingGrand))}</td>
-          </tr>
+          )}
         </tbody>
       </table>
     </section>
@@ -858,23 +805,21 @@ const SharingTemplate = ({ template }) => (
     </div>
     <div className="sharing-report-grid sharing-lower-grid">
       <SharingSharePanel
-        columns={{ current: 3, discount: 4, prior: 5, penaltyCurrent: 6, penaltyPrior: 7 }}
         groupTitle="BSC - SHARING"
+        panelRows={template.sharePanels.BSC || []}
         shares={[
-          { label: "35% Prov'l Share", rate: 0.35 },
-          { label: '40% Mun. Share', rate: 0.40 },
-          { label: '25% Brgy. Share', rate: 0.25 },
+          { label: "35% Prov'l Share", key: 'provincial_share' },
+          { label: '40% Mun. Share', key: 'municipal_share' },
+          { label: '25% Brgy. Share', key: 'barangay_share' },
         ]}
-        template={template}
       />
       <SharingSharePanel
-        columns={{ current: 10, discount: 11, prior: 12, penaltyCurrent: 13, penaltyPrior: 14 }}
         groupTitle="SEF - SHARING"
+        panelRows={template.sharePanels.SEF || []}
         shares={[
-          { label: "50% Prov'l Share", rate: 0.50 },
-          { label: '50% Mun. Share', rate: 0.50 },
+          { label: "50% Prov'l Share", key: 'provincial_share' },
+          { label: '50% Mun. Share', key: 'municipal_share' },
         ]}
-        template={template}
       />
     </div>
   </article>

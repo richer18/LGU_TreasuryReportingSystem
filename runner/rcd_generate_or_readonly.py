@@ -6,6 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from firebird_probe import connect, connection_mode, resolve_db_path, resolve_odbc_dsn
+from payment_deduplication import include_inactive_payment_filter
 
 COLLECTOR_ALIASES = {
     "iris": "angelique",
@@ -240,6 +241,7 @@ def fetch_payments(cursor, fund, collection_date, collector):
         WHERE p.PAYMENTDATE >= CAST(? AS DATE)
           AND p.PAYMENTDATE < DATEADD(1 DAY TO CAST(? AS DATE))
           AND UPPER(COALESCE(NULLIF(TRIM(p.COLLECTOR), ''), TRIM(p.USERID), 'UNSPECIFIED')) = UPPER(?)
+          {include_inactive_payment_filter("p")}
           {fund_sql}
         ORDER BY TRIM(p.AFTYPE), TRIM(p.RECEIPTNO), p.PAYMENT_ID
     """

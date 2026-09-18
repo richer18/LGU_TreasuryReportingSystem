@@ -9,9 +9,24 @@ return [
     'password' => env('FIREBIRD_PASSWORD', ''),
     'charset' => env('FIREBIRD_CHARSET', 'UTF8'),
     'client_library' => env('FIREBIRD_CLIENT_LIBRARY', 'C:\Program Files\Firebird\Firebird_2_5\bin\fbclient.dll'),
-    'python' => is_file('C:\Python313\python.exe')
-        ? 'C:\Python313\python.exe'
-        : (env('PYTHON_BINARY') ?: (is_file('C:\Python314\python.exe') ? 'C:\Python314\python.exe' : 'python')),
+    'python' => (function () {
+        $configured = env('PYTHON_BINARY');
+
+        if ($configured) {
+            $isAbsoluteWindowsPath = preg_match('/^[A-Za-z]:\\\\/', $configured) === 1;
+            if (! $isAbsoluteWindowsPath || is_file($configured)) {
+                return $configured;
+            }
+        }
+
+        foreach (['C:\\Python313\\python.exe', 'C:\\Python314\\python.exe'] as $candidate) {
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return 'python';
+    })(),
     'probe_script' => base_path('../runner/firebird_probe.py'),
     'general_fund_script' => base_path('../runner/general_fund_readonly.py'),
     'general_fund_receipt_pdf_script' => base_path('../runner/general_fund_receipt_pdf.py'),
@@ -19,7 +34,14 @@ return [
     'search_receipt_script' => base_path('../runner/search_receipt.py'),
     'search_td_no_script' => base_path('../runner/search_td_no.py'),
     'manual_rpt_access_script' => base_path('../runner/manual_rpt_payments_access.py'),
-    'manual_rpt_access_db' => env('MANUAL_RPT_ACCESS_DB', base_path('../RPT_MANUAL_PAYMENTS/manual_rpt_payments.accdb')),
+    'manual_rpt_access_db' => env('MANUAL_RPT_ACCESS_DB', database_path('rpt_manual_payments/manual_rpt_payments.accdb')),
+    // Configure the Citation Tickets Access database path here or through CITATION_TICKETS_ACCESS_DB in .env.
+    'citation_tickets_access_script' => base_path('../runner/citation_tickets_access.py'),
+    'citation_tickets_access_db' => env('CITATION_TICKETS_ACCESS_DB', database_path('citation_tickets/Zamboanguita_CitationTickets.accdb')),
+    // Configure the RCI Access database path here or through RCI_ACCESS_DB in .env.
+    'rci_access_script' => base_path('../runner/rci_access.py'),
+    'rci_access_db' => env('RCI_ACCESS_DB', database_path('rci/LGU_RCI.accdb')),
+    'rci_template_path' => env('RCI_TEMPLATE_PATH', 'template/RCI_Template.xlsx'),
     'rcd_access_script' => base_path('../runner/rcd_access_store.py'),
     'rcd_generate_or_script' => base_path('../runner/rcd_generate_or_readonly.py'),
     'income_target_script' => base_path('../runner/income_target_readonly.py'),
